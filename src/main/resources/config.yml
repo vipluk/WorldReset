@@ -1,0 +1,139 @@
+# === WorldReset Configuration ===
+
+# [PL] Wybierz język wiadomości w grze.
+# [EN] Select in-game language.
+language: en # en, pl
+
+# [PL] Nazwa świata, który będzie tworzony i resetowany przez plugin.
+#      WAŻNE: To NIE MOŻE być "world" (domyślny świat serwera)!
+#      Musi to być inna nazwa, np. "game_world", "speedrun", "manhunt".
+# [EN] Name of the custom world to be reset.
+#      IMPORTANT: This MUST NOT be "world" (default server world)!
+#      Use something like "game_world", "speedrun", "manhunt".
+game-world-name: "game_world"
+
+# --- Reset na Śmierć / Death Reset ---
+# [PL] Czy resetować świat automatycznie, gdy ktoś umrze w świecie gry?
+# [EN] Should the world reset automatically when a player dies in the game world?
+reset-on-death: true
+
+# --- Backup ---
+backup:
+  # [PL] Czy robić kopię świata przed jego usunięciem? (true/false)
+  # [EN] Enable automatic backups before deleting the world? (true/false)
+  enabled: true
+
+  # [PL] Folder na backupy światów.
+  # [EN] Directory path to store backups.
+  folder: "WorldReset_BackUps"
+
+  # [PL] Limit kopii zapasowych ("all" = trzymaj wszystkie, np. 5 = trzymaj 5 ostatnich).
+  # [EN] Backup limit ("all" = keep all backups, e.g. 5 = keep the last 5 backups).
+  limit: "all"
+
+# --- Seed (Ziarno) ---
+seed:
+  # [PL] Czy używać stałego seeda przy każdym resecie?
+  #      false = Każdy reset to losowy, inny świat.
+  #      true = Każdy reset to ten sam seed poniżej.
+  # [EN] Use a fixed seed with every reset?
+  #      false = Each reset is a random, different world.
+  #      true = Each reset uses the fixed seed value configured below.
+  use-fixed: false
+
+  # [PL] Wartość stałego seeda (liczba lub tekst).
+  # [EN] Value of the fixed seed (number or text).
+  value: "123456789"
+
+# --- Szablony Światów / World Templates ---
+# [PL] Umożliwia wczytywanie gotowych światów zamiast ich generowania z seeda.
+# [EN] Load pre-made custom world folders instead of generating them from seed.
+template:
+  # [PL] Czy wczytywać szablony światów? (true/false)
+  # [EN] Enable world templates loader? (true/false)
+  enabled: false
+
+  # [PL] Folder z szablonami światów. Wspiera ścieżki relatywne (../../folder) i bezwzględne (np. D:\Templates).
+  # [EN] Directory containing template map folders. Supports relative (../../folder) and absolute paths (e.g. D:\Templates).
+  folder: "WorldReset_Templates"
+
+# --- Filtr Struktur i Biomów / Structure & Biome Filter ---
+# [PL] Plugin wygeneruje świat, znajdzie wybrany cel i PRZENIESIE tam spawn graczy.
+#      Jeśli zostawisz oba pola puste (""), filtr jest wyłączony (spawn losowy).
+#      WAŻNE: Jeśli wpiszesz strukturę oraz biom, plugin poszuka struktury W TYM biomie.
+# [EN] The plugin will generate a world, search for the target, and MOVE the player spawn there.
+#      If both fields are empty (""), the filter is disabled (default spawn).
+#      IMPORTANT: If both structure and biome are set, the plugin searches for the structure INSIDE that biome.
+filter:
+  # [PL] 1. STRUKTURA (Zostaw puste "" aby wyłączyć ten warunek)
+  #      Ogólna nazwa (np. VILLAGE) lub konkretna (np. minecraft:village_plains).
+  #      Popularne opcje: VILLAGE, SHIPWRECK, RUINED_PORTAL, ANCIENT_CITY, MANSION,
+  #      STRONGHOLD, DESERT_PYRAMID, JUNGLE_PYRAMID, PILLAGER_OUTPOST, MINESHAFT, IGLOO,
+  #      SWAMP_HUT, MONUMENT, TRAIL_RUINS, TRIAL_CHAMBERS.
+  # [EN] 1. STRUCTURE (Leave empty "" to disable structure filter)
+  #      General category (e.g. VILLAGE) or specific name (e.g. minecraft:village_plains).
+  #      Popular choices: VILLAGE, SHIPWRECK, RUINED_PORTAL, ANCIENT_CITY, MANSION,
+  #      STRONGHOLD, DESERT_PYRAMID, JUNGLE_PYRAMID, PILLAGER_OUTPOST, MINESHAFT, IGLOO,
+  #      SWAMP_HUT, MONUMENT, TRAIL_RUINS, TRIAL_CHAMBERS.
+  structure: ""
+
+  # [PL] 2. BIOM (Zostaw puste "" aby wyłączyć ten warunek)
+  #      Przykłady: PLAINS, DESERT, BADLANDS, CHERRY_GROVE, MUSHROOM_FIELDS, JUNGLE,
+  #      ICE_SPIKES, SWAMP, SAVANNA, TAIGA, FOREST, PALE_GARDEN.
+  # [EN] 2. BIOME (Leave empty "" to disable biome filter)
+  #      Examples: PLAINS, DESERT, BADLANDS, CHERRY_GROVE, MUSHROOM_FIELDS, JUNGLE,
+  #      ICE_SPIKES, SWAMP, SAVANNA, TAIGA, FOREST, PALE_GARDEN.
+  biome: ""
+
+# [PL] Czy wyświetlać komunikaty o resecie na czacie globalnym? (true/false)
+# [EN] Should the plugin broadcast world reset messages in global chat? (true/false)
+broadcast-messages: true
+
+# --- TIMER (Stoper Speedrunowy) ---
+timer:
+  # [PL] Czy używać i pokazywać stoper w grze? (true/false)
+  # [EN] Enable the speedrun stopwatch system? (true/false)
+  enabled: false
+
+  # [PL] Tryb liczenia czasu stopera:
+  #      RTA (Real-Time Attack) - ignoruje lagi serwera (polecane).
+  #      IGT (In-Game Time) - czas leci w tickach gry (zwalnia przy lagach).
+  # [EN] Time counting mode:
+  #      RTA (Real-Time Attack) - counts real time, ignores server lag (recommended).
+  #      IGT (In-Game Time) - counts game ticks, slows down when server lags.
+  mode: "RTA"
+
+  # [PL] Zasięg stopera (indywidualny lub grupowy):
+  #      GLOBAL - jeden wspólny czas dla wszystkich graczy.
+  #      INDIVIDUAL - każdy gracz ma swój własny, osobny stoper.
+  # [EN] Stopwatch scope (group or individual):
+  #      GLOBAL - one shared stopwatch for everyone on the server.
+  #      INDIVIDUAL - each player runs their own personal timer.
+  scope: "GLOBAL"
+
+  goal:
+    # [PL] Co zatrzymuje stoper?
+    #      Opcje: ENTITY, PORTAL, ADVANCEMENT, BLOCK, ITEM, NONE
+    # [EN] What event automatically stops the timer?
+    #      Options: ENTITY, PORTAL, ADVANCEMENT, BLOCK, ITEM, NONE
+    type: "PORTAL"
+
+    # [PL] Dokładna wartość wybranego celu. Przykłady:
+    #      ENTITY -> minecraft:ender_dragon (zabicie smoka)
+    #      PORTAL -> NETHER, END, OVERWORLD, ANY (wejście do portalu)
+    #      ADVANCEMENT -> story/mine_diamond (zdobycie osiągnięcia)
+    #      BLOCK -> obsidian (zniszczenie bloku obsydianu)
+    #      ITEM -> diamond (zdobycie diamentu do ekwipunku)
+    # [EN] Exact value of the chosen goal. Examples:
+    #      ENTITY -> minecraft:ender_dragon (kill the ender dragon)
+    #      PORTAL -> NETHER, END, OVERWORLD, ANY (enter portal dimension)
+    #      ADVANCEMENT -> story/mine_diamond (complete advancement)
+    #      BLOCK -> obsidian (break obsidian block)
+    #      ITEM -> diamond (obtain diamond in inventory)
+    value: "OVERWORLD"
+
+# --- RADAR / KOMPAS (BossBar) ---
+compass:
+  # [PL] Czy pokazywać radar z pozycją innych graczy na górze ekranu (BossBar)?
+  # [EN] Show players tracker radar ribbon on top of the screen (BossBar)?
+  enabled: false

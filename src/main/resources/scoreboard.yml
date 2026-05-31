@@ -1,0 +1,190 @@
+# === WorldReset Native Minecraft Scoreboard Documentation ===
+# [EN] Available objectives synchronized automatically to Minecraft's vanilla scoreboard:
+# [PL] Dostępne cele (objectives) synchronizowane automatycznie ze scoreboardem Minecrafta:
+
+scoreboard_objectives:
+  # --- Player Statistics & Ranks / Statystyki i Pozycje ---
+  wr_attempts:
+    display_name: "Attempts"
+    description_en: "Total number of speedrun attempts (runs started) by the player."
+    description_pl: "Łączna liczba rozpoczętych biegów (prób) gracza."
+  wr_completions:
+    display_name: "Completions"
+    description_en: "Total number of successful runs completed by the player."
+    description_pl: "Łączna liczba pomyślnie ukończonych biegów gracza."
+  wr_win_ratio:
+    display_name: "Win Ratio (%)"
+    description_en: "Player's win ratio percentage (Completions / Attempts)."
+    description_pl: "Procentowy wskaźnik zwycięstw gracza (Ukończenia / Próby)."
+  wr_top_rank:
+    display_name: "Top Rank"
+    description_en: "Player's leaderboard position (1 to 10 on the server, or 0 if unranked)."
+    description_pl: "Pozycja gracza w rankingu serwera (1 do 10, lub 0 jeśli poza Top 10)."
+
+  # --- Personal Bests / Rekordy Osobiste (PB) ---
+  wr_pb:
+    display_name: "PB (Seconds)"
+    description_en: "Player's Personal Best time in seconds."
+    description_pl: "Rekord życiowy gracza (Personal Best) w sekundach."
+  wr_pb_sec:
+    display_name: "PB (Seconds)"
+    description_en: "Player's Personal Best time in seconds (explicit alias)."
+    description_pl: "Rekord życiowy gracza (Personal Best) w sekundach (alias)."
+  wr_pb_ms:
+    display_name: "PB (Millis)"
+    description_en: "Player's Personal Best time in milliseconds."
+    description_pl: "Rekord życiowy gracza (Personal Best) w milisekundach."
+  wr_pb_min:
+    display_name: "PB (Minutes)"
+    description_en: "Player's Personal Best time in minutes."
+    description_pl: "Rekord życiowy gracza (Personal Best) w minutach."
+  wr_pb_ticks:
+    display_name: "PB (Ticks)"
+    description_en: "Player's Personal Best time in Minecraft game ticks."
+    description_pl: "Rekord życiowy gracza (Personal Best) w tickach gry Minecraft."
+
+  # --- Server Records (Top 1) / Rekordy Serwera ---
+  wr_top1_sec:
+    display_name: "Record (Seconds)"
+    description_en: "Global server record (Top 1) time in seconds."
+    description_pl: "Globalny rekord serwera (Top 1) w sekundach."
+  wr_top1_ms:
+    display_name: "Record (Millis)"
+    description_en: "Global server record (Top 1) time in milliseconds."
+    description_pl: "Globalny rekord serwera (Top 1) w milisekundach."
+  wr_top1_min:
+    display_name: "Record (Minutes)"
+    description_en: "Global server record (Top 1) time in minutes."
+    description_pl: "Globalny rekord serwera (Top 1) w minutach."
+  wr_top1_ticks:
+    display_name: "Record (Ticks)"
+    description_en: "Global server record (Top 1) time in Minecraft game ticks."
+    description_pl: "Globalny rekord serwera (Top 1) w tickach gry Minecraft."
+
+  # --- Last Successful Runs / Ostatnie Ukończenia ---
+  wr_last_sec:
+    display_name: "Last (Seconds)"
+    description_en: "Player's very last successful completion time in seconds."
+    description_pl: "Czas ostatniego udanego ukończenia gracza w sekundach."
+  wr_last_ms:
+    display_name: "Last (Millis)"
+    description_en: "Player's very last successful completion time in milliseconds."
+    description_pl: "Czas ostatniego udanego ukończenia gracza w milisekundach."
+  wr_last_min:
+    display_name: "Last (Minutes)"
+    description_en: "Player's very last successful completion time in minutes."
+    description_pl: "Czas ostatniego udanego ukończenia gracza w minutach."
+  wr_last_ticks:
+    display_name: "Last (Ticks)"
+    description_en: "Player's very last successful completion time in Minecraft game ticks."
+    description_pl: "Czas ostatniego udanego ukończenia gracza w tickach gry Minecraft."
+
+  # --- Active Live Runs / Trwający Bieg ---
+  wr_run_sec:
+    display_name: "Run (Seconds)"
+    description_en: "Player's current active run time in seconds (updates live!)."
+    description_pl: "Bieżący, trwający czas biegu gracza w sekundach (odświeżany na żywo!)."
+  wr_run_ms:
+    display_name: "Run (Millis)"
+    description_en: "Player's current active run time in milliseconds (updates live!)."
+    description_pl: "Bieżący, trwający czas biegu gracza w milisekundach (odświeżany na żywo!)."
+  wr_run_min:
+    display_name: "Run (Minutes)"
+    description_en: "Player's current active run time in minutes (updates live!)."
+    description_pl: "Bieżący, trwający czas biegu gracza w minutach (odświeżany na żywo!)."
+  wr_run_ticks:
+    display_name: "Run (Ticks)"
+    description_en: "Player's current active run time in Minecraft game ticks (updates live!)."
+    description_pl: "Bieżący, trwający czas biegu gracza w tickach gry Minecraft (odświeżany na żywo!)."
+
+  # --- Average Completion / Średni Czas ---
+  wr_avg:
+    display_name: "Avg (Seconds)"
+    description_en: "Player's average completion time in seconds."
+    description_pl: "Średni czas ukończenia gracza w sekundach."
+  wr_avg_sec:
+    display_name: "Avg (Seconds)"
+    description_en: "Player's average completion time in seconds (explicit alias)."
+    description_pl: "Średni czas ukończenia gracza w sekundach (alias)."
+  wr_avg_ms:
+    display_name: "Avg (Millis)"
+    description_en: "Player's average completion time in milliseconds."
+    description_pl: "Średni czas ukończenia gracza w milisekundach."
+  wr_avg_min:
+    display_name: "Avg (Minutes)"
+    description_en: "Player's average completion time in minutes."
+    description_pl: "Średni czas ukończenia gracza w minutach."
+  wr_avg_ticks:
+    display_name: "Avg (Ticks)"
+    description_en: "Player's average completion time in Minecraft game ticks."
+    description_pl: "Średni czas ukończenia gracza w tickach gry Minecraft."
+
+  # --- Total Cumulative Time / Skumulowany Czas ---
+  wr_total_time_ms:
+    display_name: "Total (Millis)"
+    description_en: "Player's cumulative completion time in milliseconds."
+    description_pl: "Łączny skumulowany czas ukończonych biegów gracza w milisekundach."
+  wr_total_time_sec:
+    display_name: "Total (Seconds)"
+    description_en: "Player's cumulative completion time in seconds."
+    description_pl: "Łączny skumulowany czas ukończonych biegów gracza w sekundach."
+  wr_total_time_min:
+    display_name: "Total (Minutes)"
+    description_en: "Player's cumulative completion time in minutes."
+    description_pl: "Łączny skumulowany czas ukończonych biegów gracza w minutach."
+  wr_total_time_ticks:
+    display_name: "Total (Ticks)"
+    description_en: "Player's cumulative completion time in Minecraft game ticks."
+    description_pl: "Łączny skumulowany czas ukończonych biegów gracza w tickach gry Minecraft."
+
+  # --- World & Seed Info / Świat i Ziarno ---
+  wr_seed:
+    display_name: "Seed / Ziarno"
+    description_en: "Lower 32 bits of the current active world seed."
+    description_pl: "Dolne 32 bity ziarna (seed) aktualnie aktywnego świata."
+  wr_world_num:
+    display_name: "World Number / Numer Swiata"
+    description_en: "First number extracted from the custom game world name."
+    description_pl: "Pierwsza wyekstrahowana liczba z nazwy świata gry (nr rundy)."
+  wr_players_active:
+    display_name: "Active Players / Aktywni Gracze"
+    description_en: "Total active players inside the speedrun game world."
+    description_pl: "Liczba aktywnych graczy znajdujących się na świecie gry."
+  wr_death_reset:
+    display_name: "Death Reset / Reset po Smierci"
+    description_en: "Reset-on-death status: 1 = Enabled, 0 = Disabled."
+    description_pl: "Status resetu po śmierci: 1 = Włączony, 0 = Wyłączony."
+  wr_timer_status:
+    display_name: "Timer Status / Status Stopera"
+    description_en: "Stopwatch status: 0 = Paused, 1 = Running, 2 = Finished."
+    description_pl: "Bieżący stan stopera: 0 = Zatrzymany, 1 = Biegnie, 2 = Ukończony."
+  wr_timer_mode:
+    display_name: "Timer Mode / Tryb Stopera"
+    description_en: "Stoper counting mode: 1 = RTA, 2 = IGT."
+    description_pl: "Tryb naliczania czasu: 1 = RTA, 2 = IGT."
+  wr_timer_scope:
+    display_name: "Timer Scope / Zasieg Stopera"
+    description_en: "Stopwatch scope: 1 = GLOBAL, 2 = INDIVIDUAL."
+    description_pl: "Zasięg działania stopera: 1 = GLOBAL, 2 = INDIVIDUAL."
+  wr_player_finished:
+    display_name: "Finished / Ukonczono"
+    description_en: "Status for the player: 1 = Finished, 0 = Running."
+    description_pl: "Status ukończenia biegu gracza: 1 = Ukończył, 0 = Biegnie."
+  wr_goal_type:
+    display_name: "Goal Type / Typ Celu"
+    description_en: "Stopwatch goal category: 0 = NONE, 1 = PORTAL, 2 = ENTITY, 3 = ADVANCEMENT, 4 = BLOCK, 5 = ITEM."
+    description_pl: "Kategoria wyznaczonego celu: 0 = NONE, 1 = PORTAL, 2 = ENTITY, 3 = ADVANCEMENT, 4 = BLOCK, 5 = ITEM."
+  wr_difficulty:
+    display_name: "Difficulty / Trudnosc"
+    description_en: "Current world difficulty: 0 = PEACEFUL, 1 = EASY, 2 = NORMAL, 3 = HARD."
+    description_pl: "Poziom trudności świata: 0 = Pokojowy, 1 = Łatwy, 2 = Normalny, 3 = Trudny."
+  wr_filter_active:
+    display_name: "Filter Active / Filtr Aktywny"
+    description_en: "Active biome/structure filter status: 1 = Active, 0 = Inactive."
+    description_pl: "Status filtra biomów lub struktur: 1 = Aktywny, 0 = Nieaktywny."
+
+# [EN] Vanilla Scoreboard display commands / [PL] Wbudowane komendy wyświetlania:
+display_commands:
+  tab_list: "/scoreboard objectives setdisplay list wr_pb [EN/PL]"
+  below_name: "/scoreboard objectives setdisplay belowName wr_attempts [EN/PL]"
+  sidebar: "/scoreboard objectives setdisplay sidebar wr_completions [EN/PL]"

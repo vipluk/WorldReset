@@ -1,0 +1,169 @@
+# === WorldReset PlaceholderAPI Documentation ===
+# [EN] Available Placeholders for your scoreboard / tab-list / holograms:
+# [PL] Dostępne zmienne dla Twojego scoreboardu / listy TAB / hologramów:
+# Prefixes all start with %worldreset_...%
+
+placeholders:
+  # --- Live Stopwatch / Bieżący Czas ---
+  %worldreset_timer%:
+    description_en: "Current live time of the stopwatch (e.g. 12:34 or 1:02:45)."
+    description_pl: "Bieżący czas stopera (np. 12:34 lub 1:02:45)."
+  %worldreset_timer_ms%:
+    description_en: "Live time including milliseconds (e.g. 12:34.567)."
+    description_pl: "Czas stopera z dokładnością do milisekund (np. 12:34.567)."
+  %worldreset_timer_status%:
+    description_en: "Stopwatch status: Running (green), Paused (red), or Finished (gold)."
+    description_pl: "Status stopera: Biegnie (zielony), Zatrzymany (czerwony) lub Ukończony (złoty)."
+  %worldreset_timer_mode%:
+    description_en: "Counting mode: RTA (Real-Time) or IGT (In-Game Time)."
+    description_pl: "Tryb liczenia czasu: RTA (czas rzeczywisty) lub IGT (czas gry w tickach)."
+  %worldreset_timer_scope%:
+    description_en: "Timer scope: GLOBAL (shared) or INDIVIDUAL (personal)."
+    description_pl: "Zasięg stopera: GLOBAL (wspólny) lub INDIVIDUAL (indywidualny)."
+  %worldreset_timer_raw%:
+    description_en: "Raw time elapsed in milliseconds."
+    description_pl: "Surowy czas stopera wyrażony w milisekundach."
+  %worldreset_goal_type%:
+    description_en: "Goal type that stops the timer (PORTAL, ENTITY, ADVANCEMENT, BLOCK, ITEM, NONE)."
+    description_pl: "Rodzaj wyznaczonego celu (PORTAL, ENTITY, ADVANCEMENT, BLOCK, ITEM, NONE)."
+  %worldreset_goal_value%:
+    description_en: "Exact goal name (e.g. minecraft:ender_dragon or minecraft:obsidian)."
+    description_pl: "Dokładna nazwa wyznaczonego celu (np. minecraft:ender_dragon lub minecraft:obsidian)."
+  %worldreset_player_finished%:
+    description_en: "Status for the player: Finished (green) or Running (red)."
+    description_pl: "Status ukończenia biegu dla gracza: Ukończono (zielony) lub Biegnie (czerwony)."
+  %worldreset_seed%:
+    description_en: "The seed of the current active game world."
+    description_pl: "Ziarno (seed) aktualnie aktywnego świata gry."
+  %worldreset_death_reset%:
+    description_en: "Death reset status: Enabled (red) or Disabled (green)."
+    description_pl: "Status resetu po śmierci: Włączony (czerwony) lub Wyłączony (zielony)."
+  %worldreset_world_name%:
+    description_en: "Name of the current active game world."
+    description_pl: "Nazwa aktualnie aktywnego świata gry."
+  %worldreset_players_active%:
+    description_en: "Number of active players playing inside the speedrun world."
+    description_pl: "Liczba aktywnych graczy znajdujących się na świecie gry."
+  %worldreset_filter_active%:
+    description_en: "Whether any structure or biome spawn filter is active (Yes/No)."
+    description_pl: "Czy jakikolwiek filtr spawnu biomu/struktur jest aktivny (Tak/Nie)."
+  %worldreset_filter_biome%:
+    description_en: "Active biome filter name (or 'None')."
+    description_pl: "Nazwa aktywnego filtra biomu (lub 'Brak')."
+  %worldreset_filter_structure%:
+    description_en: "Active structure filter name (or 'None')."
+    description_pl: "Nazwa aktywnego filtra struktury (lub 'Brak')."
+  %worldreset_difficulty%:
+    description_en: "Current server difficulty name."
+    description_pl: "Nazwa bieżącego poziomu trudności serwera."
+  %worldreset_goal%:
+    description_en: "Formatted description of the current stopwatch goal."
+    description_pl: "Sformatowany, czytelny opis celu aktywnego stopera."
+
+  # --- Personal Bests / Rekordy Osobiste (PB) ---
+  %worldreset_pb%:
+    description_en: "Personal Best formatted time of the player (e.g. 10:15.542 or 'Brak' if none)."
+    description_pl: "Rekord życiowy (Personal Best) gracza, np. 10:15.542 (lub 'Brak')."
+  %worldreset_pb_raw%:
+    description_en: "Personal Best in raw milliseconds (alias for pb_ms)."
+    description_pl: "Rekord życiowy gracza w surowych milisekundach (alias dla pb_ms)."
+  %worldreset_pb_ms%:
+    description_en: "Personal Best in raw milliseconds."
+    description_pl: "Rekord życiowy gracza w milisekundach."
+  %worldreset_pb_sec%:
+    description_en: "Personal Best in raw seconds."
+    description_pl: "Rekord życiowy gracza w sekundach."
+  %worldreset_pb_min%:
+    description_en: "Personal Best in raw minutes."
+    description_pl: "Rekord życiowy gracza w minutach."
+  %worldreset_pb_ticks%:
+    description_en: "Personal Best in raw game ticks."
+    description_pl: "Rekord życiowy gracza w tickach gry."
+  %worldreset_pb_date%:
+    description_en: "Date when the player's Personal Best was set."
+    description_pl: "Data ustanowienia rekordu życiowego przez gracza."
+
+  # --- Statistics / Statystyki ---
+  %worldreset_attempts%:
+    description_en: "Total number of speedrun attempts (runs started) by the player."
+    description_pl: "Łączna liczba rozpoczętych biegów (prób) gracza."
+  %worldreset_completions%:
+    description_en: "Total number of successful runs completed by the player."
+    description_pl: "Łączna liczba pomyślnie ukończonych biegów gracza."
+  %worldreset_win_ratio%:
+    description_en: "Player's win ratio percentage (Completions / Attempts)."
+    description_pl: "Procentowy wskaźnik zwycięstw gracza (Ukończenia / Próby)."
+
+  # --- Last Runs / Ostatnie Biegi ---
+  %worldreset_last_ms%:
+    description_en: "Player's last completion time in milliseconds."
+    description_pl: "Czas ostatniego udanego ukończenia gracza w milisekundach."
+  %worldreset_last_sec%:
+    description_en: "Player's last completion time in seconds."
+    description_pl: "Czas ostatniego udanego ukończenia gracza w sekundach."
+  %worldreset_last_min%:
+    description_en: "Player's last completion time in minutes."
+    description_pl: "Czas ostatniego udanego ukończenia gracza w minutach."
+  %worldreset_last_ticks%:
+    description_en: "Player's last completion time in game ticks."
+    description_pl: "Czas ostatniego udanego ukończenia gracza w tickach gry."
+
+  # --- Averages / Średnie Czasu ---
+  %worldreset_avg%:
+    description_en: "Player's formatted average completion time (e.g. 15:42.110)."
+    description_pl: "Średni czas ukończenia gracza w sformatowanej postaci (np. 15:42.110)."
+  %worldreset_avg_ms%:
+    description_en: "Player's average completion time in raw milliseconds."
+    description_pl: "Średni czas ukończenia gracza w milisekundach."
+  %worldreset_avg_sec%:
+    description_en: "Player's average completion time in raw seconds."
+    description_pl: "Średni czas ukończenia gracza w sekundach."
+  %worldreset_avg_min%:
+    description_en: "Player's average completion time in raw minutes."
+    description_pl: "Średni czas ukończenia gracza w minutach."
+  %worldreset_avg_ticks%:
+    description_en: "Player's average completion time in raw game ticks."
+    description_pl: "Średni czas ukończenia gracza w tickach gry."
+
+  # --- Total Cumulative Time / Skumulowany Czas ---
+  %worldreset_total_time%:
+    description_en: "Player's formatted total cumulative completion time."
+    description_pl: "Sformatowany łączny skumulowany czas ukończonych biegów gracza."
+  %worldreset_total_time_ms%:
+    description_en: "Player's cumulative completion time in raw milliseconds."
+    description_pl: "Skumulowany czas ukończonych biegów gracza w milisekundach."
+  %worldreset_total_time_sec%:
+    description_en: "Player's cumulative completion time in raw seconds."
+    description_pl: "Skumulowany czas ukończonych biegów gracza w sekundach."
+  %worldreset_total_time_min%:
+    description_en: "Player's cumulative completion time in raw minutes."
+    description_pl: "Skumulowany czas ukończonych biegów gracza w minutach."
+  %worldreset_total_time_ticks%:
+    description_en: "Player's cumulative completion time in raw game ticks."
+    description_pl: "Skumulowany czas ukończonych biegów gracza w tickach gry."
+
+  # --- Server Leaderboards / Rankingi Serwera ---
+  %worldreset_top_player_{N}%:
+    description_en: "Username of the player at leaderboard rank {N} (1 to 10), e.g. %worldreset_top_player_1%."
+    description_pl: "Nick gracza na pozycji {N} rankingu (1 do 10), np. %worldreset_top_player_1%."
+  %worldreset_top_time_{N}%:
+    description_en: "Formatted record time at leaderboard rank {N}."
+    description_pl: "Rekordowy czas na pozycji {N} w rankingu."
+  %worldreset_top_ms_{N}%:
+    description_en: "Record time in raw milliseconds at leaderboard rank {N}."
+    description_pl: "Rekordowy czas w milisekundach na pozycji {N} w rankingu."
+  %worldreset_top_sec_{N}%:
+    description_en: "Record time in raw seconds at leaderboard rank {N}."
+    description_pl: "Rekordowy czas w sekundach na pozycji {N} w rankingu."
+  %worldreset_top_min_{N}%:
+    description_en: "Record time in raw minutes at leaderboard rank {N}."
+    description_pl: "Rekordowy czas w minutach na pozycji {N} w rankingu."
+  %worldreset_top_ticks_{N}%:
+    description_en: "Record time in raw game ticks at leaderboard rank {N}."
+    description_pl: "Rekordowy czas w tickach gry na pozycji {N} w rankingu."
+  %worldreset_top_date_{N}%:
+    description_en: "Date when the record at leaderboard rank {N} was set."
+    description_pl: "Data ustanowienia rekordu na pozycji {N} w rankingu."
+  %worldreset_top_seed_{N}%:
+    description_en: "The seed of the world where the record at rank {N} was set."
+    description_pl: "Seed świata, na którym ustanowiono rekord na pozycji {N} w rankingu."

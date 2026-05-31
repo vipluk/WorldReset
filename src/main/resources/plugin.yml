@@ -1,0 +1,70 @@
+name: WorldReset
+website: https://modrinth.com/project/worldreset
+version: 1.5
+main: org.example.worldreset.Main
+api-version: 1.21
+author: vipluk
+description: Bardzo zaawansowany system resetu świata. Pozdrawiam!
+
+commands:
+  worldreset:
+    description: Główna komenda
+    aliases: [wr]
+    usage: /wr <reset|limbo|seed|language|silent|death|filter|timer|reload>
+    permission: worldreset.admin
+
+permissions:
+  worldreset.admin:
+    description: Podstawowy dostęp do komend pluginu
+    default: op
+
+  worldreset.reset:
+    description: Pozwala resetować świat
+    default: op
+
+  worldreset.limbo:
+    description: Pozwala wchodzić/wychodzić z Limbo
+    default: op
+
+  worldreset.seed:
+    description: Pozwala zmieniać seed
+    default: op
+
+  worldreset.language:
+    description: Pozwala zmieniać język
+    default: op
+
+  worldreset.silent:
+    description: Pozwala wyciszać komunikaty
+    default: op
+
+  worldreset.death:
+    description: Pozwala przełączać reset na śmierć
+    default: op
+
+  worldreset.filter:
+    description: Pozwala zarządzać filtrami struktur i biomów
+    default: op
+
+  worldreset.timer:
+    description: Pozwala zarządzać timerem speedrunowym (start/pause/reset/mode/scope/goal)
+    default: op
+
+  worldreset.compass:
+    description: Pozwala zarządzać kompasem (radarem graczy)
+    default: op
+
+  worldreset.*:
+    description: Pełna kontrola nad pluginem
+    default: op
+    children:
+      worldreset.admin: true
+      worldreset.silent: true
+      worldreset.reset: true
+      worldreset.limbo: true
+      worldreset.seed: true
+      worldreset.language: true
+      worldreset.death: true
+      worldreset.filter: true
+      worldreset.timer: true
+      worldreset.compass: true

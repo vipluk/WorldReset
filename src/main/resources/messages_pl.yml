@@ -1,0 +1,45 @@
+prefix: "&8[&bWorldReset&8] &7"
+no-permission: "&cBrak uprawnień!"
+
+reset-started: "&cRozpoczęto reset świata! Przenoszenie do Limbo..."
+generation-complete: "&aNowy świat wygenerowany! Teleportacja..."
+game-started: "&aGra rozpoczęta! Powodzenia!"
+already-resetting: "&cReset już trwa! Proszę czekać."
+backup-start: "&7Tworzenie kopii zapasowej..."
+game-not-ready: "&cŚwiat gry nie jest jeszcze gotowy!"
+
+limbo-join: "&eWitaj w Limbo. Wpisz &6/wr limbo &eaby wrócić do gry."
+limbo-leave: "&aPowrót do świata gry."
+limbo-teleport-all: "&eWszyscy gracze przeniesieni do Limbo."
+
+seed-set: "&aUstawiono stały seed: &e{seed}"
+seed-random: "&aUstawiono tryb losowego seeda."
+language-changed: "&aJęzyk zmieniony na: &e{lang}"
+language-invalid: "&cDostępne języki: en, pl"
+
+silent-on: "&aTryb cichy włączony (brak komunikatów globalnych)."
+silent-off: "&cTryb cichy wyłączony (komunikaty widoczne)."
+
+death-reset-on: "&cReset na śmierć włączony! Śmierć gracza resetuje mapę."
+death-reset-off: "&aReset na śmierć wyłączony."
+death-reset-triggered: "&cGracz &4{player} &czginął! Reset świata..."
+
+# Filtry
+filter-struct-set: "&aUstawiono filtr struktury na: &e{struct}"
+filter-biome-set: "&aUstawiono filtr biomu na: &e{biome}"
+filter-disabled: "&cWyczyszczono filtry. Spawn będzie losowy."
+filter-shifted: "&aSpawn przeniesiony do: &e{target} &a!"
+filter-failed: "&cNie znaleziono celu w zasięgu (2500 kratek). Użyto standardowego spawnu."
+
+# Timer
+timer-started: "&aTimer wystartował!"
+timer-paused: "&eTimer zatrzymany."
+timer-enabled: "&aStoper został włączony."
+timer-disabled: "&cStoper został wyłączony."
+timer-auto-enabled: "&aStoper był wyłączony. Automatycznie włączono stoper!"
+timer-win-global: "&6🏆 &l{player} &eosiągnął cel w czasie &a&l{time}&e!"
+timer-win-individual: "&6🏆 &l{player} &eosiągnął cel w czasie &a&l{time}&e!"
+timer-new-pb: "&6🏆 &lNOWY REKORD ŻYCIOWY (PB): &a&l{time}&6!"
+timer-finished-action: "Koniec: {time}"
+
+command-usage: "\n&8&m------&8[ &b&lWorldReset &8]&m------\n&e/wr reset &8- &7Natychmiastowy reset mapy\n&e/wr limbo &8- &7Przejście do/z poczekalni Limbo\n&e/wr timer <start|pause|reset|enable|disable|mode|scope|goal> &8- &7Ustawienia stopera\n&e/wr compass <enable|disable|color> &8- &7Ustawienia radaru graczy\n&e/wr filter <structure|biome> <nazwa|clear> &8- &7Szukanie spawnu\n&e/wr seed [wartość] &8- &7Ustaw stały lub losowy seed\n&e/wr death &8- &7Włącz/wyłącz reset po śmierci\n&e/wr silent &8- &7Ukryj globalne wiadomości czatu\n&e/wr language <en|pl> &8- &7Zmień język pluginu\n&e/wr reload &8- &7Przeładuj konfigurację\n&8&m----------------------------"
