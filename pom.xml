@@ -6,7 +6,7 @@
 
     <groupId>org.example</groupId>
     <artifactId>WorldReset</artifactId>
-    <version>1.5</version>
+    <version>1.5fix</version>
     <packaging>jar</packaging>
 
     <name>WorldReset</name>

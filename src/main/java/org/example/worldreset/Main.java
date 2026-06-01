@@ -128,12 +128,32 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         initDynamicNames();
 
         if (!limboWorldName.equals(Bukkit.getWorlds().getFirst().getName())) {
+            String mainWorldName = Bukkit.getWorlds().getFirst().getName();
             File limboDir = new File(Bukkit.getWorldContainer(), limboWorldName);
-            if (!limboDir.exists()) {
+            File migratedLimboDir = new File(Bukkit.getWorldContainer(), mainWorldName + "/dimensions/minecraft/" + limboWorldName);
+            
+            if (!limboDir.exists() && !migratedLimboDir.exists()) {
                 copyDirectoryFromJar(limboDir);
-                if (!new File(limboDir, "uid.dat").delete()) {}
+                File uidFile = new File(limboDir, "uid.dat");
+                if (uidFile.exists()) {
+                    uidFile.delete();
+                }
             }
-            new WorldCreator(limboWorldName).createWorld();
+            
+            try {
+                new WorldCreator(limboWorldName).createWorld();
+            } catch (Exception e) {
+                getLogger().severe("Failed to load limbo world: " + e.getMessage());
+                getLogger().info("Attempting to load limbo in safe flat fallback mode...");
+                try {
+                    if (limboDir.exists()) {
+                        deleteDirectoryRecursive(limboDir);
+                    }
+                    new WorldCreator(limboWorldName).type(WorldType.FLAT).createWorld();
+                } catch (Exception ex) {
+                    getLogger().severe("Could not generate fallback limbo: " + ex.getMessage());
+                }
+            }
             configureLimboWorld(Bukkit.getWorld(limboWorldName));
         } else {
             configureLimboWorld(Bukkit.getWorlds().getFirst());
@@ -381,6 +401,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         World currentWorld = Bukkit.getWorld(gameWorldName);
         lastSavedDifficulty = currentWorld != null ? currentWorld.getDifficulty() : getServerDifficulty();
+        getConfig().set("world.difficulty", lastSavedDifficulty.name());
+        saveConfig();
 
         isResetting = true;
         isGameReady = false;
@@ -388,17 +410,25 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         broadcastInfo(getMsg("reset-started"));
         sendAllToLimboForReset();
 
+        // Step 1: Unload worlds after 20 ticks (allowing players to leave)
         new BukkitRunnable() {
             @Override
             public void run() {
                 unloadGameWorlds();
-                if (getConfig().getBoolean("backup.enabled")) performBackup();
+                
+                // Step 2: Wait 20 more ticks for Spigot background saving threads and file system to settle
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (getConfig().getBoolean("backup.enabled")) performBackup();
 
-                deleteWorldFolder(gameWorldName);
-                deleteWorldFolder(gameWorldName + "_nether");
-                deleteWorldFolder(gameWorldName + "_the_end");
+                        deleteWorldFolder(gameWorldName);
+                        deleteWorldFolder(gameWorldName + "_nether");
+                        deleteWorldFolder(gameWorldName + "_the_end");
 
-                generateGameWorlds();
+                        generateGameWorlds();
+                    }
+                }.runTaskLater(Main.this, 20L);
             }
         }.runTaskLater(this, 20L);
     }
@@ -410,7 +440,16 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         long seed;
         if (getConfig().getBoolean("seed.use-fixed")) {
             String s = getConfig().getString("seed.value");
-            try { seed = Long.parseLong(Objects.requireNonNull(s)); } catch (Exception e) { seed = Objects.requireNonNull(s).hashCode(); }
+            if (s == null || s.trim().isEmpty()) {
+                seed = ThreadLocalRandom.current().nextLong();
+                getLogger().warning("Fixed seed is enabled but seed.value is empty! Using random seed instead.");
+            } else {
+                try {
+                    seed = Long.parseLong(s);
+                } catch (NumberFormatException e) {
+                    seed = s.hashCode();
+                }
+            }
         } else {
             seed = ThreadLocalRandom.current().nextLong();
         }
@@ -604,7 +643,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     }
                 }
             } catch (Exception e) {
-                throw new RuntimeException(e);
+                getLogger().warning("Error searching structure " + struct.getKey().getKey() + ": " + e.getMessage());
             }
         }
         return bestLoc;
@@ -696,7 +735,16 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     private void unloadWorld(String name) {
         World w = Bukkit.getWorld(name);
-        if (w != null) Bukkit.unloadWorld(w, false);
+        if (w != null) {
+            boolean success = Bukkit.unloadWorld(w, false);
+            if (!success) {
+                getLogger().warning("Could not unload world: " + name + "! Force-saving and trying again...");
+                w.save();
+                Bukkit.unloadWorld(w, false);
+            } else {
+                getLogger().info("Successfully unloaded world: " + name);
+            }
+        }
     }
 
     public void startGameForAll() {
@@ -754,7 +802,20 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         manageBackupLimit(backupsDir);
     }
 
-    private void copyWorldToBackup(String worldName, File backupDir) { File f = new File(Bukkit.getWorldContainer(), worldName); if(f.exists()) { try { copyDirectory(f.toPath(), new File(backupDir, worldName).toPath()); } catch(IOException ignored) {} } }
+    private void copyWorldToBackup(String worldName, File backupDir) {
+        File legacyFolder = new File(Bukkit.getWorldContainer(), worldName);
+        if (legacyFolder.exists()) {
+            try { copyDirectory(legacyFolder.toPath(), new File(backupDir, worldName).toPath()); } catch (IOException ignored) {}
+        }
+        
+        if (!Bukkit.getWorlds().isEmpty()) {
+            String mainWorldName = Bukkit.getWorlds().getFirst().getName();
+            File migratedFolder = new File(Bukkit.getWorldContainer(), mainWorldName + "/dimensions/minecraft/" + worldName);
+            if (migratedFolder.exists()) {
+                try { copyDirectory(migratedFolder.toPath(), new File(backupDir, worldName).toPath()); } catch (IOException ignored) {}
+            }
+        }
+    }
     private void copyDirectory(Path source, Path target) throws IOException { Files.walkFileTree(source, new SimpleFileVisitor<>() {
         @Override
         public @NotNull FileVisitResult preVisitDirectory(@NotNull Path dir, @NotNull BasicFileAttributes attrs) throws IOException {
@@ -771,7 +832,20 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             return FileVisitResult.CONTINUE;
         }
     }); }
-    private void deleteWorldFolder(String worldName) { deleteDirectoryRecursive(new File(Bukkit.getWorldContainer(), worldName)); }
+    private void deleteWorldFolder(String worldName) {
+        File legacyFolder = new File(Bukkit.getWorldContainer(), worldName);
+        if (legacyFolder.exists()) {
+            deleteDirectoryRecursive(legacyFolder);
+        }
+        
+        if (!Bukkit.getWorlds().isEmpty()) {
+            String mainWorldName = Bukkit.getWorlds().getFirst().getName();
+            File migratedFolder = new File(Bukkit.getWorldContainer(), mainWorldName + "/dimensions/minecraft/" + worldName);
+            if (migratedFolder.exists()) {
+                deleteDirectoryRecursive(migratedFolder);
+            }
+        }
+    }
     private void deleteDirectoryRecursive(File file) {
         if (file.exists()) {
             File[] files = file.listFiles();
@@ -1049,7 +1123,10 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 playerElapsedTicks.put(p.getUniqueId(), ticks);
                                 sendActionBar(p, formatTime(ticks * 50L, false));
                             } else {
-                                long start = playerStartTimes.getOrDefault(p.getUniqueId(), System.currentTimeMillis());
+                                if (!playerStartTimes.containsKey(p.getUniqueId())) {
+                                    playerStartTimes.put(p.getUniqueId(), System.currentTimeMillis());
+                                }
+                                long start = playerStartTimes.get(p.getUniqueId());
                                 long elapsed = System.currentTimeMillis() - start;
                                 playerElapsedTimes.put(p.getUniqueId(), elapsed);
                                 sendActionBar(p, formatTime(elapsed, false));
@@ -1308,8 +1385,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             if (shouldTeleport) {
                 World game = Bukkit.getWorld(gameWorldName);
                 if (game != null) {
-                    p.teleport(game.getSpawnLocation());
-                    if (!p.hasPlayedBefore()) setupGamePlayer(p, game.getSpawnLocation());
+                    setupGamePlayer(p, game.getSpawnLocation());
                 }
             }
         } else {
@@ -1492,7 +1568,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     // --- COMMANDS ---
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, String @NotNull [] args) {
-        if (!sender.hasPermission("worldreset.admin")) { sender.sendMessage(getMsg("no-permission")); return true; }
         if (args.length > 0) {
             String arg = args[0].toLowerCase();
 
@@ -1502,6 +1577,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     return true;
                 }
                 case "reload" -> {
+                    if (hasPerm(sender, "worldreset.admin")) return noPerm(sender, "worldreset.admin");
                     loadConfigValues();
                     loadLanguage();
                     sender.sendMessage("§aConfiguration and languages reloaded!");
@@ -1542,6 +1618,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     return true;
                 }
                 case "silent" -> {
+                    if (hasPerm(sender, "worldreset.silent")) return noPerm(sender, "worldreset.silent");
                     boolean n = !getConfig().getBoolean("broadcast-messages");
                     getConfig().set("broadcast-messages", n);
                     saveConfig();
@@ -1549,6 +1626,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     return true;
                 }
                 case "death" -> {
+                    if (hasPerm(sender, "worldreset.death")) return noPerm(sender, "worldreset.death");
                     boolean n = !getConfig().getBoolean("reset-on-death");
                     getConfig().set("reset-on-death", n);
                     saveConfig();
@@ -2000,7 +2078,10 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     return playerElapsedTicks.getOrDefault(uuid, 0) * 50L;
                 } else {
                     if (timerRunning) {
-                        long start = playerStartTimes.getOrDefault(uuid, System.currentTimeMillis());
+                        if (!playerStartTimes.containsKey(uuid)) {
+                            playerStartTimes.put(uuid, System.currentTimeMillis());
+                        }
+                        long start = playerStartTimes.get(uuid);
                         return System.currentTimeMillis() - start;
                     } else {
                         return playerElapsedTimes.getOrDefault(uuid, 0L);
