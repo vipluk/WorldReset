@@ -22,14 +22,11 @@ scoreboard_objectives:
     description_pl: "Pozycja gracza w rankingu serwera (1 do 10, lub 0 jeśli poza Top 10)."
 
   # --- Personal Bests / Rekordy Osobiste (PB) ---
-  wr_pb:
+  wr_pb_sec:
     display_name: "PB (Seconds)"
     description_en: "Player's Personal Best time in seconds."
     description_pl: "Rekord życiowy gracza (Personal Best) w sekundach."
-  wr_pb_sec:
-    display_name: "PB (Seconds)"
-    description_en: "Player's Personal Best time in seconds (explicit alias)."
-    description_pl: "Rekord życiowy gracza (Personal Best) w sekundach (alias)."
+
   wr_pb_ms:
     display_name: "PB (Millis)"
     description_en: "Player's Personal Best time in milliseconds."
@@ -98,14 +95,11 @@ scoreboard_objectives:
     description_pl: "Bieżący, trwający czas biegu gracza w tickach gry Minecraft (odświeżany na żywo!)."
 
   # --- Average Completion / Średni Czas ---
-  wr_avg:
+  wr_avg_sec:
     display_name: "Avg (Seconds)"
     description_en: "Player's average completion time in seconds."
     description_pl: "Średni czas ukończenia gracza w sekundach."
-  wr_avg_sec:
-    display_name: "Avg (Seconds)"
-    description_en: "Player's average completion time in seconds (explicit alias)."
-    description_pl: "Średni czas ukończenia gracza w sekundach (alias)."
+
   wr_avg_ms:
     display_name: "Avg (Millis)"
     description_en: "Player's average completion time in milliseconds."

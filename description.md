@@ -17,6 +17,7 @@ WorldReset is a plugin designed to manage game worlds dynamically. Instead of ki
 * **🔄 Instant Reset:** Regenerates Overworld, Nether, and End without shutting down the server.
 * **🌱 Seed Control:** Choose between **Random Seed** for a fresh experience or **Fixed Seed** for practice/speedruns.
 * **📁 World Templates (Custom Maps):** Load your own custom worlds instead of generating them! Put your map folders into `WorldReset_Templates`. The plugin automatically classifies dimensions (Overworld, Nether, End), auto-converts Singleplayer world structures (moving `DIM-1` and `DIM1` folders to Spigot standards), cleans up temporary files, and prevents UUID conflicts. Includes a fail-safe backup seed.
+* **⏰ AutoReset Scheduler:** Schedule automated periodic resets! Set loop intervals (e.g. `60s`, `5m`, `1h`) and control the countdown. The paused countdown remains on screen in gray to keep players informed.
 * **🏁 Multi-Goal Speedrun Stopwatch:** Built-in Action Bar stopwatch! Race in **Global** mode (first to finish stops the timer) or **Individual** mode (personal timers). Support for RTA (Real-Time) and IGT (In-Game Time). Set triggers for Portal Entries, Entity Kills, Advancements, Block Breaking (`BLOCK`), and Item Collection (`ITEM`)! Dynamic autocomplete suggestions are loaded directly from the game registries.
 * **📈 Leaderboards & Records Database:** Built-in `records.yml` database tracks attempts, completions, PBs, and average times. Tracks a **Top 10 Highscore Leaderboard** with player names, record times, dates, and world seeds.
 * **📊 Vanilla Scoreboard Integration:** Plug-and-play synchronization with **38 vanilla scoreboard objectives**! Track and display speedrun metrics (attempts, completions, average times, personal bests, server records, timer live seconds/minutes, seed, world name, active players, difficulty, active goal, death reset, etc.) using built-in Minecraft commands, completely out of the box!
@@ -24,7 +25,7 @@ WorldReset is a plugin designed to manage game worlds dynamically. Instead of ki
 * **🏹 Spawn Shifter:** Never reset for a good seed again! Configure a target **Structure** (e.g., Village) or **Biome** (e.g., Cherry Grove). The plugin scans the registry dynamically to move your spawn directly to your target.
 * **🏝️ Smart Land Seeker:** No more spawning in the middle of the ocean! After generating a new world (or shifting spawn), the plugin scans the terrain to ensure the spawn point is on solid ground.
 * **☁️ Seamless Limbo:** Players are moved to a waiting world ("Limbo") during generation.
-* **🧭 Player Tracker Radar (Compass):** A dynamic compass ribbon at the top of your screen! Track other players in real-time. Players appear as colored dots (`●`) on the compass based on where you look. Fully customizable player colors.
+* **🧭 Native Locator Bar:** Toggle Minecraft's built-in multiplayer **Locator Bar** (1.21.6+) directly with `/wr compass enable/disable`. No custom overlays — pure vanilla.
 * **🛠️ Future-Proof Registers:** Dynamically imports all Minecraft biomes and structures at server startup. Fully supports new additions (like Trial Chambers and Pale Garden) as well as custom structures from other datapacks out of the box!
 * **🌍 Multi-Language:** Full support for **English** and **Polish** (changeable via command).
 
@@ -45,11 +46,13 @@ Main command: `/worldreset` or `/wr`
 | `/wr filter clear` | Instantly clears and disables all biome/structure filters. | `worldreset.filter` |
 | `/wr seed <value>` | Sets a fixed seed for future resets. | `worldreset.seed` |
 | `/wr seed` | Disables fixed seed (enables Random Seed mode). | `worldreset.seed` |
+| `/wr templates <enable/disable>` | Toggles whether custom maps should load from the templates folder. | `worldreset.templates` |
+| `/wr autoreset <start/stop/disable/loop/time>` | Controls and schedules automated periodic world resets. | `worldreset.autoreset` |
 | `/wr timer <enable/disable>` | Turns the speedrun stopwatch system ON/OFF. | `worldreset.timer` |
 | `/wr timer <start/pause/reset>` | Controls the built-in speedrun stopwatch. | `worldreset.timer` |
 | `/wr timer <mode/scope/goal>` | Configures timer settings (RTA/IGT, Global/Individual, end triggers). | `worldreset.timer` |
-| `/wr compass <enable/disable>` | Toggles the player tracker radar on top of the screen. | `worldreset.compass` |
-| `/wr compass color [player] <color>` | Sets a specific radar dot color for a player. | `worldreset.compass` |
+| `/wr compass` | Toggles the native Minecraft **Locator Bar** ON/OFF (toggle when no argument given). | `worldreset.compass` |
+| `/wr compass <enable/disable>` | Explicitly enables or disables the native Locator Bar. | `worldreset.compass` |
 | `/wr language <en/pl>` | Changes the plugin language (English / Polish). | `worldreset.language` |
 | `/wr reload` | Reloads configuration and language files instantly. | `worldreset.admin` |
 

@@ -95,6 +95,10 @@ timer:
   # [EN] Enable the speedrun stopwatch system? (true/false)
   enabled: false
 
+  # [PL] Czy stoper ma być widoczny dla graczy? (true/false)
+  # [EN] Should the speedrun timer be visible to players? (true/false)
+  visible: true
+
   # [PL] Tryb liczenia czasu stopera:
   #      RTA (Real-Time Attack) - ignoruje lagi serwera (polecane).
   #      IGT (In-Game Time) - czas leci w tickach gry (zwalnia przy lagach).
@@ -137,3 +141,25 @@ compass:
   # [PL] Czy pokazywać radar z pozycją innych graczy na górze ekranu (BossBar)?
   # [EN] Show players tracker radar ribbon on top of the screen (BossBar)?
   enabled: false
+
+# --- AUTORESET (Zaplanowane automatyczne resety) ---
+autoreset:
+  # [PL] Czy czasomierz zaplanowanych resetów ma być włączony?
+  # [EN] Enable the scheduled automated reset timer?
+  enabled: false
+
+  # [PL] Czy odliczanie autoresetu ma być widoczne dla graczy? (true/false)
+  # [EN] Should the autoreset countdown be visible to players? (true/false)
+  visible: true
+
+  # [PL] Czas trwania cyklu resetu (np. 60s, 5m, 1h).
+  # [EN] Time interval for scheduled resets (e.g. 60s, 5m, 1h).
+  time: "1h"
+
+  # [PL] Czy reset ma zachodzić w pętli (automatyczny start kolejnego odliczania po resecie)?
+  # [EN] Enable looping (starts a new countdown immediately after reset)?
+  loop: true
+
+  # [PL] Czy odliczanie jest wstrzymane?
+  # [EN] Is the countdown paused?
+  paused: true

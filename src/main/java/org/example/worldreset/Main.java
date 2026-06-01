@@ -87,26 +87,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     // --- ZMIENNE KOMPASU (RADARU) ---
     private boolean compassEnabled;
-    private BukkitTask compassTask;
-    private final Map<UUID, BossBar> compassBars = new HashMap<>();
-    private final Map<UUID, ChatColor> playerColors = new HashMap<>();
-    private final ChatColor[] DOT_COLORS = {
-            ChatColor.RED, ChatColor.BLUE, ChatColor.GREEN, ChatColor.YELLOW,
-            ChatColor.LIGHT_PURPLE, ChatColor.AQUA, ChatColor.GOLD, ChatColor.DARK_GREEN
-    };
-    private final Map<String, ChatColor> STRING_TO_COLOR = new HashMap<>() {{
-        put("RED", ChatColor.RED);
-        put("BLUE", ChatColor.BLUE);
-        put("GREEN", ChatColor.GREEN);
-        put("YELLOW", ChatColor.YELLOW);
-        put("PURPLE", ChatColor.LIGHT_PURPLE);
-        put("AQUA", ChatColor.AQUA);
-        put("GOLD", ChatColor.GOLD);
-        put("DARK_GREEN", ChatColor.DARK_GREEN);
-        put("WHITE", ChatColor.WHITE);
-    }};
-
-    private final String[] COMPASS_BG = new String[120];
 
     // Structure list (Overworld only)
     private final List<String> STRUCTURE_NAMES = new ArrayList<>();
@@ -166,9 +146,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             loadGameWorlds();
         }
         isGameReady = true;
-
-        initCompassBg();
-        startCompassTask();
+        applyLocatorBarGamerule();
 
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
             new WorldResetExpansion().register();
@@ -180,10 +158,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     @Override
     public void onDisable() {
-        for (BossBar bar : compassBars.values()) {
-            bar.removeAll();
-        }
-        compassBars.clear();
     }
 
     private void loadConfigValues() {
@@ -554,6 +528,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         World normal = Bukkit.createWorld(new WorldCreator(gameWorldName).environment(World.Environment.NORMAL).seed(seed));
         Bukkit.createWorld(new WorldCreator(gameWorldName + "_nether").environment(World.Environment.NETHER).seed(seed));
         Bukkit.createWorld(new WorldCreator(gameWorldName + "_the_end").environment(World.Environment.THE_END).seed(seed));
+        applyLocatorBarGamerule();
 
         if (normal != null) {
             // Przywróć trudność
@@ -707,6 +682,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         World normal = new WorldCreator(gameWorldName).environment(World.Environment.NORMAL).createWorld();
         new WorldCreator(gameWorldName + "_nether").environment(World.Environment.NETHER).createWorld();
         new WorldCreator(gameWorldName + "_the_end").environment(World.Environment.THE_END).createWorld();
+        applyLocatorBarGamerule();
         
         // Ustaw trudność: najpierw ze starego świata (config), potem z server.properties, fallback na NORMAL
         if (normal != null) {
@@ -1252,88 +1228,20 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     }
 
     // --- LOGIKA KOMPASU (RADARU) ---
-    private void initCompassBg() {
-        for (int i = 0; i < 120; i++) COMPASS_BG[i] = "&7·";
-        COMPASS_BG[0] = "&eS";
-        COMPASS_BG[15] = "&7SW";
-        COMPASS_BG[30] = "&eW";
-        COMPASS_BG[45] = "&7NW";
-        COMPASS_BG[60] = "&eN";
-        COMPASS_BG[75] = "&7NE";
-        COMPASS_BG[90] = "&eE";
-        COMPASS_BG[105] = "&7SE";
-    }
-
-    private void startCompassTask() {
-        if (compassTask != null) compassTask.cancel();
-        compassTask = new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (!compassEnabled) {
-                    for (BossBar bar : compassBars.values()) bar.setVisible(false);
-                    return;
-                }
-                updateCompass();
-            }
-        }.runTaskTimer(this, 0L, 2L); // Odswiezanie co 2 ticki
-    }
-
-    private void updateCompass() {
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            BossBar bar = compassBars.get(p.getUniqueId());
-            if (bar == null) continue;
-
-            if (!bar.isVisible()) bar.setVisible(true);
-
-            Location pLoc = p.getLocation();
-            double pYaw = pLoc.getYaw();
-            while (pYaw < 0) pYaw += 360;
-            while (pYaw >= 360) pYaw -= 360;
-
-            int centerIdx = (int) Math.round(pYaw / 3.0);
-            if (centerIdx >= 120) centerIdx = 0;
-
-            // Wyciagamy pole widzenia (41 znakow, czyli ok 120 stopni FOV)
-            String[] view = new String[41];
-            for (int i = 0; i < 41; i++) {
-                int idx = centerIdx - 20 + i;
-                if (idx < 0) idx += 120;
-                if (idx >= 120) idx -= 120;
-                view[i] = COMPASS_BG[idx];
-            }
-
-            // Nakladanie graczy na radar
-            for (Player target : Bukkit.getOnlinePlayers()) {
-                if (target.equals(p) || target.getGameMode() == GameMode.SPECTATOR || !target.getWorld().equals(p.getWorld())) continue;
-
-                Location tLoc = target.getLocation();
-                double dx = tLoc.getX() - pLoc.getX();
-                double dz = tLoc.getZ() - pLoc.getZ();
-
-                if (dx == 0 && dz == 0) continue;
-
-                double targetYaw = Math.toDegrees(Math.atan2(-dx, dz));
-                double deltaYaw = targetYaw - pLoc.getYaw();
-
-                while (deltaYaw < -180) deltaYaw += 360;
-                while (deltaYaw > 180) deltaYaw -= 360;
-
-                int offset = (int) Math.round(deltaYaw / 3.0);
-                if (offset >= -20 && offset <= 20) {
-                    int viewIdx = 20 + offset;
-                    ChatColor color = playerColors.getOrDefault(target.getUniqueId(), ChatColor.WHITE);
-                    view[viewIdx] = color + "●";
+    private void applyLocatorBarGamerule() {
+        try {
+            org.bukkit.GameRule<?> rule = org.bukkit.GameRule.getByName("locator_bar");
+            if (rule != null) {
+                for (World w : Bukkit.getWorlds()) {
+                    if (w.getName().contains(gameWorldName)) {
+                        @SuppressWarnings("unchecked")
+                        org.bukkit.GameRule<Boolean> boolRule = (org.bukkit.GameRule<Boolean>) rule;
+                        w.setGameRule(boolRule, compassEnabled);
+                    }
                 }
             }
-
-            StringBuilder sb = new StringBuilder();
-            sb.append("&8[ ");
-            for (String s : view) {
-                sb.append(s);
-            }
-            sb.append(" &8]");
-
-            bar.setTitle(ChatColor.translateAlternateColorCodes('&', sb.toString()));
+        } catch (Exception e) {
+            getLogger().warning("Could not set locator_bar game rule: " + e.getMessage());
         }
     }
 
@@ -1368,16 +1276,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             playerStartTimes.put(p.getUniqueId(), System.currentTimeMillis());
         }
 
-        // Przydzielanie koloru i paska kompasu
-        if (!playerColors.containsKey(p.getUniqueId())) {
-            playerColors.put(p.getUniqueId(), DOT_COLORS[playerColors.size() % DOT_COLORS.length]);
-        }
-        if (!compassBars.containsKey(p.getUniqueId())) {
-            BossBar bar = Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID);
-            bar.addPlayer(p);
-            if (!compassEnabled) bar.setVisible(false);
-            compassBars.put(p.getUniqueId(), bar);
-        }
 
         if (isGameReady && !isResetting) {
             String wName = p.getWorld().getName();
@@ -1399,8 +1297,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
-        BossBar bar = compassBars.remove(e.getPlayer().getUniqueId());
-        if (bar != null) bar.removeAll();
         Bukkit.getScheduler().runTaskLater(this, this::syncAllScoreboards, 1L);
     }
 
@@ -1888,60 +1784,29 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 }
                 case "compass" -> {
                     if (hasPerm(sender, "worldreset.compass")) return noPerm(sender, "worldreset.compass");
+
+                    boolean newState;
                     if (args.length < 2) {
-                        sender.sendMessage("§cUsage: /wr compass <enable|disable|color>");
-                        return true;
-                    }
-
-                    String sub = args[1].toLowerCase();
-
-                    if (sub.equals("enable")) {
-                        getConfig().set("compass.enabled", true);
-                        saveConfig();
-                        compassEnabled = true;
-                        sender.sendMessage("§aCompass tracking enabled!");
-                        return true;
-                    } else if (sub.equals("disable")) {
-                        getConfig().set("compass.enabled", false);
-                        saveConfig();
-                        compassEnabled = false;
-                        for (BossBar bar : compassBars.values()) bar.setVisible(false);
-                        sender.sendMessage("§cCompass tracking disabled.");
-                        return true;
-                    } else if (sub.equals("color")) {
-                        if (args.length < 3) {
-                            sender.sendMessage("§cUsage: /wr compass color [player] <color>");
-                            return true;
-                        }
-
-                        Player targetPlayer = null;
-                        String colorName;
-
-                        if (args.length == 3) {
-                            if (!(sender instanceof Player)) {
-                                sender.sendMessage("§cConsole must specify a player!");
-                                return true;
-                            }
-                            targetPlayer = (Player) sender;
-                            colorName = args[2].toUpperCase();
+                        // Toggle
+                        newState = !compassEnabled;
+                    } else {
+                        String sub = args[1].toLowerCase();
+                        if (sub.equals("enable")) {
+                            newState = true;
+                        } else if (sub.equals("disable")) {
+                            newState = false;
                         } else {
-                            targetPlayer = Bukkit.getPlayer(args[2]);
-                            if (targetPlayer == null) {
-                                sender.sendMessage("§cPlayer not found.");
-                                return true;
-                            }
-                            colorName = args[3].toUpperCase();
-                        }
-
-                        if (!STRING_TO_COLOR.containsKey(colorName)) {
-                            sender.sendMessage("§cInvalid color. Available: RED, BLUE, GREEN, YELLOW, PURPLE, AQUA, GOLD, DARK_GREEN, WHITE");
+                            sender.sendMessage("§cUsage: /wr compass <enable|disable>");
                             return true;
                         }
-
-                        playerColors.put(targetPlayer.getUniqueId(), STRING_TO_COLOR.get(colorName));
-                        sender.sendMessage("§aColor for " + targetPlayer.getName() + " set to " + STRING_TO_COLOR.get(colorName) + colorName);
-                        return true;
                     }
+
+                    compassEnabled = newState;
+                    getConfig().set("compass.enabled", newState);
+                    saveConfig();
+                    applyLocatorBarGamerule();
+                    sender.sendMessage(newState ? "§aLocator bar enabled!" : "§cLocator bar disabled.");
+                    return true;
                 }
             }
 
@@ -1966,7 +1831,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             if (args[0].equalsIgnoreCase("language")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("en", "pl"), new ArrayList<>());
             // Dodane 'enable' i 'disable' do podpowiedzi timera
             if (args[0].equalsIgnoreCase("timer")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "pause", "reset", "enable", "disable", "mode", "scope", "goal"), new ArrayList<>());
-            if (args[0].equalsIgnoreCase("compass")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "color"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("compass")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable"), new ArrayList<>());
         }
         if (args.length == 3) {
             if (args[0].equalsIgnoreCase("filter")) {
@@ -1997,11 +1862,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     if (timerGoalType != null && list.contains(timerGoalType)) { list.remove(timerGoalType); list.add(0, timerGoalType); }
                     return StringUtil.copyPartialMatches(args[2], list, new ArrayList<>());
                 }
-            }
-            if (args[0].equalsIgnoreCase("compass") && args[1].equalsIgnoreCase("color")) {
-                List<String> list = new ArrayList<>(STRING_TO_COLOR.keySet());
-                for (Player p : Bukkit.getOnlinePlayers()) list.add(p.getName());
-                return StringUtil.copyPartialMatches(args[2], list, new ArrayList<>());
             }
         }
         if (args.length == 4) {
@@ -2045,10 +1905,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     }
                     return StringUtil.copyPartialMatches(args[3].toLowerCase(), items, new ArrayList<>());
                 }
-            }
-            if (args[0].equalsIgnoreCase("compass") && args[1].equalsIgnoreCase("color")) {
-                List<String> colors = new ArrayList<>(STRING_TO_COLOR.keySet());
-                return StringUtil.copyPartialMatches(args[3], colors, new ArrayList<>());
             }
         }
         return Collections.emptyList();

@@ -21,8 +21,20 @@ placeholders:
     description_en: "Timer scope: GLOBAL (shared) or INDIVIDUAL (personal)."
     description_pl: "Zasięg stopera: GLOBAL (wspólny) lub INDIVIDUAL (indywidualny)."
   %worldreset_timer_raw%:
-    description_en: "Raw time elapsed in milliseconds."
+    description_en: "Raw time elapsed in milliseconds (deprecated alias for timer_raw_ms)."
+    description_pl: "Surowy czas stopera wyrażony w milisekundach (przestarzały alias dla timer_raw_ms)."
+  %worldreset_timer_raw_ms%:
+    description_en: "Raw elapsed stopwatch time in milliseconds."
     description_pl: "Surowy czas stopera wyrażony w milisekundach."
+  %worldreset_timer_raw_sec%:
+    description_en: "Raw elapsed stopwatch time in seconds."
+    description_pl: "Surowy czas stopera wyrażony w sekundach."
+  %worldreset_timer_raw_min%:
+    description_en: "Raw elapsed stopwatch time in minutes."
+    description_pl: "Surowy czas stopera wyrażony w minutach."
+  %worldreset_timer_raw_ticks%:
+    description_en: "Raw elapsed stopwatch time in game ticks."
+    description_pl: "Surowy czas stopera wyrażony w tickach gry."
   %worldreset_goal_type%:
     description_en: "Goal type that stops the timer (PORTAL, ENTITY, ADVANCEMENT, BLOCK, ITEM, NONE)."
     description_pl: "Rodzaj wyznaczonego celu (PORTAL, ENTITY, ADVANCEMENT, BLOCK, ITEM, NONE)."
@@ -59,14 +71,34 @@ placeholders:
   %worldreset_goal%:
     description_en: "Formatted description of the current stopwatch goal."
     description_pl: "Sformatowany, czytelny opis celu aktywnego stopera."
+  %worldreset_autoreset%:
+    description_en: "Remaining autoreset countdown time (e.g. 12:34 or 'Disabled')."
+    description_pl: "Pozostały czas do autoresetu (np. 12:34 lub 'Wyłączony')."
+  %worldreset_autoreset_ms%:
+    description_en: "Remaining autoreset time in raw milliseconds."
+    description_pl: "Pozostały czas do autoresetu w milisekundach."
+
+  %worldreset_autoreset_sec%:
+    description_en: "Remaining autoreset time in raw seconds."
+    description_pl: "Pozostały czas do autoresetu w sekundach."
+  %worldreset_autoreset_min%:
+    description_en: "Remaining autoreset time in raw minutes."
+    description_pl: "Pozostały czas do autoresetu w minutach."
+  %worldreset_autoreset_ticks%:
+    description_en: "Remaining autoreset time in game ticks."
+    description_pl: "Pozostały czas do autoresetu w tickach gry."
+  %worldreset_autoreset_status%:
+    description_en: "Autoreset state: Running (green), Paused (gray), or Disabled (red)."
+    description_pl: "Status autoresetu: Biegnie (zielony), Wstrzymany (szary) lub Wyłączony (czerwony)."
+  %worldreset_autoreset_loop%:
+    description_en: "Whether autoreset looping is active (Yes/No)."
+    description_pl: "Czy pętla autoresetu jest aktywna (Tak/Nie)."
 
   # --- Personal Bests / Rekordy Osobiste (PB) ---
   %worldreset_pb%:
     description_en: "Personal Best formatted time of the player (e.g. 10:15.542 or 'Brak' if none)."
     description_pl: "Rekord życiowy (Personal Best) gracza, np. 10:15.542 (lub 'Brak')."
-  %worldreset_pb_raw%:
-    description_en: "Personal Best in raw milliseconds (alias for pb_ms)."
-    description_pl: "Rekord życiowy gracza w surowych milisekundach (alias dla pb_ms)."
+
   %worldreset_pb_ms%:
     description_en: "Personal Best in raw milliseconds."
     description_pl: "Rekord życiowy gracza w milisekundach."

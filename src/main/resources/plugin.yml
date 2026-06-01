@@ -1,6 +1,6 @@
 name: WorldReset
 website: https://modrinth.com/project/worldreset
-version: 1.5fix
+version: 1.6beta
 main: org.example.worldreset.Main
 api-version: 1.21
 author: vipluk
@@ -10,7 +10,7 @@ commands:
   worldreset:
     description: Główna komenda
     aliases: [wr]
-    usage: /wr <reset|limbo|seed|language|silent|death|filter|timer|reload>
+    usage: /wr <reset|limbo|seed|language|silent|death|filter|timer|templates|autoreset|reload>
     permission: worldreset.admin
 
 permissions:
@@ -54,6 +54,14 @@ permissions:
     description: Pozwala zarządzać kompasem (radarem graczy)
     default: op
 
+  worldreset.templates:
+    description: Pozwala przełączać szablony światów
+    default: op
+
+  worldreset.autoreset:
+    description: Pozwala zarządzać czasem autoresetów
+    default: op
+
   worldreset.*:
     description: Pełna kontrola nad pluginem
     default: op
@@ -68,3 +76,5 @@ permissions:
       worldreset.filter: true
       worldreset.timer: true
       worldreset.compass: true
+      worldreset.templates: true
+      worldreset.autoreset: true
