@@ -5,9 +5,6 @@ import org.bukkit.*;
 import org.bukkit.advancement.Advancement;
 import org.bukkit.block.Biome;
 import org.bukkit.block.Block;
-import org.bukkit.boss.BarColor;
-import org.bukkit.boss.BarStyle;
-import org.bukkit.boss.BossBar;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
@@ -63,6 +60,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     private File recordsFile;
 
     private boolean isResetting = false;
+    private boolean isDelayingReset = false; // true during delay-in countdown before actual reset
+    private boolean parallelDelayOutRunning = false; // true when delay-out countdown started parallel with generation
     private boolean isGameReady = false;
     private Difficulty lastSavedDifficulty = Difficulty.NORMAL;
 
@@ -87,6 +86,20 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     // --- ZMIENNE KOMPASU (RADARU) ---
     private boolean compassEnabled;
+
+    // --- ZMIENNE AUTORESETU ---
+    private boolean autoResetEnabled;
+    private boolean autoResetVisible;
+    private boolean autoResetLoop;
+    private boolean autoResetPaused;
+    private long autoResetTotalSeconds;
+    private long autoResetRemainingSeconds;
+    private BukkitTask autoResetTask;
+
+    // --- ZMIENNE DELAY LIMBO ---
+    private int limboDelayIn;  // sekundy opóźnienia wejścia do limbo (automatyczne)
+    private int limboDelayOut; // sekundy opóźnienia wyjścia z limbo (automatyczne)
+    private final Map<UUID, BukkitTask> activeCountdowns = new HashMap<>();
 
     // Structure list (Overworld only)
     private final List<String> STRUCTURE_NAMES = new ArrayList<>();
@@ -154,10 +167,20 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
 
         getLogger().info("WorldReset v1.19 (Timer Toggle Update) enabled.");
+
+        // Start autoreset timer if enabled and not paused
+        if (autoResetEnabled && !autoResetPaused) {
+            autoResetRemainingSeconds = autoResetTotalSeconds;
+            startAutoResetTimer();
+        }
+
+        // Initialize autoreset scoreboard values (0 if disabled)
+        Bukkit.getScheduler().runTaskLater(this, this::syncAutoResetScoreboard, 5L);
     }
 
     @Override
     public void onDisable() {
+        stopAutoResetTimer();
     }
 
     private void loadConfigValues() {
@@ -183,6 +206,20 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
 
         compassEnabled = getConfig().getBoolean("compass.enabled", true);
+
+        // AutoReset
+        autoResetEnabled = getConfig().getBoolean("autoreset.enabled", false);
+        autoResetVisible = getConfig().getBoolean("autoreset.visible", true);
+        autoResetLoop = getConfig().getBoolean("autoreset.loop", true);
+        autoResetPaused = getConfig().getBoolean("autoreset.paused", true);
+        autoResetTotalSeconds = parseTimeToSeconds(getConfig().getString("autoreset.time", "1h"));
+        if (autoResetRemainingSeconds <= 0) {
+            autoResetRemainingSeconds = autoResetTotalSeconds;
+        }
+
+        // Limbo delay
+        limboDelayIn = getConfig().getInt("limbo.delay-in", 0);
+        limboDelayOut = getConfig().getInt("limbo.delay-out", 0);
     }
 
     // --- HELPER METHODS ---
@@ -254,6 +291,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         return (prefix + msg).replace("&", "§");
     }
 
+    private String getSubtitle(String key, String fallback) {
+        String value = langConfig.getString(key);
+        if (value == null || value.isEmpty()) return fallback;
+        return value.replace("&", "§");
+    }
+
     private Difficulty getServerDifficulty() {
         try {
             File serverProps = new File("server.properties");
@@ -312,10 +355,31 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     private void sendAllToLimboForReset() {
         stopTimer();
         for (Player p : Bukkit.getOnlinePlayers()) {
-            // USUNIĘTO: p.spigot().respawn() - to wywoływało błędy!
+            p.closeInventory();
+        }
+        doSendAllToLimbo();
+    }
+
+    /**
+     * Sends all players to limbo with delay-in countdown (used for death-reset and automatic triggers).
+     */
+    private void sendAllToLimboWithDelay() {
+        stopTimer();
+        for (Player p : Bukkit.getOnlinePlayers()) {
             p.closeInventory();
         }
 
+        if (limboDelayIn > 0) {
+            List<Player> playersToMove = new ArrayList<>(Bukkit.getOnlinePlayers());
+            String subtitle = getSubtitle("limbo-countdown-in", "Teleport to Limbo...");
+            startCountdown(playersToMove, limboDelayIn, subtitle, this::doSendAllToLimbo);
+        } else {
+            doSendAllToLimbo();
+        }
+    }
+
+    private void doSendAllToLimbo() {
+        isDelayingReset = false;
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -328,7 +392,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     setupLimboPlayer(p);
                 }
             }
-        }.runTaskLater(this, 5L);
+        }.runTaskLater(Main.this, 5L);
     }
 
     private void setupLimboPlayer(Player p) {
@@ -361,6 +425,92 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         p.setInvulnerable(true);
         new BukkitRunnable() { @Override public void run() { if (p.isOnline()) p.setInvulnerable(false); } }.runTaskLater(this, 40L);
+    }
+
+    // --- COUNTDOWN SYSTEM ---
+
+    /**
+     * Starts a countdown displayed as titles on screen with sound.
+     * After countdown finishes, executes the provided action.
+     * Tracks per-player so it can be skipped with /wr limbo.
+     */
+    private void startCountdown(Collection<Player> players, int seconds, String subtitleMsg, Runnable onComplete) {
+        if (seconds <= 0) {
+            onComplete.run();
+            return;
+        }
+
+        Set<Integer> displayAt = getDisplaySeconds(seconds);
+
+        BukkitTask task = new BukkitRunnable() {
+            int remaining = seconds;
+
+            @Override
+            public void run() {
+                if (remaining <= 0) {
+                    this.cancel();
+                    for (Player p : players) {
+                        activeCountdowns.remove(p.getUniqueId());
+                    }
+                    onComplete.run();
+                    return;
+                }
+
+                if (displayAt.contains(remaining)) {
+                    String color = remaining <= 3 ? "§c§l" : (remaining <= 5 ? "§6§l" : "§e§l");
+                    for (Player p : players) {
+                        if (p.isOnline()) {
+                            p.sendTitle(color + remaining, "§7" + subtitleMsg, 0, 25, 5);
+                            if (remaining <= 5) {
+                                p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, remaining <= 3 ? 1.5f : 1.0f);
+                            } else {
+                                p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_HAT, 0.7f, 1.0f);
+                            }
+                        }
+                    }
+                }
+
+                remaining--;
+            }
+        }.runTaskTimer(this, 0L, 20L);
+
+        // Register for each player so /wr limbo can skip
+        for (Player p : players) {
+            activeCountdowns.put(p.getUniqueId(), task);
+        }
+    }
+
+    private void startCountdown(Player player, int seconds, String subtitleMsg, Runnable onComplete) {
+        startCountdown(Collections.singletonList(player), seconds, subtitleMsg, onComplete);
+    }
+
+    /**
+     * Skips an active countdown for a player — immediately runs the completion action.
+     * Returns true if a countdown was skipped.
+     */
+    private boolean skipCountdown(Player player) {
+        BukkitTask task = activeCountdowns.remove(player.getUniqueId());
+        if (task != null && !task.isCancelled()) {
+            task.cancel();
+            return true;
+        }
+        return false;
+    }
+
+    private Set<Integer> getDisplaySeconds(int total) {
+        Set<Integer> set = new HashSet<>();
+        if (total <= 5) {
+            for (int i = 1; i <= total; i++) set.add(i);
+        } else if (total <= 15) {
+            set.addAll(Arrays.asList(1, 2, 3, 4, 5, 10));
+        } else if (total <= 30) {
+            set.addAll(Arrays.asList(1, 2, 3, 4, 5, 10, 15, 20));
+        } else {
+            set.addAll(Arrays.asList(1, 2, 3, 4, 5, 10, 15, 20, 30));
+        }
+        // Always include the start number
+        set.add(total);
+        return set;
     }
 
     // --- RESET LOGIC ---
@@ -407,7 +557,246 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }.runTaskLater(this, 20L);
     }
 
+    /**
+     * Manual reset with a custom delay-out (countdown in limbo before game starts).
+     */
+    private void startResetWithDelayOut(int customDelayOut) {
+        if (isResetting) return;
+        loadConfigValues();
+        if (gameWorldName.equals(limboWorldName) || gameWorldName.equals("world")) {
+            getLogger().severe("CRITICAL: game-world-name cannot be 'limbo' or 'world'!");
+            return;
+        }
+
+        World currentWorld = Bukkit.getWorld(gameWorldName);
+        lastSavedDifficulty = currentWorld != null ? currentWorld.getDifficulty() : getServerDifficulty();
+        getConfig().set("world.difficulty", lastSavedDifficulty.name());
+        saveConfig();
+
+        isResetting = true;
+        isGameReady = false;
+
+        broadcastInfo(getMsg("reset-started"));
+        sendAllToLimboForReset();
+
+        // Start parallel delay-out after players are in limbo (10 ticks buffer)
+        final int delayOut = customDelayOut;
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                parallelDelayOutRunning = true;
+                List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
+                if (!players.isEmpty()) {
+                    String subtitle = getSubtitle("limbo-countdown-out", "Game starts...");
+                    startCountdown(players, delayOut, subtitle, () -> {
+                        if (isGameReady) {
+                            doTeleportAllToGame();
+                        } else {
+                            String waitMsg = getSubtitle("limbo-waiting", "Teleporting...");
+                            for (Player p : Bukkit.getOnlinePlayers()) {
+                                p.sendTitle("§e⏳", "§7" + waitMsg, 0, 60, 20);
+                            }
+                            new BukkitRunnable() {
+                                @Override
+                                public void run() {
+                                    if (isGameReady) {
+                                        this.cancel();
+                                        doTeleportAllToGame();
+                                    }
+                                }
+                            }.runTaskTimer(Main.this, 10L, 10L);
+                        }
+                    });
+                }
+            }
+        }.runTaskLater(this, 10L);
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                unloadGameWorlds();
+
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (getConfig().getBoolean("backup.enabled")) performBackup();
+
+                        deleteWorldFolder(gameWorldName);
+                        deleteWorldFolder(gameWorldName + "_nether");
+                        deleteWorldFolder(gameWorldName + "_the_end");
+
+                        generateGameWorldsInternal(false); // false — parallel handles teleport
+                    }
+                }.runTaskLater(Main.this, 20L);
+            }
+        }.runTaskLater(Main.this, 20L);
+    }
+
+    /**
+     * Reset triggered by automatic events (death, autoreset).
+     * Uses limboDelayIn/limboDelayOut for countdown before/after.
+     */
+    public void startAutoTriggeredReset() {
+        if (isResetting) return;
+        loadConfigValues();
+        if (gameWorldName.equals(limboWorldName) || gameWorldName.equals("world")) {
+            getLogger().severe("CRITICAL: game-world-name cannot be 'limbo' or 'world'!");
+            return;
+        }
+
+        World currentWorld = Bukkit.getWorld(gameWorldName);
+        lastSavedDifficulty = currentWorld != null ? currentWorld.getDifficulty() : getServerDifficulty();
+        getConfig().set("world.difficulty", lastSavedDifficulty.name());
+        saveConfig();
+
+        isResetting = true;
+        isDelayingReset = limboDelayIn > 0;
+        isGameReady = false;
+
+        sendAllToLimboWithDelay();
+
+        // Unload after delay-in + buffer
+        long delayTicks = (limboDelayIn > 0 ? (limboDelayIn * 20L + 20L) : 20L);
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                unloadGameWorlds();
+
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (getConfig().getBoolean("backup.enabled")) performBackup();
+
+                        deleteWorldFolder(gameWorldName);
+                        deleteWorldFolder(gameWorldName + "_nether");
+                        deleteWorldFolder(gameWorldName + "_the_end");
+
+                        generateAutoTriggeredGameWorlds();
+                    }
+                }.runTaskLater(Main.this, 20L);
+            }
+        }.runTaskLater(Main.this, delayTicks);
+    }
+
+    private void generateAutoTriggeredGameWorlds() {
+        // Death-reset: start delay-out parallel, generate world without triggering another delay-out
+        if (limboDelayOut > 0) {
+            startParallelDelayOut();
+        }
+        generateGameWorldsInternal(false);
+    }
+
+    /**
+     * Starts the delay-out countdown immediately (parallel with world generation).
+     * When countdown finishes:
+     *   - If world is ready → teleport players
+     *   - If world not ready → show "Teleporting..." and wait until ready
+     */
+    private void startParallelDelayOut() {
+        parallelDelayOutRunning = true;
+
+        // Delay 10 ticks to ensure players have been teleported to limbo
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
+                if (players.isEmpty()) {
+                    parallelDelayOutRunning = false;
+                    return;
+                }
+
+                String subtitle = getSubtitle("limbo-countdown-out", "Game starts...");
+                startCountdown(players, limboDelayOut, subtitle, () -> {
+                    if (isGameReady) {
+                        doTeleportAllToGame();
+                    } else {
+                        String waitMsg = getSubtitle("limbo-waiting", "Teleporting...");
+                        for (Player p : Bukkit.getOnlinePlayers()) {
+                            p.sendTitle("§e⏳", "§7" + waitMsg, 0, 60, 20);
+                        }
+                        new BukkitRunnable() {
+                            @Override
+                            public void run() {
+                                if (isGameReady) {
+                                    this.cancel();
+                                    doTeleportAllToGame();
+                                }
+                            }
+                        }.runTaskTimer(Main.this, 10L, 10L);
+                    }
+                });
+            }
+        }.runTaskLater(Main.this, 10L);
+    }
+
+    private void doTeleportAllToGame() {
+        parallelDelayOutRunning = false;
+        World game = Bukkit.getWorld(gameWorldName);
+        if (game == null) return;
+        Location spawn = game.getSpawnLocation();
+
+        broadcastInfo(getMsg("game-started"));
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            setupGamePlayer(p, spawn);
+        }
+        incrementAttempts();
+        isResetting = false;
+    }
+
+    /**
+     * Reset triggered by autoreset timer.
+     * Instant to limbo (autoreset countdown itself serves as the warning),
+     * but uses delay-out when returning players to the new world.
+     */
+    private void startAutoResetReset() {
+        if (isResetting) return;
+        loadConfigValues();
+        if (gameWorldName.equals(limboWorldName) || gameWorldName.equals("world")) {
+            getLogger().severe("CRITICAL: game-world-name cannot be 'limbo' or 'world'!");
+            return;
+        }
+
+        World currentWorld = Bukkit.getWorld(gameWorldName);
+        lastSavedDifficulty = currentWorld != null ? currentWorld.getDifficulty() : getServerDifficulty();
+        getConfig().set("world.difficulty", lastSavedDifficulty.name());
+        saveConfig();
+
+        isResetting = true;
+        isGameReady = false;
+
+        sendAllToLimboForReset(); // Instant — autoreset countdown was the warning
+
+        // Start delay-out countdown IMMEDIATELY (parallel with world generation)
+        if (limboDelayOut > 0) {
+            startParallelDelayOut();
+        }
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                unloadGameWorlds();
+
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (getConfig().getBoolean("backup.enabled")) performBackup();
+
+                        deleteWorldFolder(gameWorldName);
+                        deleteWorldFolder(gameWorldName + "_nether");
+                        deleteWorldFolder(gameWorldName + "_the_end");
+
+                        generateGameWorldsInternal(false); // false = don't start another delay-out (it's already running)
+                    }
+                }.runTaskLater(Main.this, 20L);
+            }
+        }.runTaskLater(Main.this, 20L);
+    }
+
     private void generateGameWorlds() {
+        generateGameWorldsInternal(false);
+    }
+
+    private void generateGameWorldsInternal(boolean useDelayOut) {
         // Zapisz trudność przed usunięciem świata
         Difficulty difficulty = lastSavedDifficulty != null ? lastSavedDifficulty : getServerDifficulty();
 
@@ -438,19 +827,36 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         if (useTemplate && templatesFolder.exists() && templatesFolder.isDirectory()) {
             File[] subDirs = templatesFolder.listFiles(File::isDirectory);
             if (subDirs != null) {
+                List<File> overworldCandidates = new ArrayList<>();
+                List<File> netherCandidates = new ArrayList<>();
+                List<File> endCandidates = new ArrayList<>();
+
                 for (File dir : subDirs) {
                     if (new File(dir, "level.dat").exists()) {
                         String name = dir.getName().toLowerCase();
                         if (name.contains("nether")) {
-                            sourceNether = dir;
+                            netherCandidates.add(dir);
                         } else if (name.contains("end")) {
-                            sourceEnd = dir;
+                            endCandidates.add(dir);
                         } else {
-                            if (sourceOverworld == null || name.equals("overworld")) {
-                                sourceOverworld = dir;
-                            }
+                            overworldCandidates.add(dir);
                         }
                     }
+                }
+
+                // Random selection from candidates
+                if (!overworldCandidates.isEmpty()) {
+                    sourceOverworld = overworldCandidates.get(ThreadLocalRandom.current().nextInt(overworldCandidates.size()));
+                }
+                if (!netherCandidates.isEmpty()) {
+                    sourceNether = netherCandidates.get(ThreadLocalRandom.current().nextInt(netherCandidates.size()));
+                }
+                if (!endCandidates.isEmpty()) {
+                    sourceEnd = endCandidates.get(ThreadLocalRandom.current().nextInt(endCandidates.size()));
+                }
+
+                if (overworldCandidates.size() > 1) {
+                    getLogger().info("Multiple overworld templates found (" + overworldCandidates.size() + "). Randomly selected: " + sourceOverworld.getName());
                 }
             }
         }
@@ -541,9 +947,19 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         broadcastInfo(getMsg("generation-complete"));
         isGameReady = true;
-        startGameForAll();
-        resetAndStartTimer();
-        isResetting = false;
+        if (parallelDelayOutRunning) {
+            // Parallel delay-out countdown is handling the teleport — don't start game here
+            resetAndStartTimer();
+            isResetting = false;
+        } else if (useDelayOut && limboDelayOut > 0) {
+            startGameForAllWithDelay();
+            resetAndStartTimer();
+            isResetting = false;
+        } else {
+            startGameForAll();
+            resetAndStartTimer();
+            isResetting = false;
+        }
     }
 
     // --- LOGIKA FILTRÓW (EXCLUSIVE) ---
@@ -618,7 +1034,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     }
                 }
             } catch (Exception e) {
-                getLogger().warning("Error searching structure " + struct.getKey().getKey() + ": " + e.getMessage());
+                getLogger().warning("Error searching structure: " + e.getMessage());
             }
         }
         return bestLoc;
@@ -737,6 +1153,41 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             setupGamePlayer(p, spawn);
         }
         incrementAttempts();
+    }
+
+    private void startGameForAllWithDelay() {
+        World game = Bukkit.getWorld(gameWorldName);
+        if (game == null) {
+            loadGameWorlds();
+            game = Bukkit.getWorld(gameWorldName);
+            if (game == null) return;
+        }
+        Location spawn = game.getSpawnLocation();
+
+        List<Player> playersInLimbo = new ArrayList<>();
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (p.getWorld().getName().equals(limboWorldName)) {
+                playersInLimbo.add(p);
+            }
+        }
+
+        if (!playersInLimbo.isEmpty()) {
+            String subtitle = getSubtitle("limbo-countdown-out", "Game starts...");
+            Location finalSpawn = spawn;
+            startCountdown(playersInLimbo, limboDelayOut, subtitle, () -> {
+                broadcastInfo(getMsg("game-started"));
+                for (Player p : Bukkit.getOnlinePlayers()) {
+                    setupGamePlayer(p, finalSpawn);
+                }
+                incrementAttempts();
+            });
+        } else {
+            broadcastInfo(getMsg("game-started"));
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                setupGamePlayer(p, spawn);
+            }
+            incrementAttempts();
+        }
     }
 
     private void findSafeSpawn(World w) {
@@ -887,8 +1338,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         STRUCTURE_NAMES.addAll(Arrays.asList("VILLAGE", "MINESHAFT", "RUINED_PORTAL", "SHIPWRECK"));
 
         try {
-            for (Structure s : Registry.STRUCTURE) {
-                String name = s.getKey().getKey().toUpperCase();
+            @SuppressWarnings({"deprecation", "removal"})
+            Registry<Structure> structRegistry = Registry.STRUCTURE;
+            for (Structure s : structRegistry) {
+                @SuppressWarnings({"deprecation", "removal"})
+                String name = s.key().value().toUpperCase();
                 if (!STRUCTURE_NAMES.contains(name)) {
                     STRUCTURE_NAMES.add(name);
                 }
@@ -903,7 +1357,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         BIOME_NAMES.clear();
         try {
             for (Biome b : Registry.BIOME) {
-                String name = b.getKey().getKey().toUpperCase();
+                String name = b.key().value().toUpperCase();
                 if (!BIOME_NAMES.contains(name)) {
                     BIOME_NAMES.add(name);
                 }
@@ -1070,7 +1524,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             if (!p.getWorld().getName().equals(limboWorldName)) {
                                 for (org.bukkit.inventory.ItemStack item : p.getInventory().getContents()) {
                                     if (item != null) {
-                                        String itemKey = item.getType().getKey().toString().toLowerCase(); // e.g. "minecraft:diamond"
+                                        String itemKey = item.getType().key().asString().toLowerCase(); // e.g. "minecraft:diamond"
                                         checkTimerGoal(p, "ITEM", itemKey);
                                     }
                                 }
@@ -1224,7 +1678,48 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     }
 
     private void sendActionBar(Player p, String text) {
-        p.sendActionBar(Component.text(ChatColor.translateAlternateColorCodes('&', "&e&l⏱ " + text)));
+        StringBuilder sb = new StringBuilder();
+
+        // Timer part - only show if timer is enabled and has content
+        if (timerEnabled && text != null && !text.isEmpty()) {
+            sb.append("&e&l⏱ ").append(text);
+        }
+
+        // AutoReset part - hide when at 0 (reset in progress or just finished)
+        if (autoResetEnabled && autoResetVisible && autoResetRemainingSeconds > 0) {
+            String autoResetText;
+            if (autoResetPaused) {
+                autoResetText = "&7⟳ " + formatAutoResetTime(autoResetRemainingSeconds) + " &7(||)";
+            } else {
+                // Color based on remaining time
+                String color = autoResetRemainingSeconds <= 30 ? "&c&l" : (autoResetRemainingSeconds <= 120 ? "&6" : "&a");
+                autoResetText = color + "⟳ " + formatAutoResetTime(autoResetRemainingSeconds);
+            }
+
+            if (!sb.isEmpty()) {
+                sb.append(" &7| ");
+            }
+            sb.append(autoResetText);
+        }
+
+        if (sb.isEmpty()) return;
+
+        p.sendActionBar(Component.text(ChatColor.translateAlternateColorCodes('&', sb.toString())));
+    }
+
+    /**
+     * Sends only the autoreset action bar when the timer is NOT running
+     * (so autoreset still refreshes the display independently).
+     */
+    private void refreshAutoResetActionBar() {
+        if (!autoResetEnabled || !autoResetVisible) return;
+        if (timerEnabled && timerRunning) return; // Timer task already handles display
+
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (!p.getWorld().getName().equals(limboWorldName)) {
+                sendActionBar(p, "");
+            }
+        }
     }
 
     // --- LOGIKA KOMPASU (RADARU) ---
@@ -1245,18 +1740,132 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
     }
 
+    // --- LOGIKA AUTORESETU ---
+
+    private long parseTimeToSeconds(String timeStr) {
+        if (timeStr == null || timeStr.isEmpty()) return 3600;
+        timeStr = timeStr.trim().toLowerCase();
+        try {
+            if (timeStr.endsWith("s")) {
+                return Long.parseLong(timeStr.substring(0, timeStr.length() - 1));
+            } else if (timeStr.endsWith("m")) {
+                return Long.parseLong(timeStr.substring(0, timeStr.length() - 1)) * 60;
+            } else if (timeStr.endsWith("h")) {
+                return Long.parseLong(timeStr.substring(0, timeStr.length() - 1)) * 3600;
+            } else {
+                return Long.parseLong(timeStr);
+            }
+        } catch (NumberFormatException e) {
+            getLogger().warning("Invalid autoreset time format: " + timeStr + ". Using default 1h.");
+            return 3600;
+        }
+    }
+
+    private void startAutoResetTimer() {
+        stopAutoResetTimer();
+        if (!autoResetEnabled) return;
+
+        autoResetTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!autoResetEnabled) {
+                    this.cancel();
+                    return;
+                }
+                if (autoResetPaused) return;
+
+                autoResetRemainingSeconds--;
+
+                // Last 5 seconds - show title countdown with sound
+                if (autoResetRemainingSeconds <= 5 && autoResetRemainingSeconds > 0) {
+                    int remaining = (int) autoResetRemainingSeconds;
+                    String color = remaining <= 3 ? "§c§l" : "§6§l";
+                    String subtitle = getSubtitle("autoreset-countdown", "World Reset...");
+                    for (Player p : Bukkit.getOnlinePlayers()) {
+                        if (!p.getWorld().getName().equals(limboWorldName)) {
+                            p.sendTitle(color + remaining, "§7" + subtitle, 0, 25, 5);
+                            p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, remaining <= 3 ? 1.5f : 1.0f);
+                        }
+                    }
+                }
+
+                if (autoResetRemainingSeconds <= 0) {
+                    this.cancel();
+                    autoResetTask = null;
+                    broadcastInfo(getMsg("autoreset-triggered"));
+                    startAutoResetReset();
+
+                    // Po resecie restartujemy autoreset jeśli loop
+                    if (autoResetLoop) {
+                        new BukkitRunnable() {
+                            @Override
+                            public void run() {
+                                autoResetRemainingSeconds = autoResetTotalSeconds;
+                                startAutoResetTimer();
+                            }
+                        }.runTaskLater(Main.this, 100L);
+                    }
+                }
+
+                // Refresh action bar display for autoreset (when timer is not running)
+                refreshAutoResetActionBar();
+                syncAutoResetScoreboard();
+            }
+        }.runTaskTimer(this, 20L, 20L); // Co 1 sekundę (20 ticków)
+    }
+
+    private void stopAutoResetTimer() {
+        if (autoResetTask != null) {
+            autoResetTask.cancel();
+            autoResetTask = null;
+        }
+    }
+
+    private void syncAutoResetScoreboard() {
+        try {
+            org.bukkit.scoreboard.Scoreboard sb = Bukkit.getScoreboardManager().getMainScoreboard();
+            org.bukkit.scoreboard.Objective arSecObj = getOrRegisterObjective(sb, "wr_autoreset_sec", "AutoReset (Sec)");
+            org.bukkit.scoreboard.Objective arMinObj = getOrRegisterObjective(sb, "wr_autoreset_min", "AutoReset (Min)");
+            org.bukkit.scoreboard.Objective arStatusObj = getOrRegisterObjective(sb, "wr_autoreset_status", "AutoReset Status");
+
+            int secVal = (int) autoResetRemainingSeconds;
+            int minVal = (int) (autoResetRemainingSeconds / 60);
+            // Status: 0 = disabled, 1 = running, 2 = paused
+            int statusVal = !autoResetEnabled ? 0 : (autoResetPaused ? 2 : 1);
+
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                arSecObj.getScore(p.getName()).setScore(secVal);
+                arMinObj.getScore(p.getName()).setScore(minVal);
+                arStatusObj.getScore(p.getName()).setScore(statusVal);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private String formatAutoResetTime(long seconds) {
+        long h = seconds / 3600;
+        long m = (seconds % 3600) / 60;
+        long s = seconds % 60;
+        if (h > 0) return String.format("%d:%02d:%02d", h, m, s);
+        return String.format("%d:%02d", m, s);
+    }
+
     // --- EVENTS ---
     @EventHandler
     public void onRespawn(PlayerRespawnEvent e) {
-        if (isResetting) {
+        if (isResetting && !isDelayingReset) {
+            // Reset in progress and delay is over — respawn in limbo
             Location limbo = getLimboSpawn();
             if (limbo != null) e.setRespawnLocation(limbo);
             return;
         }
 
-        World game = Bukkit.getWorld(gameWorldName);
-        if (game != null && !e.isBedSpawn() && !e.isAnchorSpawn()) {
-            e.setRespawnLocation(game.getSpawnLocation());
+        // Normal game respawn (or during delay-in phase) - send to game world spawn
+        String playerWorld = e.getPlayer().getWorld().getName();
+        if (playerWorld.contains(gameWorldName) || playerWorld.equals(limboWorldName)) {
+            World game = Bukkit.getWorld(gameWorldName);
+            if (game != null && !e.isBedSpawn() && !e.isAnchorSpawn()) {
+                e.setRespawnLocation(game.getSpawnLocation());
+            }
         }
     }
 
@@ -1309,22 +1918,22 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         String playerName = e.getEntity().getName();
         broadcastInfo(getMsg("death-reset-triggered").replace("{player}", playerName));
-        startReset();
+        startAutoTriggeredReset();
     }
 
     // --- TIMER TRIGGER EVENTS ---
     @EventHandler
     public void onEntityDeath(EntityDeathEvent e) {
         if (e.getEntity().getKiller() != null) {
-            String entityName = e.getEntity().getType().getKey().toString();
+            String entityName = e.getEntity().getType().key().asMinimalString();
             checkTimerGoal(e.getEntity().getKiller(), "ENTITY", entityName.toLowerCase());
         }
     }
 
     @EventHandler
     public void onAdvancementDone(PlayerAdvancementDoneEvent e) {
-        if (e.getAdvancement().getKey().getKey().startsWith("recipes/")) return;
-        String advName = e.getAdvancement().getKey().toString();
+        if (e.getAdvancement().key().value().startsWith("recipes/")) return;
+        String advName = e.getAdvancement().key().asMinimalString();
         checkTimerGoal(e.getPlayer(), "ADVANCEMENT", advName.toLowerCase());
     }
 
@@ -1455,7 +2064,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             return;
         }
         if (timerEnabled && timerRunning && timerGoalType.equals("BLOCK") && !e.getPlayer().getWorld().getName().equals(limboWorldName)) {
-            String blockKey = e.getBlock().getType().getKey().toString().toLowerCase(); // e.g. "minecraft:obsidian"
+            String blockKey = e.getBlock().getType().key().asString().toLowerCase(); // e.g. "minecraft:obsidian"
             checkTimerGoal(e.getPlayer(), "BLOCK", blockKey);
         }
     }
@@ -1469,7 +2078,19 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
             switch (arg) {
                 case "help", "?" -> {
-                    sender.sendMessage(getMsg("command-usage"));
+                    if (args.length >= 2) {
+                        String topic = args[1].toLowerCase();
+                        String helpLine = getHelpForCommand(topic);
+                        if (helpLine != null) {
+                            sender.sendMessage("§8§m------§8[ §b§lWorldReset §8]§m------");
+                            sender.sendMessage(helpLine);
+                            sender.sendMessage("§8§m----------------------------");
+                        } else {
+                            sender.sendMessage("§cUnknown command: §e" + topic + "§c. Use §e/wr help §cfor full list.");
+                        }
+                    } else {
+                        sendFullHelp(sender);
+                    }
                     return true;
                 }
                 case "reload" -> {
@@ -1485,7 +2106,37 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         sender.sendMessage(getMsg("already-resetting"));
                         return true;
                     }
-                    startReset();
+
+                    if (args.length >= 2) {
+                        try {
+                            int delayIn = Integer.parseInt(args[1]);
+                            int delayOut = args.length >= 3 ? Integer.parseInt(args[2]) : 0;
+
+                            if (delayIn <= 0 && delayOut <= 0) {
+                                startReset();
+                            } else if (delayIn <= 0) {
+                                startResetWithDelayOut(delayOut);
+                            } else {
+                                List<Player> allPlayers = new ArrayList<>(Bukkit.getOnlinePlayers());
+                                String subtitle = getSubtitle("reset-countdown", "World Reset...");
+                                final int finalDelayOut = delayOut;
+                                startCountdown(allPlayers, delayIn, subtitle, () -> {
+                                    if (finalDelayOut > 0) {
+                                        startResetWithDelayOut(finalDelayOut);
+                                    } else {
+                                        startReset();
+                                    }
+                                });
+                                String msg = "§eReset scheduled in §c" + delayIn + "s§e...";
+                                if (delayOut > 0) msg += " §7(delay-out: " + delayOut + "s)";
+                                sender.sendMessage(msg);
+                            }
+                        } catch (NumberFormatException e) {
+                            sender.sendMessage("§cUsage: /wr reset [delay-in] [delay-out]");
+                        }
+                    } else {
+                        startReset();
+                    }
                     return true;
                 }
                 case "limbo" -> {
@@ -1495,21 +2146,129 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         sender.sendMessage(getMsg("already-resetting"));
                         return true;
                     }
+
+                    // /wr limbo delay <in> <out> — ustawienie globalnych opóźnień
+                    if (args.length >= 2 && args[1].equalsIgnoreCase("delay")) {
+                        if (args.length < 4) {
+                            sender.sendMessage("§eCurrent delays: §fIn=" + limboDelayIn + "s §7| §fOut=" + limboDelayOut + "s");
+                            sender.sendMessage("§cUsage: /wr limbo delay <in_seconds> <out_seconds>");
+                            return true;
+                        }
+                        try {
+                            int delayIn = Integer.parseInt(args[2]);
+                            int delayOut = Integer.parseInt(args[3]);
+                            if (delayIn < 0 || delayOut < 0) {
+                                sender.sendMessage("§cDelay values must be >= 0!");
+                                return true;
+                            }
+                            limboDelayIn = delayIn;
+                            limboDelayOut = delayOut;
+                            getConfig().set("limbo.delay-in", delayIn);
+                            getConfig().set("limbo.delay-out", delayOut);
+                            saveConfig();
+                            sender.sendMessage("§aLimbo delays set: §eIn=" + delayIn + "s §7| §eOut=" + delayOut + "s");
+                        } catch (NumberFormatException e) {
+                            sender.sendMessage("§cInvalid number! Usage: /wr limbo delay <in_seconds> <out_seconds>");
+                        }
+                        return true;
+                    }
+
+                    // /wr limbo <in> <out> — shortcut for setting delays (two numbers = set delays)
+                    if (args.length >= 3) {
+                        try {
+                            int delayIn = Integer.parseInt(args[1]);
+                            int delayOut = Integer.parseInt(args[2]);
+                            if (delayIn < 0 || delayOut < 0) {
+                                sender.sendMessage("§cDelay values must be >= 0!");
+                                return true;
+                            }
+                            limboDelayIn = delayIn;
+                            limboDelayOut = delayOut;
+                            getConfig().set("limbo.delay-in", delayIn);
+                            getConfig().set("limbo.delay-out", delayOut);
+                            saveConfig();
+                            sender.sendMessage("§aLimbo delays set: §eIn=" + delayIn + "s §7| §eOut=" + delayOut + "s");
+                            return true;
+                        } catch (NumberFormatException e) {
+                            sender.sendMessage("§cUsage: /wr limbo [seconds] | /wr limbo <in> <out> | /wr limbo delay <in> <out>");
+                            return true;
+                        }
+                    }
+
+                    // /wr limbo <sekundy> — manualne wejście/wyjście z countdown
+                    int manualDelay = 0;
+                    if (args.length >= 2) {
+                        try {
+                            manualDelay = Integer.parseInt(args[1]);
+                            if (manualDelay < 0) manualDelay = 0;
+                        } catch (NumberFormatException e) {
+                            sender.sendMessage("§cUsage: /wr limbo [seconds] or /wr limbo delay <in> <out>");
+                            return true;
+                        }
+                    }
+
+                    // If no args and there's an active countdown, skip it (instant teleport)
+                    if (args.length == 1 && activeCountdowns.containsKey(p.getUniqueId())) {
+                        skipCountdown(p);
+                        // Execute the teleport immediately
+                        if (p.getWorld().getName().equals(limboWorldName)) {
+                            if (isGameReady) {
+                                World game = Bukkit.getWorld(gameWorldName);
+                                if (game != null) {
+                                    setupGamePlayer(p, game.getSpawnLocation());
+                                    p.sendMessage(getMsg("game-started"));
+                                }
+                            }
+                        } else {
+                            Location loc = getLimboSpawn();
+                            p.teleport(loc);
+                            setupLimboPlayer(p);
+                            p.sendMessage(getMsg("limbo-join"));
+                        }
+                        p.sendTitle("", "", 0, 1, 0); // Clear title
+                        return true;
+                    }
+
                     if (p.getWorld().getName().equals(limboWorldName)) {
+                        // Wyjście z limbo → do gry
                         if (isGameReady) {
                             World game = Bukkit.getWorld(gameWorldName);
                             if (game != null) {
-                                setupGamePlayer(p, game.getSpawnLocation());
-                                p.sendMessage(getMsg("game-started"));
+                                if (manualDelay > 0) {
+                                    String subtitle = getSubtitle("limbo-countdown-out", "Teleport to Game...");
+                                    Location spawn = game.getSpawnLocation();
+                                    startCountdown(p, manualDelay, subtitle, () -> {
+                                        if (p.isOnline()) {
+                                            setupGamePlayer(p, spawn);
+                                            p.sendMessage(getMsg("game-started"));
+                                        }
+                                    });
+                                } else {
+                                    setupGamePlayer(p, game.getSpawnLocation());
+                                    p.sendMessage(getMsg("game-started"));
+                                }
                             }
                         } else {
                             startReset();
                         }
                     } else {
-                        Location loc = getLimboSpawn();
-                        p.teleport(loc);
-                        setupLimboPlayer(p);
-                        p.sendMessage(getMsg("limbo-join"));
+                        // Wejście do limbo
+                        if (manualDelay > 0) {
+                            String subtitle = getSubtitle("limbo-countdown-in", "Teleport to Limbo...");
+                            startCountdown(p, manualDelay, subtitle, () -> {
+                                if (p.isOnline()) {
+                                    Location loc = getLimboSpawn();
+                                    p.teleport(loc);
+                                    setupLimboPlayer(p);
+                                    p.sendMessage(getMsg("limbo-join"));
+                                }
+                            });
+                        } else {
+                            Location loc = getLimboSpawn();
+                            p.teleport(loc);
+                            setupLimboPlayer(p);
+                            p.sendMessage(getMsg("limbo-join"));
+                        }
                     }
                     return true;
                 }
@@ -1566,11 +2325,32 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 case "filter" -> {
                     if (hasPerm(sender, "worldreset.filter")) return noPerm(sender, "worldreset.filter");
 
+                    // /wr filter — show current status
+                    if (args.length == 1) {
+                        String filterStruct = getConfig().getString("filter.structure", "");
+                        String filterBiome = getConfig().getString("filter.biome", "");
+                        boolean fixedSeed = getConfig().getBoolean("seed.use-fixed", false);
+                        String seedVal = getConfig().getString("seed.value", "");
+
+                        sender.sendMessage("§e--- Filter Status ---");
+                        sender.sendMessage("§7Structure: " + (filterStruct.isEmpty() ? "§8None" : "§a" + filterStruct));
+                        sender.sendMessage("§7Biome: " + (filterBiome.isEmpty() ? "§8None" : "§a" + filterBiome));
+                        sender.sendMessage("§7Seed: " + (fixedSeed ? "§e" + seedVal + " §7(fixed)" : "§aRandom"));
+                        World game = Bukkit.getWorld(gameWorldName);
+                        if (game != null) {
+                            sender.sendMessage("§7Current world seed: §f" + game.getSeed());
+                        }
+                        return true;
+                    }
+
+                    // /wr filter clear — clear filters AND seed
                     if (args.length == 2 && args[1].equalsIgnoreCase("clear")) {
                         getConfig().set("filter.structure", "");
                         getConfig().set("filter.biome", "");
+                        getConfig().set("seed.use-fixed", false);
                         saveConfig();
                         sender.sendMessage(getMsg("filter-disabled"));
+                        sender.sendMessage("§7Fixed seed disabled. Next reset will use a random seed.");
                         return true;
                     }
 
@@ -1652,13 +2432,13 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         resetAndStartTimer();
                         broadcastInfo("§eTimer manually reset to 0.");
                         return true;
-                    } else if (sub.equals("enable")) {
+                    } else if (isEnableAlias(sub)) {
                         getConfig().set("timer.enabled", true);
                         saveConfig();
                         timerEnabled = true;
                         sender.sendMessage(getMsg("timer-enabled"));
                         return true;
-                    } else if (sub.equals("disable")) {
+                    } else if (isDisableAlias(sub)) {
                         stopTimer(true); // Najpierw pauzujemy, żeby zabić ewentualne taski
                         getConfig().set("timer.enabled", false);
                         saveConfig();
@@ -1791,9 +2571,9 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         newState = !compassEnabled;
                     } else {
                         String sub = args[1].toLowerCase();
-                        if (sub.equals("enable")) {
+                        if (isEnableAlias(sub)) {
                             newState = true;
-                        } else if (sub.equals("disable")) {
+                        } else if (isDisableAlias(sub)) {
                             newState = false;
                         } else {
                             sender.sendMessage("§cUsage: /wr compass <enable|disable>");
@@ -1808,30 +2588,485 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     sender.sendMessage(newState ? "§aLocator bar enabled!" : "§cLocator bar disabled.");
                     return true;
                 }
+                case "templates" -> {
+                    if (hasPerm(sender, "worldreset.templates")) return noPerm(sender, "worldreset.templates");
+
+                    if (args.length < 2) {
+                        // Toggle
+                        boolean current = getConfig().getBoolean("template.enabled", false);
+                        boolean newVal = !current;
+                        getConfig().set("template.enabled", newVal);
+                        saveConfig();
+                        sender.sendMessage(newVal ? "§aTemplates enabled." : "§cTemplates disabled.");
+                        return true;
+                    }
+
+                    String sub = args[1].toLowerCase();
+                    if (isEnableAlias(sub)) {
+                        getConfig().set("template.enabled", true);
+                        saveConfig();
+                        sender.sendMessage("§aTemplates enabled.");
+                    } else if (isDisableAlias(sub)) {
+                        getConfig().set("template.enabled", false);
+                        saveConfig();
+                        sender.sendMessage("§cTemplates disabled.");
+                    } else if (sub.equals("folder")) {
+                        if (args.length < 3) {
+                            String currentFolder = getConfig().getString("template.folder", "WorldReset_Templates");
+                            sender.sendMessage("§eCurrent templates folder: §f" + currentFolder);
+                        } else {
+                            String newFolder = args[2];
+                            getConfig().set("template.folder", newFolder);
+                            saveConfig();
+                            sender.sendMessage("§aTemplates folder set to: §f" + newFolder);
+                        }
+                    } else if (sub.equals("status")) {
+                        boolean enabled = getConfig().getBoolean("template.enabled", false);
+                        String folder = getConfig().getString("template.folder", "WorldReset_Templates");
+                        File templatesDir = getTemplateFolder();
+                        int worldCount = 0;
+                        if (templatesDir.exists()) {
+                            File[] dirs = templatesDir.listFiles(File::isDirectory);
+                            if (dirs != null) {
+                                for (File d : dirs) {
+                                    if (new File(d, "level.dat").exists()) worldCount++;
+                                }
+                            }
+                        }
+                        sender.sendMessage("§e--- Templates Status ---");
+                        sender.sendMessage("§7Enabled: " + (enabled ? "§aYes" : "§cNo"));
+                        sender.sendMessage("§7Folder: §f" + folder);
+                        sender.sendMessage("§7Detected worlds: §f" + worldCount);
+                    } else {
+                        sender.sendMessage("§cUsage: /wr templates <enable|disable|folder|status>");
+                    }
+                    return true;
+                }
+                case "autoreset" -> {
+                    if (hasPerm(sender, "worldreset.autoreset")) return noPerm(sender, "worldreset.autoreset");
+
+                    if (args.length < 2) {
+                        // Show status
+                        String statusStr = !autoResetEnabled ? "§cDisabled" : (autoResetPaused ? "§6Paused" : "§aRunning");
+                        sender.sendMessage("§e--- AutoReset Status ---");
+                        sender.sendMessage("§7Status: " + statusStr);
+                        sender.sendMessage("§7Time: §f" + formatAutoResetTime(autoResetRemainingSeconds) + " §7/ §f" + formatAutoResetTime(autoResetTotalSeconds));
+                        sender.sendMessage("§7Loop: " + (autoResetLoop ? "§aYes" : "§cNo"));
+                        sender.sendMessage("§7Visible: " + (autoResetVisible ? "§aYes" : "§cNo"));
+                        return true;
+                    }
+
+                    String sub = args[1].toLowerCase();
+
+                    switch (sub) {
+                        case "start" -> {
+                            autoResetEnabled = true;
+                            autoResetPaused = false;
+                            getConfig().set("autoreset.enabled", true);
+                            getConfig().set("autoreset.paused", false);
+                            saveConfig();
+                            if (autoResetRemainingSeconds <= 0) {
+                                autoResetRemainingSeconds = autoResetTotalSeconds;
+                            }
+                            startAutoResetTimer();
+                            sender.sendMessage("§aAutoReset started! Time remaining: §e" + formatAutoResetTime(autoResetRemainingSeconds));
+                            syncAutoResetScoreboard();
+                        }
+                        case "stop", "pause" -> {
+                            autoResetPaused = true;
+                            getConfig().set("autoreset.paused", true);
+                            saveConfig();
+                            sender.sendMessage("§6AutoReset paused. Time remaining: §e" + formatAutoResetTime(autoResetRemainingSeconds));
+                            syncAutoResetScoreboard();
+                        }
+                        case "disable" -> {
+                            stopAutoResetTimer();
+                            autoResetEnabled = false;
+                            autoResetPaused = true;
+                            autoResetRemainingSeconds = autoResetTotalSeconds;
+                            getConfig().set("autoreset.enabled", false);
+                            getConfig().set("autoreset.paused", true);
+                            saveConfig();
+                            sender.sendMessage("§cAutoReset disabled and timer reset.");
+                            syncAutoResetScoreboard();
+                        }
+                        case "loop" -> {
+                            if (args.length < 3) {
+                                autoResetLoop = !autoResetLoop;
+                            } else {
+                                autoResetLoop = isEnableAlias(args[2].toLowerCase());
+                            }
+                            getConfig().set("autoreset.loop", autoResetLoop);
+                            saveConfig();
+                            sender.sendMessage("§aAutoReset loop: " + (autoResetLoop ? "§aEnabled" : "§cDisabled"));
+                        }
+                        case "visible" -> {
+                            if (args.length < 3) {
+                                autoResetVisible = !autoResetVisible;
+                            } else {
+                                autoResetVisible = isEnableAlias(args[2].toLowerCase());
+                            }
+                            getConfig().set("autoreset.visible", autoResetVisible);
+                            saveConfig();
+                            sender.sendMessage("§aAutoReset visibility: " + (autoResetVisible ? "§aVisible" : "§cHidden"));
+                        }
+                        case "time" -> {
+                            if (args.length < 3) {
+                                sender.sendMessage("§cUsage: /wr autoreset time <value> (e.g. 60s, 5m, 1h)");
+                                return true;
+                            }
+                            long newTime = parseTimeToSeconds(args[2]);
+                            autoResetTotalSeconds = newTime;
+                            autoResetRemainingSeconds = newTime;
+                            getConfig().set("autoreset.time", args[2]);
+                            saveConfig();
+                            sender.sendMessage("§aAutoReset time set to: §e" + formatAutoResetTime(newTime));
+
+                            // Restart the timer if it's running
+                            if (autoResetEnabled && !autoResetPaused) {
+                                startAutoResetTimer();
+                            }
+                            syncAutoResetScoreboard();
+                        }
+                        default -> {
+                            sender.sendMessage("§cUsage: /wr autoreset <start|stop|disable|loop|visible|time>");
+                        }
+                    }
+                    return true;
+                }
+                case "backup" -> {
+                    if (hasPerm(sender, "worldreset.admin")) return noPerm(sender, "worldreset.admin");
+
+                    // /wr backup — toggle
+                    if (args.length == 1) {
+                        boolean current = getConfig().getBoolean("backup.enabled", true);
+                        boolean newVal = !current;
+                        getConfig().set("backup.enabled", newVal);
+                        saveConfig();
+                        sender.sendMessage(newVal ? "§aBackups enabled." : "§cBackups disabled.");
+                        return true;
+                    }
+
+                    String sub = args[1].toLowerCase();
+
+                    switch (sub) {
+                        case "enable", "on", "true" -> {
+                            getConfig().set("backup.enabled", true);
+                            saveConfig();
+                            sender.sendMessage("§aBackups enabled.");
+                        }
+                        case "disable", "off", "false" -> {
+                            getConfig().set("backup.enabled", false);
+                            saveConfig();
+                            sender.sendMessage("§cBackups disabled.");
+                        }
+                        case "status" -> {
+                            boolean enabled = getConfig().getBoolean("backup.enabled", true);
+                            String limitStr = getConfig().getString("backup.limit", "all");
+                            String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
+                            File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
+                            int backupCount = 0;
+                            long totalSize = 0;
+                            if (backupsDir.exists()) {
+                                File[] dirs = backupsDir.listFiles(File::isDirectory);
+                                if (dirs != null) {
+                                    backupCount = dirs.length;
+                                    for (File dir : dirs) totalSize += getDirSize(dir);
+                                }
+                            }
+                            sender.sendMessage("§e--- Backup Status ---");
+                            sender.sendMessage("§7Enabled: " + (enabled ? "§aYes" : "§cNo"));
+                            sender.sendMessage("§7Limit: §f" + limitStr);
+                            sender.sendMessage("§7Existing backups: §f" + backupCount);
+                            sender.sendMessage("§7Total size: §f" + formatFileSize(totalSize));
+                            sender.sendMessage("§7Folder: §f" + folder);
+                        }
+                        case "list" -> {
+                            String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
+                            File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
+                            if (!backupsDir.exists() || backupsDir.listFiles(File::isDirectory) == null) {
+                                sender.sendMessage("§7No backups found.");
+                                return true;
+                            }
+                            File[] dirs = backupsDir.listFiles(File::isDirectory);
+                            if (dirs == null || dirs.length == 0) {
+                                sender.sendMessage("§7No backups found.");
+                                return true;
+                            }
+                            Arrays.sort(dirs, Comparator.comparingLong(File::lastModified).reversed());
+                            sender.sendMessage("§e--- Backups (" + dirs.length + ") ---");
+                            for (int i = 0; i < dirs.length; i++) {
+                                long size = getDirSize(dirs[i]);
+                                sender.sendMessage("§7 " + (i + 1) + ". §f" + dirs[i].getName() + " §8(§7" + formatFileSize(size) + "§8)");
+                            }
+                        }
+                        case "load" -> {
+                            if (args.length < 3) {
+                                sender.sendMessage("§cUsage: /wr backup load <number>");
+                                return true;
+                            }
+                            String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
+                            File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
+                            File[] dirs = backupsDir.exists() ? backupsDir.listFiles(File::isDirectory) : null;
+                            if (dirs == null || dirs.length == 0) {
+                                sender.sendMessage("§cNo backups available.");
+                                return true;
+                            }
+                            Arrays.sort(dirs, Comparator.comparingLong(File::lastModified).reversed());
+                            try {
+                                int index = Integer.parseInt(args[2]) - 1;
+                                if (index < 0 || index >= dirs.length) {
+                                    sender.sendMessage("§cInvalid number! Use 1-" + dirs.length);
+                                    return true;
+                                }
+                                File selectedBackup = dirs[index];
+                                sender.sendMessage("§eLoading backup: §f" + selectedBackup.getName() + "§e...");
+
+                                // Use template system to load backup as world
+                                isResetting = true;
+                                isGameReady = false;
+                                sendAllToLimboForReset();
+
+                                new BukkitRunnable() {
+                                    @Override
+                                    public void run() {
+                                        unloadGameWorlds();
+                                        new BukkitRunnable() {
+                                            @Override
+                                            public void run() {
+                                                deleteWorldFolder(gameWorldName);
+                                                deleteWorldFolder(gameWorldName + "_nether");
+                                                deleteWorldFolder(gameWorldName + "_the_end");
+
+                                                // Copy backup folders as game worlds
+                                                File backupOverworld = new File(selectedBackup, gameWorldName);
+                                                File backupNether = new File(selectedBackup, gameWorldName + "_nether");
+                                                File backupEnd = new File(selectedBackup, gameWorldName + "_the_end");
+
+                                                try {
+                                                    if (backupOverworld.exists()) copyTemplateFolder(backupOverworld, new File(Bukkit.getWorldContainer(), gameWorldName));
+                                                    if (backupNether.exists()) copyTemplateFolder(backupNether, new File(Bukkit.getWorldContainer(), gameWorldName + "_nether"));
+                                                    if (backupEnd.exists()) copyTemplateFolder(backupEnd, new File(Bukkit.getWorldContainer(), gameWorldName + "_the_end"));
+                                                } catch (IOException e) {
+                                                    getLogger().severe("Failed to load backup: " + e.getMessage());
+                                                }
+
+                                                loadGameWorlds();
+                                                applyLocatorBarGamerule();
+                                                broadcastInfo(getMsg("generation-complete"));
+                                                isGameReady = true;
+                                                startGameForAll();
+                                                isResetting = false;
+                                            }
+                                        }.runTaskLater(Main.this, 20L);
+                                    }
+                                }.runTaskLater(Main.this, 20L);
+                            } catch (NumberFormatException e) {
+                                sender.sendMessage("§cUsage: /wr backup load <number>");
+                            }
+                        }
+                        case "clear" -> {
+                            String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
+                            File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
+                            File[] dirs = backupsDir.exists() ? backupsDir.listFiles(File::isDirectory) : null;
+                            if (dirs == null || dirs.length == 0) {
+                                sender.sendMessage("§7No backups to clear.");
+                                return true;
+                            }
+
+                            if (args.length >= 3) {
+                                // /wr backup clear <number> — delete N oldest
+                                try {
+                                    int count = Integer.parseInt(args[2]);
+                                    if (count <= 0) {
+                                        sender.sendMessage("§cNumber must be at least 1!");
+                                        return true;
+                                    }
+                                    Arrays.sort(dirs, Comparator.comparingLong(File::lastModified));
+                                    int toDelete = Math.min(count, dirs.length);
+                                    for (int i = 0; i < toDelete; i++) {
+                                        deleteDirectoryRecursive(dirs[i]);
+                                    }
+                                    sender.sendMessage("§aDeleted §e" + toDelete + " §aoldest backup(s).");
+                                } catch (NumberFormatException e) {
+                                    sender.sendMessage("§cUsage: /wr backup clear [number]");
+                                }
+                            } else {
+                                // /wr backup clear — delete all
+                                int count = dirs.length;
+                                for (File dir : dirs) {
+                                    deleteDirectoryRecursive(dir);
+                                }
+                                sender.sendMessage("§aAll §e" + count + " §abackup(s) deleted.");
+                            }
+                        }
+                        case "limit" -> {
+                            if (args.length < 3) {
+                                String limitStr = getConfig().getString("backup.limit", "all");
+                                sender.sendMessage("§7Current backup limit: §f" + limitStr);
+                                return true;
+                            }
+                            String value = args[2].toLowerCase();
+                            if (value.equals("all")) {
+                                getConfig().set("backup.limit", "all");
+                                saveConfig();
+                                sender.sendMessage("§aBackup limit set to: §eall §7(keep all backups)");
+                            } else {
+                                try {
+                                    int limit = Integer.parseInt(value);
+                                    if (limit < 1) {
+                                        sender.sendMessage("§cLimit must be at least 1 or 'all'!");
+                                        return true;
+                                    }
+                                    getConfig().set("backup.limit", String.valueOf(limit));
+                                    saveConfig();
+                                    sender.sendMessage("§aBackup limit set to: §e" + limit + " §7(keep last " + limit + " backups)");
+                                } catch (NumberFormatException e) {
+                                    sender.sendMessage("§cUsage: /wr backup limit <number|all>");
+                                }
+                            }
+                        }
+                        default -> {
+                            // Try parsing as a number for quick limit set
+                            try {
+                                int limit = Integer.parseInt(sub);
+                                if (limit < 1) {
+                                    sender.sendMessage("§cLimit must be at least 1!");
+                                    return true;
+                                }
+                                getConfig().set("backup.limit", String.valueOf(limit));
+                                saveConfig();
+                                sender.sendMessage("§aBackup limit set to: §e" + limit);
+                            } catch (NumberFormatException e) {
+                                sender.sendMessage("§cUsage: /wr backup <enable|disable|status|limit> or /wr backup <number>");
+                            }
+                        }
+                    }
+                    return true;
+                }
             }
 
         }
-        sender.sendMessage(getMsg("command-usage"));
+        sendFullHelp(sender);
         return true;
     }
 
     private boolean hasPerm(CommandSender s, String node) { return !s.hasPermission(node) && !s.hasPermission(node + ".*") && !s.hasPermission("worldreset.*") && !s.isOp(); }
     private boolean noPerm(CommandSender s, String node) { s.sendMessage(getMsg("no-permission").replace("{permission}", node)); return true; }
+    private boolean isEnableAlias(String s) { return s.equals("enable") || s.equals("on") || s.equals("true"); }
+    private boolean isDisableAlias(String s) { return s.equals("disable") || s.equals("off") || s.equals("false"); }
+
+    private long getDirSize(File dir) {
+        long size = 0;
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                size += f.isDirectory() ? getDirSize(f) : f.length();
+            }
+        }
+        return size;
+    }
+
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        if (bytes < 1024L * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
+    }
+
+    private void sendFullHelp(CommandSender sender) {
+        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+        sender.sendMessage("§8§m------§8[ §b§lWorldReset §8]§m------");
+        sender.sendMessage(isPl ? "§7§oWpisz §e/wr help §6<§ekomenda§6> §7§opo szczegóły." : "§7§oUse §e/wr help §6<§ecommand§6> §7§ofor details.");
+        sender.sendMessage("");
+        sender.sendMessage(isPl ? "§f§l⚙ Gra" : "§f§l⚙ Game");
+        sender.sendMessage(isPl ? "  §e/wr reset §6[§esekundy§6] §8- §7Zresetuj świat" : "  §e/wr reset §6[§eseconds§6] §8- §7Reset the world");
+        sender.sendMessage(isPl ? "  §e/wr limbo §6[§esekundy§6] §8- §7Przełącz Limbo" : "  §e/wr limbo §6[§eseconds§6] §8- §7Toggle Limbo");
+        sender.sendMessage(isPl ? "  §e/wr death §8- §7Reset po śmierci" : "  §e/wr death §8- §7Toggle reset-on-death");
+        sender.sendMessage("");
+        sender.sendMessage(isPl ? "§f§l⏱ Timer i AutoReset" : "§f§l⏱ Timer & AutoReset");
+        sender.sendMessage(isPl ? "  §e/wr timer §6<§eakcja§6> §8- §7Stoper speedrunowy" : "  §e/wr timer §6<§eaction§6> §8- §7Speedrun stopwatch");
+        sender.sendMessage(isPl ? "  §e/wr autoreset §6<§eakcja§6> §8- §7Zaplanowane resety" : "  §e/wr autoreset §6<§eaction§6> §8- §7Scheduled resets");
+        sender.sendMessage("");
+        sender.sendMessage(isPl ? "§f§l🌍 Świat" : "§f§l🌍 World");
+        sender.sendMessage(isPl ? "  §e/wr filter §6[§etyp§6] §6[§enazwa§6] §8- §7Filtry spawnu i seed" : "  §e/wr filter §6[§etype§6] §6[§ename§6] §8- §7Spawn filters & seed");
+        sender.sendMessage(isPl ? "  §e/wr seed §6[§ewartość§6] §8- §7Stały/losowy seed" : "  §e/wr seed §6[§evalue§6] §8- §7Fixed/random seed");
+        sender.sendMessage(isPl ? "  §e/wr templates §6<§eakcja§6> §8- §7Szablony map" : "  §e/wr templates §6<§eaction§6> §8- §7World templates");
+        sender.sendMessage(isPl ? "  §e/wr compass §6[§eenable§6|§edisable§6] §8- §7Locator bar" : "  §e/wr compass §6[§eenable§6|§edisable§6] §8- §7Locator bar");
+        sender.sendMessage("");
+        sender.sendMessage(isPl ? "§f§l🛠 System" : "§f§l🛠 System");
+        sender.sendMessage(isPl ? "  §e/wr backup §6[§eakcja§6] §8- §7Zarządzanie kopiami" : "  §e/wr backup §6[§eaction§6] §8- §7Backup management");
+        sender.sendMessage(isPl ? "  §e/wr language §6<§een§6|§epl§6> §8- §7Zmień język" : "  §e/wr language §6<§een§6|§epl§6> §8- §7Change language");
+        sender.sendMessage(isPl ? "  §e/wr silent §8- §7Wycisz komunikaty" : "  §e/wr silent §8- §7Toggle broadcasts");
+        sender.sendMessage(isPl ? "  §e/wr reload §8- §7Przeładuj config" : "  §e/wr reload §8- §7Reload config");
+        sender.sendMessage("§8§m----------------------------");
+    }
+
+    private String getHelpForCommand(String cmd) {
+        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+        return switch (cmd) {
+            case "reset" -> isPl
+                    ? "§e/wr reset §6[§edelay-in§6] §6[§edelay-out§6] §8- §7Zresetuj świat.\n§7  delay-in: odliczanie przed resetem. delay-out: odliczanie w limbo przed startem."
+                    : "§e/wr reset §6[§edelay-in§6] §6[§edelay-out§6] §8- §7Reset the world.\n§7  delay-in: countdown before reset. delay-out: countdown in limbo before game starts.";
+            case "limbo" -> isPl
+                    ? "§e/wr limbo §6[§esekundy§6] §8- §7Wejdź/wyjdź z Limbo (opcjonalne odliczanie)\n§e/wr limbo §6<§ein§6> §6<§eout§6> §8- §7Ustaw automatyczne opóźnienia\n§7  Podczas odliczania §e/wr limbo §7przeskakuje je."
+                    : "§e/wr limbo §6[§eseconds§6] §8- §7Enter/leave Limbo (optional countdown)\n§e/wr limbo §6<§ein§6> §6<§eout§6> §8- §7Set automatic delays\n§7  During active countdown, §e/wr limbo §7skips it.";
+            case "death" -> isPl
+                    ? "§e/wr death §8- §7Przełącz reset po śmierci.\n§7  Gdy włączony, śmierć gracza resetuje świat."
+                    : "§e/wr death §8- §7Toggle Reset-on-Death mode.\n§7  When enabled, any player death resets the world.";
+            case "timer" -> isPl
+                    ? "§e/wr timer §6<§estart§6|§epause§6|§ereset§6> §8- §7Steruj stoperem\n§e/wr timer §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz system\n§e/wr timer mode §6<§eRTA§6|§eIGT§6> §8- §7Tryb liczenia\n§e/wr timer scope §6<§eGLOBAL§6|§eINDIVIDUAL§6> §8- §7Zasięg\n§e/wr timer goal §6<§etyp§6> §6<§ewartość§6> §8- §7Ustaw cel"
+                    : "§e/wr timer §6<§estart§6|§epause§6|§ereset§6> §8- §7Control stopwatch\n§e/wr timer §6<§eenable§6|§edisable§6> §8- §7Turn system on/off\n§e/wr timer mode §6<§eRTA§6|§eIGT§6> §8- §7Set counting mode\n§e/wr timer scope §6<§eGLOBAL§6|§eINDIVIDUAL§6> §8- §7Set scope\n§e/wr timer goal §6<§etype§6> §6<§evalue§6> §8- §7Set goal trigger";
+            case "autoreset" -> isPl
+                    ? "§e/wr autoreset §8- §7Pokaż status\n§e/wr autoreset §6<§estart§6|§estop§6|§edisable§6> §8- §7Steruj odliczaniem\n§e/wr autoreset time §6<§ewartość§6> §8- §7Ustaw interwał §6(§e30s§6, §e5m§6, §e1h§6)\n§e/wr autoreset loop §6[§eenable§6|§edisable§6] §8- §7Pętla\n§e/wr autoreset visible §6[§eenable§6|§edisable§6] §8- §7Widoczność HUD"
+                    : "§e/wr autoreset §8- §7Show status\n§e/wr autoreset §6<§estart§6|§estop§6|§edisable§6> §8- §7Control countdown\n§e/wr autoreset time §6<§evalue§6> §8- §7Set interval §6(§e30s§6, §e5m§6, §e1h§6)\n§e/wr autoreset loop §6[§eenable§6|§edisable§6] §8- §7Toggle loop\n§e/wr autoreset visible §6[§eenable§6|§edisable§6] §8- §7Toggle HUD";
+            case "filter" -> isPl
+                    ? "§e/wr filter §8- §7Pokaż aktualne filtry i seed\n§e/wr filter structure §6<§enazwa§6> §8- §7Filtr struktury\n§e/wr filter biome §6<§enazwa§6> §8- §7Filtr biomu\n§e/wr filter clear §8- §7Wyczyść filtry i seed"
+                    : "§e/wr filter §8- §7Show current filters & seed\n§e/wr filter structure §6<§ename§6> §8- §7Set structure filter\n§e/wr filter biome §6<§ename§6> §8- §7Set biome filter\n§e/wr filter clear §8- §7Clear all filters & fixed seed";
+            case "seed" -> isPl
+                    ? "§e/wr seed §6<§ewartość§6> §8- §7Ustaw stały seed\n§e/wr seed §8- §7Wyłącz stały seed (losowy)"
+                    : "§e/wr seed §6<§evalue§6> §8- §7Set fixed seed\n§e/wr seed §8- §7Disable fixed seed (random)";
+            case "templates" -> isPl
+                    ? "§e/wr templates §6<§eenable§6|§edisable§6> §8- §7Przełącz szablony\n§e/wr templates folder §6[§eścieżka§6] §8- §7Podgląd/zmiana folderu\n§e/wr templates status §8- §7Info o szablonach"
+                    : "§e/wr templates §6<§eenable§6|§edisable§6> §8- §7Toggle templates\n§e/wr templates folder §6[§epath§6] §8- §7View/set folder\n§e/wr templates status §8- §7Show template info";
+            case "compass" -> isPl
+                    ? "§e/wr compass §6<§eenable§6|§edisable§6> §8- §7Przełącz Locator Bar"
+                    : "§e/wr compass §6<§eenable§6|§edisable§6> §8- §7Toggle Locator Bar";
+            case "language", "lang" -> isPl
+                    ? "§e/wr language §6<§een§6|§epl§6> §8- §7Zmień język pluginu"
+                    : "§e/wr language §6<§een§6|§epl§6> §8- §7Switch plugin language";
+            case "silent" -> isPl
+                    ? "§e/wr silent §8- §7Przełącz globalne komunikaty czatu"
+                    : "§e/wr silent §8- §7Toggle global broadcast messages on/off";
+            case "backup" -> isPl
+                    ? "§e/wr backup §6<§eenable§6|§edisable§6> §8- §7Przełącz kopie zapasowe\n§e/wr backup status §8- §7Status (limit, liczba, rozmiar)\n§e/wr backup list §8- §7Lista kopii zapasowych\n§e/wr backup load §6<§enumer§6> §8- §7Wczytaj kopię\n§e/wr backup clear §6[§eilość§6] §8- §7Usuń kopie (najstarsze)\n§e/wr backup limit §6<§eliczba§6|§eall§6> §8- §7Ustaw limit"
+                    : "§e/wr backup §6<§eenable§6|§edisable§6> §8- §7Toggle backups\n§e/wr backup status §8- §7Show info (limit, count, size)\n§e/wr backup list §8- §7List all backups\n§e/wr backup load §6<§enumber§6> §8- §7Load a backup\n§e/wr backup clear §6[§ecount§6] §8- §7Delete backups (oldest first)\n§e/wr backup limit §6<§enumber§6|§eall§6> §8- §7Set backup limit";
+            case "reload" -> isPl
+                    ? "§e/wr reload §8- §7Przeładuj konfigurację i pliki językowe"
+                    : "§e/wr reload §8- §7Reload config and language files";
+            default -> null;
+        };
+    }
 
     // --- DYNAMIC TAB COMPLETION ---
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, String[] args) {
         if (args.length == 1) {
-            return StringUtil.copyPartialMatches(args[0], Arrays.asList("reset", "limbo", "seed", "language", "silent", "death", "filter", "timer", "compass", "reload"), new ArrayList<>());
+            return StringUtil.copyPartialMatches(args[0], Arrays.asList("reset", "limbo", "seed", "language", "silent", "death", "filter", "timer", "compass", "templates", "autoreset", "backup", "reload", "help"), new ArrayList<>());
         }
         if (args.length == 2) {
             if (args[0].equalsIgnoreCase("filter")) {
                 return StringUtil.copyPartialMatches(args[1], Arrays.asList("structure", "biome", "clear"), new ArrayList<>());
             }
             if (args[0].equalsIgnoreCase("language")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("en", "pl"), new ArrayList<>());
-            // Dodane 'enable' i 'disable' do podpowiedzi timera
             if (args[0].equalsIgnoreCase("timer")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "pause", "reset", "enable", "disable", "mode", "scope", "goal"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("compass")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("templates")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "folder", "status"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("autoreset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "stop", "disable", "loop", "visible", "time"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("backup")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "status", "list", "load", "clear", "limit"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("limbo")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("delay", "3", "5", "10"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("reset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("3", "5", "10", "15", "30"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("help") || args[0].equals("?")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("reset", "limbo", "death", "timer", "autoreset", "filter", "seed", "templates", "compass", "backup", "language", "silent", "reload"), new ArrayList<>());
         }
         if (args.length == 3) {
             if (args[0].equalsIgnoreCase("filter")) {
@@ -1863,15 +3098,32 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     return StringUtil.copyPartialMatches(args[2], list, new ArrayList<>());
                 }
             }
+            if (args[0].equalsIgnoreCase("autoreset")) {
+                if (args[1].equalsIgnoreCase("loop") || args[1].equalsIgnoreCase("visible")) {
+                    return StringUtil.copyPartialMatches(args[2], Arrays.asList("enable", "disable"), new ArrayList<>());
+                }
+                if (args[1].equalsIgnoreCase("time")) {
+                    return StringUtil.copyPartialMatches(args[2], Arrays.asList("30s", "60s", "5m", "10m", "30m", "1h", "2h"), new ArrayList<>());
+                }
+            }
+            if (args[0].equalsIgnoreCase("limbo") && args[1].equalsIgnoreCase("delay")) {
+                return StringUtil.copyPartialMatches(args[2], Arrays.asList("0", "3", "5", "10", "15"), new ArrayList<>());
+            }
+            if (args[0].equalsIgnoreCase("backup") && args[1].equalsIgnoreCase("limit")) {
+                return StringUtil.copyPartialMatches(args[2], Arrays.asList("all", "3", "5", "10", "20"), new ArrayList<>());
+            }
         }
         if (args.length == 4) {
+            if (args[0].equalsIgnoreCase("limbo") && args[1].equalsIgnoreCase("delay")) {
+                return StringUtil.copyPartialMatches(args[3], Arrays.asList("0", "3", "5", "10", "15"), new ArrayList<>());
+            }
             if (args[0].equalsIgnoreCase("timer") && args[1].equalsIgnoreCase("goal")) {
                 if (args[2].equalsIgnoreCase("PORTAL")) return StringUtil.copyPartialMatches(args[3], Arrays.asList("NETHER", "END", "OVERWORLD", "ANY"), new ArrayList<>());
 
                 if (args[2].equalsIgnoreCase("ENTITY")) {
                     List<String> entities = new ArrayList<>();
-                    for (EntityType type : EntityType.values()) {
-                        if (type.isAlive()) entities.add(type.getKey().getKey());
+                    for (EntityType type : Registry.ENTITY_TYPE) {
+                        if (type.isAlive()) entities.add(type.key().value());
                     }
                     return StringUtil.copyPartialMatches(args[3].toLowerCase(), entities, new ArrayList<>());
                 }
@@ -1880,17 +3132,18 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     List<String> advs = new ArrayList<>();
                     Iterator<Advancement> it = Bukkit.advancementIterator();
                     while(it.hasNext()) {
-                        NamespacedKey key = it.next().getKey();
-                        if (!key.getKey().startsWith("recipes/")) advs.add(key.getKey());
+                        Advancement adv = it.next();
+                        String keyValue = adv.key().value();
+                        if (!keyValue.startsWith("recipes/")) advs.add(keyValue);
                     }
                     return StringUtil.copyPartialMatches(args[3].toLowerCase(), advs, new ArrayList<>());
                 }
 
                 if (args[2].equalsIgnoreCase("BLOCK")) {
                     List<String> blocks = new ArrayList<>();
-                    for (Material mat : Material.values()) {
-                        if (mat.isBlock() && !mat.isLegacy()) {
-                            blocks.add(mat.getKey().getKey());
+                    for (Material mat : Registry.MATERIAL) {
+                        if (mat.isBlock()) {
+                            blocks.add(mat.key().value());
                         }
                     }
                     return StringUtil.copyPartialMatches(args[3].toLowerCase(), blocks, new ArrayList<>());
@@ -1898,9 +3151,9 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
                 if (args[2].equalsIgnoreCase("ITEM")) {
                     List<String> items = new ArrayList<>();
-                    for (Material mat : Material.values()) {
-                        if (mat.isItem() && !mat.isLegacy()) {
-                            items.add(mat.getKey().getKey());
+                    for (Material mat : Registry.MATERIAL) {
+                        if (mat.isItem()) {
+                            items.add(mat.key().value());
                         }
                     }
                     return StringUtil.copyPartialMatches(args[3].toLowerCase(), items, new ArrayList<>());
@@ -2187,7 +3440,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     private org.bukkit.scoreboard.Objective getOrRegisterObjective(org.bukkit.scoreboard.Scoreboard scoreboard, String name, String displayName) {
         org.bukkit.scoreboard.Objective obj = scoreboard.getObjective(name);
         if (obj == null) {
-            obj = scoreboard.registerNewObjective(name, "dummy");
+            obj = scoreboard.registerNewObjective(name, org.bukkit.scoreboard.Criteria.DUMMY, displayName);
         }
         if (!obj.getDisplayName().equals(displayName)) {
             obj.setDisplayName(displayName);
@@ -2288,6 +3541,18 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             }
             if (params.equalsIgnoreCase("timer_raw")) {
                 return String.valueOf(getRawLiveTime(uuid));
+            }
+            if (params.equalsIgnoreCase("timer_raw_ms")) {
+                return String.valueOf(getRawLiveTime(uuid));
+            }
+            if (params.equalsIgnoreCase("timer_raw_sec")) {
+                return String.valueOf(getRawLiveTime(uuid) / 1000L);
+            }
+            if (params.equalsIgnoreCase("timer_raw_min")) {
+                return String.valueOf(getRawLiveTime(uuid) / 60000L);
+            }
+            if (params.equalsIgnoreCase("timer_raw_ticks")) {
+                return String.valueOf(getRawLiveTime(uuid) / 50L);
             }
             if (params.equalsIgnoreCase("goal_type")) {
                 return timerGoalType != null ? timerGoalType : "NONE";
@@ -2506,6 +3771,43 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     total = pb > 0 ? pb * completions : 0;
                 }
                 return String.valueOf(total / 50L);
+            }
+
+            // ---- AUTORESET PLACEHOLDERS ----
+            if (params.equalsIgnoreCase("autoreset")) {
+                if (!autoResetEnabled) return "0:00";
+                return formatAutoResetTime(autoResetRemainingSeconds);
+            }
+            if (params.equalsIgnoreCase("autoreset_sec")) {
+                if (!autoResetEnabled) return "0";
+                return String.valueOf(autoResetRemainingSeconds);
+            }
+            if (params.equalsIgnoreCase("autoreset_min")) {
+                if (!autoResetEnabled) return "0";
+                return String.valueOf(autoResetRemainingSeconds / 60);
+            }
+            if (params.equalsIgnoreCase("autoreset_ticks")) {
+                if (!autoResetEnabled) return "0";
+                return String.valueOf(autoResetRemainingSeconds * 20);
+            }
+            if (params.equalsIgnoreCase("autoreset_total")) {
+                if (!autoResetEnabled) return "0:00";
+                return formatAutoResetTime(autoResetTotalSeconds);
+            }
+            if (params.equalsIgnoreCase("autoreset_total_sec")) {
+                if (!autoResetEnabled) return "0";
+                return String.valueOf(autoResetTotalSeconds);
+            }
+            if (params.equalsIgnoreCase("autoreset_status")) {
+                if (!autoResetEnabled) return isPl ? "§cWyłączony" : "§cDisabled";
+                if (autoResetPaused) return isPl ? "§6Wstrzymany" : "§6Paused";
+                return isPl ? "§aAktywny" : "§aRunning";
+            }
+            if (params.equalsIgnoreCase("autoreset_loop")) {
+                return autoResetLoop ? (isPl ? "Tak" : "Yes") : (isPl ? "Nie" : "No");
+            }
+            if (params.equalsIgnoreCase("autoreset_enabled")) {
+                return autoResetEnabled ? (isPl ? "Tak" : "Yes") : (isPl ? "Nie" : "No");
             }
 
             // ---- SERVER LEADERBOARDS ----

@@ -1,78 +1,83 @@
-# WorldReset v1.6 - Oficjalny Dziennik Zmian (Changelog)
+# WorldReset v1.6 — Update Notes
 
-Z dumą prezentujemy wersję **1.6** pluginu **WorldReset**! Ta aktualizacja wprowadza zaawansowany system automatycznych cyklicznych resetów świata (**AutoReset**), ulepszone zarządzanie widocznością elementów HUD, integrację z natywnym paskiem lokalizatora Minecrafta oraz szereg usprawnień komend.
-
----
-
-## 🌟 Główne Nowości (Major Features)
-
-### 1. Moduł Automatycznego Resetu (AutoReset Scheduler)
-Dodaliśmy kompletny, inteligentny i zautomatyzowany mechanizm zaplanowanych resetów mapy:
-* **Elastyczna Konfiguracja:** Administratorzy mogą zdefiniować czas trwania odliczania bezpośrednio w pliku `config.yml` lub bezpośrednio z poziomu gry komendą.
-* **Wsparcie dla Formatów Czasowych:** Wbudowany parser bez problemu rozumie jednostki czasu takie jak sekundy (`s`), minuty (`m`) oraz godziny (`h`) (np. `30s`, `15m`, `2h`), co eliminuje potrzebę ręcznego przeliczania na sekundy.
-* **Tryb Pętli (Loop Mode):** Opcjonalny tryb zapętlenia autoresetu sprawia, że po każdym automatycznym zresetowaniu świata licznik natychmiast startuje od nowa na zdefiniowany czas (idealne rozwiązanie dla serwerów publicznych działających autonomicznie).
-
-### 2. Prezentacja Licznika na Ekranie (Persisting Paused Timer)
-* **Zawsze na oku:** Czasomierz wyświetla się na pasku akcji (Action Bar) wszystkich połączonych graczy.
-* **Kolorystyka stanu odliczania:**
-  * Gdy odliczanie trwa, zegar świeci na złoto/żółto (lub zmienia kolor na migający czerwony `§c§l`, gdy do resetu zostało mniej niż 10 sekund).
-  * Gdy odliczanie zostanie wstrzymane (pauza), zegar **nie znika z ekranu**, lecz zmienia swój kolor na ciemnoszary (`§8`/`§7`). Pozwala to graczom na bieżąco kontrolować stan serwera bez konieczności wpisywania komend.
-* **Kompatybilność ze stoperem speedrunowym:** Jeśli na serwerze uruchomiony jest jednocześnie stoper speedrunowy, oba liczniki wyświetlą się estetycznie obok siebie w jednej linii paska akcji (oddzielone eleganckim separatorem `|`).
-
-### 3. Komenda `/wr autoreset` i Tab-Completer
-Wprowadziliśmy nową, wszechstronną podkomendę wraz z granularnym systemem uprawnień (`worldreset.autoreset`):
-* `/wr autoreset <czas>` (np. `/wr autoreset 30m`) – ustawia czas do resetu i uruchamia odliczanie.
-* `/wr autoreset start` – wznawia wstrzymane odliczanie.
-* `/wr autoreset stop` – zatrzymuje odliczanie (pauza, czas ciemnieje na ekranie).
-* `/wr autoreset loop` – przełącza tryb zapętlenia (loop) włączony/wyłączony.
-* `/wr autoreset disable` – wyłącza całkowicie licznik i usuwa go z ekranu graczy.
-* **Tab-Completion:** Pełne wsparcie dla uzupełniania argumentów z podpowiedziami najpopularniejszych czasów (`60s`, `5m`, `1h`) i akcji na czacie.
+Version 1.6 introduces the AutoReset scheduler, Limbo countdown delays, a redesigned help system, parallel world generation, and full API compatibility with Minecraft 1.21 through 26.1.2.
 
 ---
 
-## 🧭 Natywny Locator Bar (zastąpienie kompasu)
+## AutoReset Scheduler
 
-### Całkowite zastąpienie własnego kompasu
-Stary system kompasu (pasek BossBar z dynamicznym radarem graczy i kolorowymi kropkami) został **całkowicie usunięty** na rzecz natywnego mechanizmu Minecrafta:
-* **`/wr compass`** – przełącza natywny Locator Bar Minecrafta (1.21.6+) — działa jako toggle bez argumentu.
-* **`/wr compass enable/disable`** – jawne włączenie lub wyłączenie.
-* Ustawienie jest automatycznie stosowane do wszystkich światów gry (`game_world`, `game_world_nether`, `game_world_the_end`) oraz po każdym resecie i ładowaniu świata.
-* Brak własnych overlayów — czysta, waniliowa funkcja Minecrafta.
+Complete scheduled periodic reset system:
+- **Config:** `autoreset.enabled`, `autoreset.time` (supports `30s`, `5m`, `1h`), `autoreset.loop`, `autoreset.paused`, `autoreset.visible`.
+- **Commands:** `/wr autoreset <start|stop|disable|loop|visible|time>`. Without arguments shows current status.
+- **Action Bar:** Displays remaining time alongside the speedrun timer (separated by `|`). Colors: green >2min, orange ≤2min, red ≤30s, gray when paused.
+- **Last 5 seconds:** Title countdown with PLING sound on screen.
+- **Scoreboard:** `wr_autoreset_sec`, `wr_autoreset_min`, `wr_autoreset_status`.
+- **PlaceholderAPI:** `%worldreset_autoreset%`, `%worldreset_autoreset_sec%`, `%worldreset_autoreset_min%`, `%worldreset_autoreset_status%`, `%worldreset_autoreset_loop%`, `%worldreset_autoreset_enabled%`, `%worldreset_autoreset_total%`, `%worldreset_autoreset_total_sec%`.
 
----
+## Limbo Countdown Delays
 
-## 🎛️ Widoczność Elementów HUD (Timer & AutoReset)
+Configurable delays for entering/leaving Limbo during automatic events:
+- **Config:** `limbo.delay-in` (before teleport to Limbo), `limbo.delay-out` (before teleport to game).
+- **Applies to:** death-reset (`reset-on-death`). Does NOT apply to manual `/wr reset`.
+- **AutoReset:** Uses only `delay-out` (autoreset countdown itself serves as the warning).
+- **Countdown display:** Title on screen with adaptive intervals (not every second for long countdowns). Sound effects at ≤5s.
+- **Skip:** `/wr limbo` during active countdown instantly completes the teleport.
+- **Manual:** `/wr limbo <seconds>` for custom countdown on demand.
+- **Set delays:** `/wr limbo <in> <out>` or `/wr limbo delay <in> <out>`.
 
-### Nowe opcje `visible` w konfiguracji
-Dodano możliwość ukrycia poszczególnych elementów HUD bez ich dezaktywacji:
-* **`timer.visible`** – kontroluje widoczność stopera speedrunowego na pasku akcji.
-* **`autoreset.visible`** – kontroluje widoczność odliczania autoresetu na pasku akcji.
+## `/wr reset [delay-in] [delay-out]`
 
-### Nowe komendy
-* `/wr timer visible true/false` – pokazuje/ukrywa stoper (bez zatrzymywania).
-* `/wr autoreset visible true/false` – pokazuje/ukrywa odliczanie autoresetu (bez zatrzymywania).
-* Pominięcie wartości `true/false` automatycznie **przełącza** aktualny stan (toggle).
+Optional pre-reset countdown (`delay-in`) and post-reset countdown in limbo (`delay-out`). Both arguments optional. Without arguments — instant reset as before.
 
----
+## Parallel Delay-Out
 
-## 🔍 Ulepszenia Komendy `/wr filter`
+When `delay-out` is set, the countdown starts immediately after players enter Limbo — world generation runs in parallel. If generation finishes before the countdown, players teleport at countdown end. If generation takes longer, a "Teleporting..." title is shown until the world is ready.
 
-### Podgląd aktywnych filtrów
-Wywołanie samego `/wr filter` (bez argumentów) wyświetla teraz:
-* Aktualnie aktywny filtr struktury i/lub biomu.
-* Aktualny seed świata (fixed lub losowy).
-* Jeżeli żaden filtr nie jest aktywny, pojawia się stosowna informacja.
+## Help System Redesign
 
----
+- `/wr help` — categorized command list (Game, Timer & AutoReset, World, System).
+- `/wr help <command>` — detailed usage for a specific command with all sub-arguments.
+- `/wr`, `/wr ?`, or any unknown command shows the full help.
+- Tab completion for `/wr help <command>`.
 
-## 🛠️ Pozostałe Zmiany i Usprawnienia
+## `/wr filter` Improvements
 
-* Komendy `/wr silent`, `/wr death` oraz `/wr compass` działają teraz konsekwentnie jako **toggle** — wpisanie komendy bez argumentów odwraca aktualny stan.
-* Zaktualizowano globalne menu pomocy `/wr help` oraz `/wr ?` w obu językach (angielskim i polskim).
-* Wyeliminowano zbędne wczytywanie danych co sekundę (liście leagów itp.) powiązane z poprzednią implementacją kompasu.
+- `/wr filter` (no args) — shows current structure filter, biome filter, seed mode, and active world seed.
+- `/wr filter clear` — clears both filters AND disables fixed seed.
 
----
+## `/wr templates`
 
-## 🚀 Jak zaktualizować plugin?
-1. Podmień plik `.jar` w folderze `plugins/` na wersję: **`WorldReset-1.6beta.jar`**.
-2. Zrestartuj serwer – plik `config.yml` oraz pliki językowe zostaną automatycznie zaktualizowane o nowe sekcje.
+Full in-game template management: `/wr templates <enable|disable|folder|status>`.
+
+## Random Template Selection
+
+When multiple overworld/nether/end template folders exist in the templates directory, the plugin randomly selects one each reset. Logged to console when multiple candidates are detected.
+
+## `/wr backup`
+
+Full backup management in-game:
+- `/wr backup` — toggle on/off.
+- `/wr backup <enable|disable>` — explicit control.
+- `/wr backup status` — shows enabled state, retention limit, and existing backup count.
+- `/wr backup limit <number|all>` — set how many backups to keep.
+
+## Standardized Command Aliases
+
+All `enable`/`disable` arguments across every command also accept `on`/`off` and `true`/`false`. Tab completion always suggests `enable`/`disable`.
+
+## API Compatibility (1.21 → 26.1.2)
+
+- Replaced `EntityType.values()` → `Registry.ENTITY_TYPE` iteration.
+- Replaced `Material.values()` → `Registry.MATERIAL` iteration.
+- Replaced `getKey().getKey()` → `key().value()` (Adventure API).
+- Replaced `registerNewObjective(name, "dummy")` → `registerNewObjective(name, Criteria.DUMMY, displayName)`.
+- Removed unused BossBar/BarColor/BarStyle imports.
+- `locator_bar` GameRule: graceful fallback for servers where it doesn't exist yet.
+
+## Translation Keys Added
+
+`messages_en.yml` / `messages_pl.yml`:
+- `autoreset-triggered`, `autoreset-countdown`
+- `limbo-countdown-in`, `limbo-countdown-out`, `limbo-waiting`
+- `reset-countdown`
+- Updated `command-usage`.

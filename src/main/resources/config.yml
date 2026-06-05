@@ -136,10 +136,10 @@ timer:
     #      ITEM -> diamond (obtain diamond in inventory)
     value: "OVERWORLD"
 
-# --- RADAR / KOMPAS (BossBar) ---
+# --- RADAR / KOMPAS (Locator Bar) ---
 compass:
-  # [PL] Czy pokazywać radar z pozycją innych graczy na górze ekranu (BossBar)?
-  # [EN] Show players tracker radar ribbon on top of the screen (BossBar)?
+  # [PL] Czy włączyć natywny Locator Bar Minecrafta (pasek pozycji graczy na górze ekranu)?
+  # [EN] Enable Minecraft's native Locator Bar (player position ribbon on top of the screen)?
   enabled: false
 
 # --- AUTORESET (Zaplanowane automatyczne resety) ---
@@ -163,3 +163,21 @@ autoreset:
   # [PL] Czy odliczanie jest wstrzymane?
   # [EN] Is the countdown paused?
   paused: true
+
+# --- LIMBO DELAY (Opóźnienia teleportacji) ---
+limbo:
+  # [PL] Opóźnienie (w sekundach) przed automatycznym teleportem do Limbo (np. przy resecie).
+  #      Gracze zobaczą odliczanie na ekranie ale mogą dalej grać.
+  #      0 = natychmiastowy teleport (bez odliczania).
+  # [EN] Delay (in seconds) before automatic teleport TO Limbo (e.g. on reset).
+  #      Players see a countdown on screen but can keep playing.
+  #      0 = instant teleport (no countdown).
+  delay-in: 0
+
+  # [PL] Opóźnienie (w sekundach) przed automatycznym teleportem Z Limbo do gry (np. po resecie).
+  #      Gracze w Limbo zobaczą odliczanie przed startem gry.
+  #      0 = natychmiastowy teleport (bez odliczania).
+  # [EN] Delay (in seconds) before automatic teleport FROM Limbo to game (e.g. after reset).
+  #      Players in Limbo see a countdown before game starts.
+  #      0 = instant teleport (no countdown).
+  delay-out: 5

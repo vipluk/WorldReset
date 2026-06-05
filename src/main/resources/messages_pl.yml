@@ -43,6 +43,8 @@ timer-new-pb: "&6🏆 &lNOWY REKORD ŻYCIOWY (PB): &a&l{time}&6!"
 timer-finished-action: "Koniec: {time}"
 
 # AutoReset
+autoreset-triggered: "&cAutoReset uruchomiony! Resetowanie świata..."
+autoreset-countdown: "Reset Świata..."
 autoreset-paused-action: "&8⏱ Autoreset: {time} &7(Wstrzymany)"
 autoreset-running-action: "&e⏱ Autoreset za: {color}{time}"
 autoreset-enabled: "&aCzasomierz autoresetu włączony!"
@@ -53,4 +55,10 @@ autoreset-loop-on: "&aPętla autoresetu włączona."
 autoreset-loop-off: "&cPętla autoresetu wyłączona."
 autoreset-time-set: "&aCzas autoresetu ustawiony na: &e{time}"
 
-command-usage: "\n&8&m------&8[ &b&lWorldReset &8]&m------\n&e/wr reset &8- &7Natychmiastowy reset mapy\n&e/wr limbo &8- &7Przejście do/z poczekalni Limbo\n&e/wr timer &6<&estart&6|&epause&6|&ereset&6|&eenable&6|&edisable&6|&emode&6|&escope&6|&egoal&6> &8- &7Ustawienia stopera\n&e/wr compass &6<&eenable&6|&edisable&6> &8- &7Ustawienia paska locator bar\n&e/wr filter &6<&estructure&6|&ebiome&6> &6<&enazwa&6|&eclear&6> &8- &7Szukanie spawnu\n&e/wr seed [wartość] &8- &7Ustaw stały lub losowy seed\n&e/wr templates &6<&eenable&6|&edisable&6> &8- &7Włącz/wyłącz szablony map\n&e/wr autoreset &6<&estart&6|&estop&6|&edisable&6|&eloop&6|&eczas&6> &8- &7Zarządzanie autoresetem\n&e/wr death &8- &7Włącz/wyłącz reset po śmierci\n&e/wr silent &8- &7Ukryj globalne wiadomości czatu\n&e/wr language &6<&een&6|&epl&6> &8- &7Zmień język pluginu\n&e/wr reload &8- &7Przeładuj konfigurację\n&8&m----------------------------"
+# Countdown (Opóźnienia Limbo)
+limbo-countdown-in: "Teleport do Limbo..."
+limbo-countdown-out: "Gra startuje..."
+limbo-waiting: "Teleportowanie..."
+reset-countdown: "Reset Świata..."
+
+command-usage: "\n&8&m------&8[ &b&lWorldReset &8]&m------\n&e/wr reset [sekundy] &8- &7Natychmiastowy reset mapy (opcjonalne odliczanie)\n&e/wr limbo [sekundy] &8- &7Przejście do/z Limbo (opcjonalne odliczanie)\n&e/wr limbo <in> <out> &8- &7Ustaw opóźnienia automatyczne limbo\n&e/wr timer &6<&estart&6|&epause&6|&ereset&6|&eenable&6|&edisable&6|&emode&6|&escope&6|&egoal&6> &8- &7Ustawienia stopera\n&e/wr compass &6<&eenable&6|&edisable&6> &8- &7Ustawienia paska locator bar\n&e/wr filter &6<&estructure&6|&ebiome&6> &6<&enazwa&6|&eclear&6> &8- &7Szukanie spawnu\n&e/wr seed [wartość] &8- &7Ustaw stały lub losowy seed\n&e/wr templates &6<&eenable&6|&edisable&6|&efolder&6|&estatus&6> &8- &7Szablony map\n&e/wr autoreset &6<&estart&6|&estop&6|&edisable&6|&eloop&6|&eczas&6> &8- &7Zarządzanie autoresetem\n&e/wr death &8- &7Włącz/wyłącz reset po śmierci\n&e/wr silent &8- &7Ukryj globalne wiadomości czatu\n&e/wr language &6<&een&6|&epl&6> &8- &7Zmień język pluginu\n&e/wr reload &8- &7Przeładuj konfigurację\n&8&m----------------------------"

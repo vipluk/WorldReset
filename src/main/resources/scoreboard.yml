@@ -136,10 +136,6 @@ scoreboard_objectives:
     display_name: "Seed / Ziarno"
     description_en: "Lower 32 bits of the current active world seed."
     description_pl: "Dolne 32 bity ziarna (seed) aktualnie aktywnego świata."
-  wr_world_num:
-    display_name: "World Number / Numer Swiata"
-    description_en: "First number extracted from the custom game world name."
-    description_pl: "Pierwsza wyekstrahowana liczba z nazwy świata gry (nr rundy)."
   wr_players_active:
     display_name: "Active Players / Aktywni Gracze"
     description_en: "Total active players inside the speedrun game world."
@@ -176,6 +172,20 @@ scoreboard_objectives:
     display_name: "Filter Active / Filtr Aktywny"
     description_en: "Active biome/structure filter status: 1 = Active, 0 = Inactive."
     description_pl: "Status filtra biomów lub struktur: 1 = Aktywny, 0 = Nieaktywny."
+
+  # --- AutoReset / Automatyczny Reset ---
+  wr_autoreset_sec:
+    display_name: "AutoReset (Sec)"
+    description_en: "Remaining autoreset countdown in seconds. 0 when disabled."
+    description_pl: "Pozostały czas do autoresetu w sekundach. 0 gdy wyłączony."
+  wr_autoreset_min:
+    display_name: "AutoReset (Min)"
+    description_en: "Remaining autoreset countdown in minutes. 0 when disabled."
+    description_pl: "Pozostały czas do autoresetu w minutach. 0 gdy wyłączony."
+  wr_autoreset_status:
+    display_name: "AutoReset Status"
+    description_en: "AutoReset state: 0 = Disabled, 1 = Running, 2 = Paused."
+    description_pl: "Stan autoresetu: 0 = Wyłączony, 1 = Aktywny, 2 = Wstrzymany."
 
 # [EN] Vanilla Scoreboard display commands / [PL] Wbudowane komendy wyświetlania:
 display_commands:

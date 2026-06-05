@@ -1,6 +1,6 @@
 ❤️ **If you enjoy this plugin, please consider leaving a like! It means a lot for me.** ❤️
 
-> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21.5 Purpur**. I tested it on Purpur 1.21.5, 1.21.11 and Spigot 1.21. It should work on 1.21-1.21.11 Spigot/Purpur/Paper/Bukkit.
+> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21.4+ Paper API**. Tested on Purpur 1.21.5, 1.21.11, Spigot 1.21, and Paper 26.1.2. It should work on 1.21+ Spigot/Purpur/Paper/Bukkit.
 
 If you want to report a bug or suggest a new plugin, join my [Discord server](https://discord.gg/A7WVnYj3BP).
 
@@ -16,7 +16,7 @@ WorldReset is a plugin designed to manage game worlds dynamically. Instead of ki
 
 * **🔄 Instant Reset:** Regenerates Overworld, Nether, and End without shutting down the server.
 * **🌱 Seed Control:** Choose between **Random Seed** for a fresh experience or **Fixed Seed** for practice/speedruns.
-* **📁 World Templates (Custom Maps):** Load your own custom worlds instead of generating them! Put your map folders into `WorldReset_Templates`. The plugin automatically classifies dimensions (Overworld, Nether, End), auto-converts Singleplayer world structures (moving `DIM-1` and `DIM1` folders to Spigot standards), cleans up temporary files, and prevents UUID conflicts. Includes a fail-safe backup seed.
+* **📁 World Templates (Custom Maps):** Load your own custom worlds instead of generating them! Put your map folders into `WorldReset_Templates`. The plugin automatically classifies dimensions (Overworld, Nether, End), auto-converts Singleplayer world structures (moving `DIM-1` and `DIM1` folders to Spigot standards), cleans up temporary files, and prevents UUID conflicts. Multiple overworld templates are randomly selected each reset. Includes a fail-safe backup seed.
 * **⏰ AutoReset Scheduler:** Schedule automated periodic resets! Set loop intervals (e.g. `60s`, `5m`, `1h`) and control the countdown. The paused countdown remains on screen in gray to keep players informed.
 * **🏁 Multi-Goal Speedrun Stopwatch:** Built-in Action Bar stopwatch! Race in **Global** mode (first to finish stops the timer) or **Individual** mode (personal timers). Support for RTA (Real-Time) and IGT (In-Game Time). Set triggers for Portal Entries, Entity Kills, Advancements, Block Breaking (`BLOCK`), and Item Collection (`ITEM`)! Dynamic autocomplete suggestions are loaded directly from the game registries.
 * **📈 Leaderboards & Records Database:** Built-in `records.yml` database tracks attempts, completions, PBs, and average times. Tracks a **Top 10 Highscore Leaderboard** with player names, record times, dates, and world seeds.
@@ -24,7 +24,8 @@ WorldReset is a plugin designed to manage game worlds dynamically. Instead of ki
 * **🧩 PlaceholderAPI (PAPI) Support:** Integrates with PlaceholderAPI to provide **28 dynamic placeholders** for your tab lists, sidebar plugins, or hologram displays (timer, goals, finished players, current seeds, active filters, difficulty, leaderboards).
 * **🏹 Spawn Shifter:** Never reset for a good seed again! Configure a target **Structure** (e.g., Village) or **Biome** (e.g., Cherry Grove). The plugin scans the registry dynamically to move your spawn directly to your target.
 * **🏝️ Smart Land Seeker:** No more spawning in the middle of the ocean! After generating a new world (or shifting spawn), the plugin scans the terrain to ensure the spawn point is on solid ground.
-* **☁️ Seamless Limbo:** Players are moved to a waiting world ("Limbo") during generation.
+* **☁️ Seamless Limbo:** Players are moved to a waiting world ("Limbo") during generation. Configurable countdown delays with on-screen timer and sound effects give players a heads-up before teleports.
+* **⏳ Limbo Countdown Delays:** Set automatic delays (in seconds) for entering and leaving Limbo. Players see a visual countdown with adaptive intervals and sounds, but can keep playing until it finishes. Use `/wr limbo <seconds>` for manual delayed toggle, or `/wr limbo delay <in> <out>` to configure global automatic delays.
 * **🧭 Native Locator Bar:** Toggle Minecraft's built-in multiplayer **Locator Bar** (1.21.6+) directly with `/wr compass enable/disable`. No custom overlays — pure vanilla.
 * **🛠️ Future-Proof Registers:** Dynamically imports all Minecraft biomes and structures at server startup. Fully supports new additions (like Trial Chambers and Pale Garden) as well as custom structures from other datapacks out of the box!
 * **🌍 Multi-Language:** Full support for **English** and **Polish** (changeable via command).
@@ -38,7 +39,11 @@ Main command: `/worldreset` or `/wr`
 | Command | Description | Permission |
 | --- | --- | --- |
 | `/wr reset` | Instantly resets the game: moves everyone to Limbo, regenerates the world, and starts a new game. | `worldreset.reset` |
-| `/wr limbo` | Toggles Limbo mode. Moves you to Limbo (Pause) or starts a new game if you are already in Limbo. | `worldreset.limbo` |
+| `/wr reset <in> <out>` | Reset with countdown before (delay-in) and countdown in Limbo before game starts (delay-out). | `worldreset.reset` |
+| `/wr limbo` | Toggles Limbo mode. Moves you to Limbo or back to game. Also skips active countdowns. | `worldreset.limbo` |
+| `/wr limbo <seconds>` | Same as above but with a visual countdown before the teleport. | `worldreset.limbo` |
+| `/wr limbo <in> <out>` | Sets global automatic delays (seconds) for death-reset enter/leave Limbo. | `worldreset.limbo` |
+| `/wr limbo delay <in> <out>` | Same as above (alternative syntax). | `worldreset.limbo` |
 | `/wr death` | Toggles **Reset on Death** mode (Hardcore) ON/OFF. | `worldreset.death` |
 | `/wr silent` | Toggles **Silent Mode** (hides global chat messages) ON/OFF. | `worldreset.silent` |
 | `/wr filter structure <name>` | Sets a target structure (e.g., VILLAGE). Auto-clears biome filter. | `worldreset.filter` |
@@ -54,7 +59,10 @@ Main command: `/worldreset` or `/wr`
 | `/wr compass` | Toggles the native Minecraft **Locator Bar** ON/OFF (toggle when no argument given). | `worldreset.compass` |
 | `/wr compass <enable/disable>` | Explicitly enables or disables the native Locator Bar. | `worldreset.compass` |
 | `/wr language <en/pl>` | Changes the plugin language (English / Polish). | `worldreset.language` |
+| `/wr backup <enable/disable/status/limit>` | Manage world backups (toggle, view status, set retention limit). | `worldreset.admin` |
 | `/wr reload` | Reloads configuration and language files instantly. | `worldreset.admin` |
+
+**Command Aliases:** All `enable`/`disable` arguments also accept `on`/`off` and `true`/`false`.
 
 **Wildcard Permission (Full Admin):** `worldreset.*`
 
