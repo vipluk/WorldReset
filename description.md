@@ -40,12 +40,14 @@ Main command: `/worldreset` or `/wr`
 | --- | --- | --- |
 | `/wr reset` | Instantly resets the game: moves everyone to Limbo, regenerates the world, and starts a new game. | `worldreset.reset` |
 | `/wr reset <in> <out>` | Reset with countdown before (delay-in) and countdown in Limbo before game starts (delay-out). | `worldreset.reset` |
-| `/wr limbo` | Toggles Limbo mode. Moves you to Limbo or back to game. Also skips active countdowns. | `worldreset.limbo` |
-| `/wr limbo <seconds>` | Same as above but with a visual countdown before the teleport. | `worldreset.limbo` |
-| `/wr limbo <in> <out>` | Sets global automatic delays (seconds) for death-reset enter/leave Limbo. | `worldreset.limbo` |
-| `/wr limbo delay <in> <out>` | Same as above (alternative syntax). | `worldreset.limbo` |
+| `/wr limbo` | Toggles Limbo mode for all players. Moves everyone to Limbo or back to game. Also skips active countdowns. | `worldreset.limbo` |
+| `/wr limbo me` | Same but only for yourself. Aliases: `m`, `ja`, `j`. | `worldreset.limbo` |
+| `/wr limbo <player>` | Toggle Limbo for a specific player. Also accepts `all`. | `worldreset.limbo` |
+| `/wr limbo <seconds> [player]` | Toggle with countdown. Target defaults to all if omitted. | `worldreset.limbo` |
+| `/wr limbo delay <in> <out>` | Sets global automatic delays (seconds) for death-reset enter/leave Limbo. | `worldreset.limbo` |
 | `/wr death` | Toggles **Reset on Death** mode (Hardcore) ON/OFF. | `worldreset.death` |
 | `/wr silent` | Toggles **Silent Mode** (hides global chat messages) ON/OFF. | `worldreset.silent` |
+| `/wr filter` | Shows current active filters and seed status. | `worldreset.filter` |
 | `/wr filter structure <name>` | Sets a target structure (e.g., VILLAGE). Auto-clears biome filter. | `worldreset.filter` |
 | `/wr filter biome <name>` | Sets a target biome (e.g., PLAINS). Auto-clears structure filter. | `worldreset.filter` |
 | `/wr filter clear` | Instantly clears and disables all biome/structure filters. | `worldreset.filter` |
@@ -53,6 +55,7 @@ Main command: `/worldreset` or `/wr`
 | `/wr seed` | Disables fixed seed (enables Random Seed mode). | `worldreset.seed` |
 | `/wr templates <enable/disable>` | Toggles whether custom maps should load from the templates folder. | `worldreset.templates` |
 | `/wr autoreset <start/stop/disable/loop/time>` | Controls and schedules automated periodic world resets. | `worldreset.autoreset` |
+| `/wr autoreset status` | Shows current autoreset state, time, loop, visibility. | `worldreset.autoreset` |
 | `/wr timer <enable/disable>` | Turns the speedrun stopwatch system ON/OFF. | `worldreset.timer` |
 | `/wr timer <start/pause/reset>` | Controls the built-in speedrun stopwatch. | `worldreset.timer` |
 | `/wr timer <mode/scope/goal>` | Configures timer settings (RTA/IGT, Global/Individual, end triggers). | `worldreset.timer` |
@@ -60,6 +63,10 @@ Main command: `/worldreset` or `/wr`
 | `/wr compass <enable/disable>` | Explicitly enables or disables the native Locator Bar. | `worldreset.compass` |
 | `/wr language <en/pl>` | Changes the plugin language (English / Polish). | `worldreset.language` |
 | `/wr backup <enable/disable/status/limit>` | Manage world backups (toggle, view status, set retention limit). | `worldreset.admin` |
+| `/wr backup list [page]` | List all backups with sizes (paginated). | `worldreset.admin` |
+| `/wr backup load <number>` | Load a backup (restores world + player states). | `worldreset.admin` |
+| `/wr backup clear [count]` | Delete all or N oldest backups. | `worldreset.admin` |
+| `/wr help [command]` | Shows help menu or detailed usage for a specific command. | — |
 | `/wr reload` | Reloads configuration and language files instantly. | `worldreset.admin` |
 
 **Command Aliases:** All `enable`/`disable` arguments also accept `on`/`off` and `true`/`false`.

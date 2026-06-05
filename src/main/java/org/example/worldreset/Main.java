@@ -100,6 +100,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     private int limboDelayIn;  // sekundy opóźnienia wejścia do limbo (automatyczne)
     private int limboDelayOut; // sekundy opóźnienia wyjścia z limbo (automatyczne)
     private final Map<UUID, BukkitTask> activeCountdowns = new HashMap<>();
+    private final Map<UUID, Map<String, Object>> limboSavedStates = new HashMap<>(); // Player states saved when entering limbo
+    private FileConfiguration lastPlayerSnapshot; // Saved before reset, used in backup
 
     // Structure list (Overworld only)
     private final List<String> STRUCTURE_NAMES = new ArrayList<>();
@@ -354,6 +356,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     private void sendAllToLimboForReset() {
         stopTimer();
+        limboSavedStates.clear(); // Reset clears saved states — world is being regenerated
+
+        // Save all game worlds to disk before backup (preserves player modifications)
+        saveGameWorlds();
+
         for (Player p : Bukkit.getOnlinePlayers()) {
             p.closeInventory();
         }
@@ -365,6 +372,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
      */
     private void sendAllToLimboWithDelay() {
         stopTimer();
+        saveGameWorlds();
         for (Player p : Bukkit.getOnlinePlayers()) {
             p.closeInventory();
         }
@@ -406,6 +414,111 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         p.setFallDistance(0);
         for (PotionEffect effect : p.getActivePotionEffects()) p.removePotionEffect(effect.getType());
         p.setInvulnerable(false);
+    }
+
+    private void saveLimboState(Player p) {
+        Map<String, Object> state = new HashMap<>();
+        state.put("world", p.getWorld().getName());
+        state.put("location", p.getLocation().clone());
+        state.put("health", p.getHealth());
+        state.put("food", p.getFoodLevel());
+        state.put("saturation", p.getSaturation());
+        state.put("xp-level", p.getLevel());
+        state.put("xp-progress", p.getExp());
+        state.put("gamemode", p.getGameMode());
+        state.put("fire-ticks", p.getFireTicks());
+        state.put("inventory", p.getInventory().getContents().clone());
+        state.put("armor", p.getInventory().getArmorContents().clone());
+        state.put("offhand", p.getInventory().getItemInOffHand().clone());
+        List<PotionEffect> effects = new ArrayList<>(p.getActivePotionEffects());
+        state.put("effects", effects);
+        limboSavedStates.put(p.getUniqueId(), state);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void restoreLimboState(Player p) {
+        Map<String, Object> state = limboSavedStates.remove(p.getUniqueId());
+        if (state == null) return;
+
+        Location loc = (Location) state.get("location");
+        if (loc != null && loc.getWorld() != null) {
+            p.teleport(loc);
+        } else {
+            World game = Bukkit.getWorld(gameWorldName);
+            if (game != null) p.teleport(game.getSpawnLocation());
+        }
+
+        p.setGameMode((GameMode) state.get("gamemode"));
+        p.getInventory().setContents((org.bukkit.inventory.ItemStack[]) state.get("inventory"));
+        p.getInventory().setArmorContents((org.bukkit.inventory.ItemStack[]) state.get("armor"));
+        p.getInventory().setItemInOffHand((org.bukkit.inventory.ItemStack) state.get("offhand"));
+        p.setHealth(Math.min((double) state.get("health"), p.getMaxHealth()));
+        p.setFoodLevel((int) state.get("food"));
+        p.setSaturation((float) state.get("saturation"));
+        p.setLevel((int) state.get("xp-level"));
+        p.setExp((float) state.get("xp-progress"));
+        p.setFireTicks((int) state.get("fire-ticks"));
+
+        for (PotionEffect effect : p.getActivePotionEffects()) p.removePotionEffect(effect.getType());
+        List<PotionEffect> effects = (List<PotionEffect>) state.get("effects");
+        if (effects != null) {
+            for (PotionEffect effect : effects) p.addPotionEffect(effect);
+        }
+    }
+
+    private void toggleLimboForPlayer(Player p, int delay) {
+        // Skip active countdown
+        if (activeCountdowns.containsKey(p.getUniqueId())) {
+            skipCountdown(p);
+            p.sendTitle("", "", 0, 1, 0);
+        }
+
+        if (p.getWorld().getName().equals(limboWorldName)) {
+            // Leave limbo
+            if (limboSavedStates.containsKey(p.getUniqueId())) {
+                if (delay > 0) {
+                    String subtitle = getSubtitle("limbo-countdown-out", "Teleport to Game...");
+                    startCountdown(p, delay, subtitle, () -> {
+                        if (p.isOnline()) { restoreLimboState(p); p.sendMessage(getMsg("limbo-leave")); }
+                    });
+                } else {
+                    restoreLimboState(p);
+                    p.sendMessage(getMsg("limbo-leave"));
+                }
+            } else if (isGameReady) {
+                World game = Bukkit.getWorld(gameWorldName);
+                if (game != null) {
+                    if (delay > 0) {
+                        String subtitle = getSubtitle("limbo-countdown-out", "Teleport to Game...");
+                        Location spawn = game.getSpawnLocation();
+                        startCountdown(p, delay, subtitle, () -> {
+                            if (p.isOnline()) { setupGamePlayer(p, spawn); p.sendMessage(getMsg("game-started")); }
+                        });
+                    } else {
+                        setupGamePlayer(p, game.getSpawnLocation());
+                        p.sendMessage(getMsg("game-started"));
+                    }
+                }
+            }
+        } else {
+            // Enter limbo
+            if (delay > 0) {
+                String subtitle = getSubtitle("limbo-countdown-in", "Teleport to Limbo...");
+                startCountdown(p, delay, subtitle, () -> {
+                    if (p.isOnline()) {
+                        saveLimboState(p);
+                        p.teleport(getLimboSpawn());
+                        setupLimboPlayer(p);
+                        p.sendMessage(getMsg("limbo-join"));
+                    }
+                });
+            } else {
+                saveLimboState(p);
+                p.teleport(getLimboSpawn());
+                setupLimboPlayer(p);
+                p.sendMessage(getMsg("limbo-join"));
+            }
+        }
     }
 
     private void setupGamePlayer(Player p, Location spawn) {
@@ -531,6 +644,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         isResetting = true;
         isGameReady = false;
 
+        lastPlayerSnapshot = capturePlayerStates();
         broadcastInfo(getMsg("reset-started"));
         sendAllToLimboForReset();
 
@@ -546,11 +660,17 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     public void run() {
                         if (getConfig().getBoolean("backup.enabled")) performBackup();
 
-                        deleteWorldFolder(gameWorldName);
-                        deleteWorldFolder(gameWorldName + "_nether");
-                        deleteWorldFolder(gameWorldName + "_the_end");
+                        // Next tick: delete old worlds and generate new
+                        new BukkitRunnable() {
+                            @Override
+                            public void run() {
+                                deleteWorldFolder(gameWorldName);
+                                deleteWorldFolder(gameWorldName + "_nether");
+                                deleteWorldFolder(gameWorldName + "_the_end");
 
-                        generateGameWorlds();
+                                generateGameWorlds();
+                            }
+                        }.runTaskLater(Main.this, 1L);
                     }
                 }.runTaskLater(Main.this, 20L);
             }
@@ -576,6 +696,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         isResetting = true;
         isGameReady = false;
 
+        lastPlayerSnapshot = capturePlayerStates();
         broadcastInfo(getMsg("reset-started"));
         sendAllToLimboForReset();
 
@@ -621,11 +742,16 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     public void run() {
                         if (getConfig().getBoolean("backup.enabled")) performBackup();
 
-                        deleteWorldFolder(gameWorldName);
-                        deleteWorldFolder(gameWorldName + "_nether");
-                        deleteWorldFolder(gameWorldName + "_the_end");
+                        new BukkitRunnable() {
+                            @Override
+                            public void run() {
+                                deleteWorldFolder(gameWorldName);
+                                deleteWorldFolder(gameWorldName + "_nether");
+                                deleteWorldFolder(gameWorldName + "_the_end");
 
-                        generateGameWorldsInternal(false); // false — parallel handles teleport
+                                generateGameWorldsInternal(false); // false — parallel handles teleport
+                            }
+                        }.runTaskLater(Main.this, 1L);
                     }
                 }.runTaskLater(Main.this, 20L);
             }
@@ -653,6 +779,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         isDelayingReset = limboDelayIn > 0;
         isGameReady = false;
 
+        lastPlayerSnapshot = capturePlayerStates();
         sendAllToLimboWithDelay();
 
         // Unload after delay-in + buffer
@@ -667,11 +794,16 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     public void run() {
                         if (getConfig().getBoolean("backup.enabled")) performBackup();
 
-                        deleteWorldFolder(gameWorldName);
-                        deleteWorldFolder(gameWorldName + "_nether");
-                        deleteWorldFolder(gameWorldName + "_the_end");
+                        new BukkitRunnable() {
+                            @Override
+                            public void run() {
+                                deleteWorldFolder(gameWorldName);
+                                deleteWorldFolder(gameWorldName + "_nether");
+                                deleteWorldFolder(gameWorldName + "_the_end");
 
-                        generateAutoTriggeredGameWorlds();
+                                generateAutoTriggeredGameWorlds();
+                            }
+                        }.runTaskLater(Main.this, 1L);
                     }
                 }.runTaskLater(Main.this, 20L);
             }
@@ -764,6 +896,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         isResetting = true;
         isGameReady = false;
 
+        lastPlayerSnapshot = capturePlayerStates();
         sendAllToLimboForReset(); // Instant — autoreset countdown was the warning
 
         // Start delay-out countdown IMMEDIATELY (parallel with world generation)
@@ -781,11 +914,16 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     public void run() {
                         if (getConfig().getBoolean("backup.enabled")) performBackup();
 
-                        deleteWorldFolder(gameWorldName);
-                        deleteWorldFolder(gameWorldName + "_nether");
-                        deleteWorldFolder(gameWorldName + "_the_end");
+                        new BukkitRunnable() {
+                            @Override
+                            public void run() {
+                                deleteWorldFolder(gameWorldName);
+                                deleteWorldFolder(gameWorldName + "_nether");
+                                deleteWorldFolder(gameWorldName + "_the_end");
 
-                        generateGameWorldsInternal(false); // false = don't start another delay-out (it's already running)
+                                generateGameWorldsInternal(false); // false = don't start another delay-out (it's already running)
+                            }
+                        }.runTaskLater(Main.this, 1L);
                     }
                 }.runTaskLater(Main.this, 20L);
             }
@@ -964,8 +1102,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     // --- LOGIKA FILTRÓW (EXCLUSIVE) ---
     private void applyFiltersAndShiftSpawn(World w) {
-        if (getConfig().getBoolean("seed.use-fixed")) return;
-
         String structReq = getConfig().getString("filter.structure", "").toUpperCase();
         String biomeReq = getConfig().getString("filter.biome", "").toUpperCase();
 
@@ -1118,6 +1254,15 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
     }
 
+    private void saveGameWorlds() {
+        World overworld = Bukkit.getWorld(gameWorldName);
+        World nether = Bukkit.getWorld(gameWorldName + "_nether");
+        World end = Bukkit.getWorld(gameWorldName + "_the_end");
+        if (overworld != null) overworld.save();
+        if (nether != null) nether.save();
+        if (end != null) end.save();
+    }
+
     private void unloadGameWorlds() {
         unloadWorld(gameWorldName + "_the_end");
         unloadWorld(gameWorldName + "_nether");
@@ -1192,33 +1337,94 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     private void findSafeSpawn(World w) {
         Location spawn = w.getSpawnLocation();
-        int x = spawn.getBlockX();
-        int z = spawn.getBlockZ();
-
-        int attempts = 0;
-        Random rand = new Random();
-
-        getLogger().info("Finalizing safe spawn around: " + x + ", " + z);
-        w.setGameRule(GameRule.SPAWN_RADIUS, 0);
-
-        while (attempts < 50) {
+        Location safe = getSafeLocation(spawn);
+        if (safe != null) {
+            w.setSpawnLocation(safe);
+        } else {
+            int x = spawn.getBlockX();
+            int z = spawn.getBlockZ();
             int y = w.getHighestBlockYAt(x, z);
-            Block b = w.getBlockAt(x, y, z);
-            if (b.getType() != Material.WATER && b.getType() != Material.LAVA) {
-                Location safeLoc = new Location(w, x + 0.5, y + 1, z + 0.5);
-                w.setSpawnLocation(safeLoc);
-                return;
-            }
-            x += (rand.nextInt(20) - 10);
-            z += (rand.nextInt(20) - 10);
-            attempts++;
+            w.setSpawnLocation(new Location(w, x + 0.5, y + 1, z + 0.5));
         }
-        int y = w.getHighestBlockYAt(spawn.getBlockX(), spawn.getBlockZ());
-        w.setSpawnLocation(new Location(w, spawn.getX(), y + 1, spawn.getZ()));
+        w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+        getLogger().info("Spawn finalized at: " + w.getSpawnLocation().toVector());
+    }
+
+    /**
+     * Returns a safe location near the given location.
+     * Checks: not void, not in lava, not in fire, not in mid-air (>4 blocks fall),
+     * not on damaging blocks (cactus, magma, campfire, berry bush).
+     * Searches upward first, then in a spiral around.
+     */
+    private Location getSafeLocation(Location original) {
+        if (original == null || original.getWorld() == null) return null;
+        World w = original.getWorld();
+        int ox = original.getBlockX();
+        int oz = original.getBlockZ();
+
+        // Try the original position first
+        if (isLocationSafe(w, ox, original.getBlockY(), oz)) {
+            return new Location(w, ox + 0.5, original.getBlockY(), oz + 0.5, original.getYaw(), original.getPitch());
+        }
+
+        // Try directly above (highest block at same X/Z)
+        int highY = w.getHighestBlockYAt(ox, oz);
+        if (highY > w.getMinHeight() && isLocationSafe(w, ox, highY + 1, oz)) {
+            return new Location(w, ox + 0.5, highY + 1, oz + 0.5, original.getYaw(), original.getPitch());
+        }
+
+        // Spiral search around original position
+        for (int radius = 1; radius <= 8; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (Math.abs(dx) != radius && Math.abs(dz) != radius) continue; // Only border
+                    int x = ox + dx;
+                    int z = oz + dz;
+                    int y = w.getHighestBlockYAt(x, z) + 1;
+                    if (y > w.getMinHeight() + 1 && isLocationSafe(w, x, y, z)) {
+                        return new Location(w, x + 0.5, y, z + 0.5, original.getYaw(), original.getPitch());
+                    }
+                }
+            }
+        }
+
+        // Fallback: highest block at original position
+        if (highY > w.getMinHeight()) {
+            return new Location(w, ox + 0.5, highY + 1, oz + 0.5, original.getYaw(), original.getPitch());
+        }
+
+        return null; // Truly no safe spot found
+    }
+
+    private boolean isLocationSafe(World w, int x, int y, int z) {
+        if (y <= w.getMinHeight() + 1) return false; // Void
+        Block feet = w.getBlockAt(x, y, z);
+        Block below = w.getBlockAt(x, y - 1, z);
+        Block head = w.getBlockAt(x, y + 1, z);
+
+        Material belowType = below.getType();
+        Material feetType = feet.getType();
+        Material headType = head.getType();
+
+        // Must have solid ground below (no water — player should spawn on land)
+        if (!belowType.isSolid()) return false;
+
+        // Feet and head must be passable (air, water — not lava, not solid)
+        if (feetType == Material.LAVA || headType == Material.LAVA) return false;
+        if (feetType == Material.FIRE || headType == Material.FIRE) return false;
+        if (feetType.isSolid() || headType.isSolid()) return false;
+
+        // Dangerous blocks below
+        if (belowType == Material.LAVA || belowType == Material.MAGMA_BLOCK
+                || belowType == Material.CACTUS || belowType == Material.CAMPFIRE
+                || belowType == Material.SOUL_CAMPFIRE || belowType == Material.SWEET_BERRY_BUSH
+                || belowType == Material.FIRE || belowType == Material.POINTED_DRIPSTONE) return false;
+
+        return true;
     }
 
     private void performBackup() {
-        Bukkit.getScheduler().runTask(this, () -> broadcastInfo(getMsg("backup-start")));
+        broadcastInfo(getMsg("backup-start"));
         String timestamp = new SimpleDateFormat("dd-MM-yyyy_HH-mm-ss").format(new Date());
         File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), getConfig().getString("backup.folder", "backups"));
         File currentBackupDir = new File(backupsDir, timestamp);
@@ -1226,7 +1432,180 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         copyWorldToBackup(gameWorldName, currentBackupDir);
         copyWorldToBackup(gameWorldName + "_nether", currentBackupDir);
         copyWorldToBackup(gameWorldName + "_the_end", currentBackupDir);
+
+        // Save player states from snapshot (captured before limbo teleport)
+        if (lastPlayerSnapshot != null) {
+            try {
+                lastPlayerSnapshot.save(new File(currentBackupDir, "players.yml"));
+            } catch (Exception e) {
+                getLogger().warning("Failed to save player states to backup: " + e.getMessage());
+            }
+        }
+
         manageBackupLimit(backupsDir);
+    }
+
+    private void savePlayerStates(File backupDir) {
+        try {
+            FileConfiguration playersYml = capturePlayerStates();
+            if (playersYml != null) {
+                playersYml.save(new File(backupDir, "players.yml"));
+            }
+        } catch (Exception e) {
+            getLogger().warning("Failed to save player states: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Captures current player states into a YamlConfiguration (in memory).
+     * Called before players are moved to limbo.
+     */
+    private FileConfiguration capturePlayerStates() {
+        FileConfiguration playersYml = new YamlConfiguration();
+
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (p.getWorld().getName().equals(limboWorldName)) continue;
+            if (!p.getWorld().getName().contains(gameWorldName)) continue;
+
+            String path = p.getUniqueId().toString();
+            playersYml.set(path + ".name", p.getName());
+            playersYml.set(path + ".world", p.getWorld().getName());
+            playersYml.set(path + ".x", p.getLocation().getX());
+            playersYml.set(path + ".y", p.getLocation().getY());
+            playersYml.set(path + ".z", p.getLocation().getZ());
+            playersYml.set(path + ".yaw", (double) p.getLocation().getYaw());
+            playersYml.set(path + ".pitch", (double) p.getLocation().getPitch());
+            playersYml.set(path + ".health", p.getHealth());
+            playersYml.set(path + ".max-health", p.getMaxHealth());
+            playersYml.set(path + ".food", p.getFoodLevel());
+            playersYml.set(path + ".saturation", (double) p.getSaturation());
+            playersYml.set(path + ".xp-level", p.getLevel());
+            playersYml.set(path + ".xp-progress", (double) p.getExp());
+            playersYml.set(path + ".gamemode", p.getGameMode().name());
+            playersYml.set(path + ".fire-ticks", p.getFireTicks());
+
+            // Inventory (Bukkit serialization)
+            playersYml.set(path + ".inventory", Arrays.asList(p.getInventory().getContents()));
+            playersYml.set(path + ".armor", Arrays.asList(p.getInventory().getArmorContents()));
+            playersYml.set(path + ".offhand", p.getInventory().getItemInOffHand());
+
+            // Potion effects
+            List<Map<String, Object>> effects = new ArrayList<>();
+            for (PotionEffect effect : p.getActivePotionEffects()) {
+                effects.add(effect.serialize());
+            }
+            playersYml.set(path + ".effects", effects);
+        }
+
+        return playersYml;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void restorePlayerStates(File backupDir) {
+        File playersFile = new File(backupDir, "players.yml");
+        if (!playersFile.exists()) return;
+
+        try {
+            FileConfiguration playersYml = YamlConfiguration.loadConfiguration(playersFile);
+
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                String path = p.getUniqueId().toString();
+                if (!playersYml.contains(path)) continue;
+
+                // Restore location
+                String worldName = playersYml.getString(path + ".world", gameWorldName);
+                World world = Bukkit.getWorld(worldName);
+                if (world == null) world = Bukkit.getWorld(gameWorldName);
+                if (world == null) continue;
+
+                double x = playersYml.getDouble(path + ".x");
+                double y = playersYml.getDouble(path + ".y");
+                double z = playersYml.getDouble(path + ".z");
+                float yaw = (float) playersYml.getDouble(path + ".yaw");
+                float pitch = (float) playersYml.getDouble(path + ".pitch");
+                Location loc = new Location(world, x, y, z, yaw, pitch);
+
+                if (p.isDead()) p.spigot().respawn();
+
+                // Delay restore by 2 ticks if player was dead (let respawn process first)
+                boolean wasDead = p.getHealth() <= 0 || p.isDead();
+                final Player fp = p;
+                final Location floc = loc;
+                final double fhealth = Math.max(playersYml.getDouble(path + ".health", 20), fp.getMaxHealth() / 2); // Min half HP
+                final int ffood = Math.max(playersYml.getInt(path + ".food", 20), 10); // Min half food (10/20)
+                final float fsat = (float) playersYml.getDouble(path + ".saturation", 5);
+                final int flevel = playersYml.getInt(path + ".xp-level", 0);
+                final float fxp = (float) playersYml.getDouble(path + ".xp-progress", 0);
+                final int ffire = playersYml.getInt(path + ".fire-ticks", 0);
+                final String fgm = playersYml.getString(path + ".gamemode", "SURVIVAL");
+                final List<?> finvList = playersYml.getList(path + ".inventory");
+                final List<?> farmorList = playersYml.getList(path + ".armor");
+                final Object foffhand = playersYml.get(path + ".offhand");
+                final List<Map<?, ?>> feffects = playersYml.getMapList(path + ".effects");
+
+                Runnable restoreAction = () -> {
+                    if (!fp.isOnline()) return;
+                    Location safeLoc = getSafeLocation(floc);
+                    fp.teleport(safeLoc != null ? safeLoc : floc);
+
+                    try { fp.setGameMode(GameMode.valueOf(fgm)); } catch (Exception ignored) { fp.setGameMode(GameMode.SURVIVAL); }
+                    fp.setHealth(Math.min(fhealth, fp.getMaxHealth()));
+                    fp.setFoodLevel(ffood);
+                    fp.setSaturation(fsat);
+                    fp.setLevel(flevel);
+                    fp.setExp(fxp);
+                    fp.setFireTicks(Math.max(ffire, 0));
+
+                    // Restore inventory
+                    fp.getInventory().clear();
+                    if (finvList != null) {
+                        org.bukkit.inventory.ItemStack[] contents = new org.bukkit.inventory.ItemStack[finvList.size()];
+                        for (int i = 0; i < finvList.size(); i++) {
+                            Object item = finvList.get(i);
+                            if (item instanceof org.bukkit.inventory.ItemStack) contents[i] = (org.bukkit.inventory.ItemStack) item;
+                        }
+                        fp.getInventory().setContents(contents);
+                    }
+                    if (farmorList != null) {
+                        org.bukkit.inventory.ItemStack[] armor = new org.bukkit.inventory.ItemStack[farmorList.size()];
+                        for (int i = 0; i < farmorList.size(); i++) {
+                            Object item = farmorList.get(i);
+                            if (item instanceof org.bukkit.inventory.ItemStack) armor[i] = (org.bukkit.inventory.ItemStack) item;
+                        }
+                        fp.getInventory().setArmorContents(armor);
+                    }
+                    if (foffhand instanceof org.bukkit.inventory.ItemStack) {
+                        fp.getInventory().setItemInOffHand((org.bukkit.inventory.ItemStack) foffhand);
+                    }
+
+                    // Restore potion effects
+                    for (PotionEffect effect : fp.getActivePotionEffects()) fp.removePotionEffect(effect.getType());
+                    if (feffects != null) {
+                        for (Map<?, ?> map : feffects) {
+                            try {
+                                Map<String, Object> effectMap = new HashMap<>();
+                                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                                    effectMap.put(entry.getKey().toString(), entry.getValue());
+                                }
+                                fp.addPotionEffect(new PotionEffect(effectMap));
+                            } catch (Exception ignored) {}
+                        }
+                    }
+
+                    // Grant brief invulnerability
+                    fp.setInvulnerable(true);
+                    new BukkitRunnable() { @Override public void run() { if (fp.isOnline()) fp.setInvulnerable(false); } }.runTaskLater(Main.this, 60L);
+                };
+
+                if (wasDead) {
+                    new BukkitRunnable() { @Override public void run() { restoreAction.run(); } }.runTaskLater(Main.this, 2L);
+                } else {
+                    restoreAction.run();
+                }
+            }
+        } catch (Exception e) {
+            getLogger().warning("Failed to restore player states: " + e.getMessage());
+        }
     }
 
     private void copyWorldToBackup(String worldName, File backupDir) {
@@ -1240,6 +1619,18 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             File migratedFolder = new File(Bukkit.getWorldContainer(), mainWorldName + "/dimensions/minecraft/" + worldName);
             if (migratedFolder.exists()) {
                 try { copyDirectory(migratedFolder.toPath(), new File(backupDir, worldName).toPath()); } catch (IOException ignored) {}
+            }
+        }
+
+        // Ensure level.dat is included (Paper keeps it only in main world folder)
+        File backupWorldDir = new File(backupDir, worldName);
+        if (backupWorldDir.exists() && !new File(backupWorldDir, "level.dat").exists()) {
+            String mainWorldName = Bukkit.getWorlds().isEmpty() ? "world" : Bukkit.getWorlds().getFirst().getName();
+            File mainLevelDat = new File(Bukkit.getWorldContainer(), mainWorldName + "/level.dat");
+            if (mainLevelDat.exists()) {
+                try {
+                    Files.copy(mainLevelDat.toPath(), new File(backupWorldDir, "level.dat").toPath(), StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException ignored) {}
             }
         }
     }
@@ -1871,6 +2262,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     @EventHandler
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
+        if (isResetting) return; // Don't reset HP during backup load
         if (event.getNewGameMode() == GameMode.SURVIVAL && !event.getPlayer().getWorld().getName().equals(limboWorldName)) {
             event.getPlayer().setHealth(event.getPlayer().getMaxHealth());
             event.getPlayer().setFoodLevel(20);
@@ -1916,7 +2308,24 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         if (e.getEntity().getWorld().getName().equals(limboWorldName)) return;
         if (!e.getEntity().getWorld().getName().contains(gameWorldName)) return;
 
-        String playerName = e.getEntity().getName();
+        // Capture player states BEFORE death clears them (use pre-death snapshot for backup)
+        // The dying player's inventory is in getDrops(), other players are alive
+        lastPlayerSnapshot = capturePlayerStates();
+        // Override the dead player's data with pre-death state
+        Player dead = e.getEntity();
+        String path = dead.getUniqueId().toString();
+        if (lastPlayerSnapshot != null) {
+            lastPlayerSnapshot.set(path + ".health", Math.max(dead.getMaxHealth() / 2, 1)); // Half health on restore
+            // Reconstruct inventory from drops
+            org.bukkit.inventory.ItemStack[] inv = new org.bukkit.inventory.ItemStack[41];
+            int i = 0;
+            for (org.bukkit.inventory.ItemStack item : e.getDrops()) {
+                if (i < inv.length) inv[i++] = item;
+            }
+            lastPlayerSnapshot.set(path + ".inventory", Arrays.asList(inv));
+        }
+
+        String playerName = dead.getName();
         broadcastInfo(getMsg("death-reset-triggered").replace("{player}", playerName));
         startAutoTriggeredReset();
     }
@@ -2141,13 +2550,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 }
                 case "limbo" -> {
                     if (hasPerm(sender, "worldreset.limbo")) return noPerm(sender, "worldreset.limbo");
-                    if (!(sender instanceof Player p)) return true;
                     if (isResetting) {
                         sender.sendMessage(getMsg("already-resetting"));
                         return true;
                     }
 
-                    // /wr limbo delay <in> <out> — ustawienie globalnych opóźnień
+                    // /wr limbo delay <in> <out>
                     if (args.length >= 2 && args[1].equalsIgnoreCase("delay")) {
                         if (args.length < 4) {
                             sender.sendMessage("§eCurrent delays: §fIn=" + limboDelayIn + "s §7| §fOut=" + limboDelayOut + "s");
@@ -2157,118 +2565,71 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         try {
                             int delayIn = Integer.parseInt(args[2]);
                             int delayOut = Integer.parseInt(args[3]);
-                            if (delayIn < 0 || delayOut < 0) {
-                                sender.sendMessage("§cDelay values must be >= 0!");
-                                return true;
-                            }
-                            limboDelayIn = delayIn;
-                            limboDelayOut = delayOut;
-                            getConfig().set("limbo.delay-in", delayIn);
-                            getConfig().set("limbo.delay-out", delayOut);
-                            saveConfig();
+                            if (delayIn < 0 || delayOut < 0) { sender.sendMessage("§cDelay values must be >= 0!"); return true; }
+                            limboDelayIn = delayIn; limboDelayOut = delayOut;
+                            getConfig().set("limbo.delay-in", delayIn); getConfig().set("limbo.delay-out", delayOut); saveConfig();
                             sender.sendMessage("§aLimbo delays set: §eIn=" + delayIn + "s §7| §eOut=" + delayOut + "s");
-                        } catch (NumberFormatException e) {
-                            sender.sendMessage("§cInvalid number! Usage: /wr limbo delay <in_seconds> <out_seconds>");
-                        }
+                        } catch (NumberFormatException e) { sender.sendMessage("§cInvalid number!"); }
                         return true;
                     }
 
-                    // /wr limbo <in> <out> — shortcut for setting delays (two numbers = set delays)
-                    if (args.length >= 3) {
-                        try {
-                            int delayIn = Integer.parseInt(args[1]);
-                            int delayOut = Integer.parseInt(args[2]);
-                            if (delayIn < 0 || delayOut < 0) {
-                                sender.sendMessage("§cDelay values must be >= 0!");
-                                return true;
-                            }
-                            limboDelayIn = delayIn;
-                            limboDelayOut = delayOut;
-                            getConfig().set("limbo.delay-in", delayIn);
-                            getConfig().set("limbo.delay-out", delayOut);
-                            saveConfig();
-                            sender.sendMessage("§aLimbo delays set: §eIn=" + delayIn + "s §7| §eOut=" + delayOut + "s");
-                            return true;
-                        } catch (NumberFormatException e) {
-                            sender.sendMessage("§cUsage: /wr limbo [seconds] | /wr limbo <in> <out> | /wr limbo delay <in> <out>");
-                            return true;
-                        }
-                    }
-
-                    // /wr limbo <sekundy> — manualne wejście/wyjście z countdown
+                    // Determine target players and delay
+                    List<Player> targets = new ArrayList<>();
                     int manualDelay = 0;
-                    if (args.length >= 2) {
+
+                    if (args.length == 1) {
+                        // /wr limbo — all players
+                        targets.addAll(Bukkit.getOnlinePlayers());
+                    } else if (args.length >= 2) {
+                        String arg1 = args[1];
+                        // Try as number (delay)
                         try {
-                            manualDelay = Integer.parseInt(args[1]);
+                            manualDelay = Integer.parseInt(arg1);
                             if (manualDelay < 0) manualDelay = 0;
-                        } catch (NumberFormatException e) {
-                            sender.sendMessage("§cUsage: /wr limbo [seconds] or /wr limbo delay <in> <out>");
-                            return true;
-                        }
-                    }
 
-                    // If no args and there's an active countdown, skip it (instant teleport)
-                    if (args.length == 1 && activeCountdowns.containsKey(p.getUniqueId())) {
-                        skipCountdown(p);
-                        // Execute the teleport immediately
-                        if (p.getWorld().getName().equals(limboWorldName)) {
-                            if (isGameReady) {
-                                World game = Bukkit.getWorld(gameWorldName);
-                                if (game != null) {
-                                    setupGamePlayer(p, game.getSpawnLocation());
-                                    p.sendMessage(getMsg("game-started"));
-                                }
-                            }
-                        } else {
-                            Location loc = getLimboSpawn();
-                            p.teleport(loc);
-                            setupLimboPlayer(p);
-                            p.sendMessage(getMsg("limbo-join"));
-                        }
-                        p.sendTitle("", "", 0, 1, 0); // Clear title
-                        return true;
-                    }
-
-                    if (p.getWorld().getName().equals(limboWorldName)) {
-                        // Wyjście z limbo → do gry
-                        if (isGameReady) {
-                            World game = Bukkit.getWorld(gameWorldName);
-                            if (game != null) {
-                                if (manualDelay > 0) {
-                                    String subtitle = getSubtitle("limbo-countdown-out", "Teleport to Game...");
-                                    Location spawn = game.getSpawnLocation();
-                                    startCountdown(p, manualDelay, subtitle, () -> {
-                                        if (p.isOnline()) {
-                                            setupGamePlayer(p, spawn);
-                                            p.sendMessage(getMsg("game-started"));
-                                        }
-                                    });
+                            // Check if args[2] specifies a target
+                            if (args.length >= 3) {
+                                String arg2 = args[2];
+                                if (arg2.equalsIgnoreCase("me") || arg2.equalsIgnoreCase("m") || arg2.equalsIgnoreCase("ja") || arg2.equalsIgnoreCase("j")) {
+                                    if (sender instanceof Player p) targets.add(p);
+                                } else if (arg2.equalsIgnoreCase("all")) {
+                                    targets.addAll(Bukkit.getOnlinePlayers());
                                 } else {
-                                    setupGamePlayer(p, game.getSpawnLocation());
-                                    p.sendMessage(getMsg("game-started"));
+                                    Player target = Bukkit.getPlayerExact(arg2);
+                                    if (target != null) {
+                                        targets.add(target);
+                                    } else {
+                                        sender.sendMessage("§cPlayer not found: §e" + arg2);
+                                        return true;
+                                    }
+                                }
+                            } else {
+                                // No target specified with delay — all players
+                                targets.addAll(Bukkit.getOnlinePlayers());
+                            }
+                        } catch (NumberFormatException e) {
+                            // It's a player name or "me"
+                            if (arg1.equalsIgnoreCase("me") || arg1.equalsIgnoreCase("m") || arg1.equalsIgnoreCase("ja") || arg1.equalsIgnoreCase("j")) {
+                                if (sender instanceof Player p) targets.add(p);
+                            } else if (arg1.equalsIgnoreCase("all")) {
+                                targets.addAll(Bukkit.getOnlinePlayers());
+                            } else {
+                                Player target = Bukkit.getPlayerExact(arg1);
+                                if (target != null) {
+                                    targets.add(target);
+                                } else {
+                                    sender.sendMessage("§cPlayer not found: §e" + arg1);
+                                    return true;
                                 }
                             }
-                        } else {
-                            startReset();
                         }
-                    } else {
-                        // Wejście do limbo
-                        if (manualDelay > 0) {
-                            String subtitle = getSubtitle("limbo-countdown-in", "Teleport to Limbo...");
-                            startCountdown(p, manualDelay, subtitle, () -> {
-                                if (p.isOnline()) {
-                                    Location loc = getLimboSpawn();
-                                    p.teleport(loc);
-                                    setupLimboPlayer(p);
-                                    p.sendMessage(getMsg("limbo-join"));
-                                }
-                            });
-                        } else {
-                            Location loc = getLimboSpawn();
-                            p.teleport(loc);
-                            setupLimboPlayer(p);
-                            p.sendMessage(getMsg("limbo-join"));
-                        }
+                    }
+
+                    if (targets.isEmpty()) return true;
+
+                    // Execute toggle for each target
+                    for (Player target : targets) {
+                        toggleLimboForPlayer(target, manualDelay);
                     }
                     return true;
                 }
@@ -2646,19 +3007,47 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     if (hasPerm(sender, "worldreset.autoreset")) return noPerm(sender, "worldreset.autoreset");
 
                     if (args.length < 2) {
-                        // Show status
-                        String statusStr = !autoResetEnabled ? "§cDisabled" : (autoResetPaused ? "§6Paused" : "§aRunning");
-                        sender.sendMessage("§e--- AutoReset Status ---");
-                        sender.sendMessage("§7Status: " + statusStr);
-                        sender.sendMessage("§7Time: §f" + formatAutoResetTime(autoResetRemainingSeconds) + " §7/ §f" + formatAutoResetTime(autoResetTotalSeconds));
-                        sender.sendMessage("§7Loop: " + (autoResetLoop ? "§aYes" : "§cNo"));
-                        sender.sendMessage("§7Visible: " + (autoResetVisible ? "§aYes" : "§cNo"));
+                        // Toggle autoreset
+                        if (autoResetEnabled && !autoResetPaused) {
+                            // Running → pause
+                            autoResetPaused = true;
+                            getConfig().set("autoreset.paused", true);
+                            saveConfig();
+                            sender.sendMessage("§6AutoReset paused.");
+                        } else if (autoResetEnabled && autoResetPaused) {
+                            // Paused → resume
+                            autoResetPaused = false;
+                            getConfig().set("autoreset.paused", false);
+                            saveConfig();
+                            if (autoResetRemainingSeconds <= 0) autoResetRemainingSeconds = autoResetTotalSeconds;
+                            startAutoResetTimer();
+                            sender.sendMessage("§aAutoReset resumed! Time: §e" + formatAutoResetTime(autoResetRemainingSeconds));
+                        } else {
+                            // Disabled → enable and start
+                            autoResetEnabled = true;
+                            autoResetPaused = false;
+                            getConfig().set("autoreset.enabled", true);
+                            getConfig().set("autoreset.paused", false);
+                            saveConfig();
+                            autoResetRemainingSeconds = autoResetTotalSeconds;
+                            startAutoResetTimer();
+                            sender.sendMessage("§aAutoReset started! Time: §e" + formatAutoResetTime(autoResetRemainingSeconds));
+                        }
+                        syncAutoResetScoreboard();
                         return true;
                     }
 
                     String sub = args[1].toLowerCase();
 
                     switch (sub) {
+                        case "status" -> {
+                            String statusStr = !autoResetEnabled ? "§cDisabled" : (autoResetPaused ? "§6Paused" : "§aRunning");
+                            sender.sendMessage("§e--- AutoReset Status ---");
+                            sender.sendMessage("§7Status: " + statusStr);
+                            sender.sendMessage("§7Time: §f" + formatAutoResetTime(autoResetRemainingSeconds) + " §7/ §f" + formatAutoResetTime(autoResetTotalSeconds));
+                            sender.sendMessage("§7Loop: " + (autoResetLoop ? "§aYes" : "§cNo"));
+                            sender.sendMessage("§7Visible: " + (autoResetVisible ? "§aYes" : "§cNo"));
+                        }
                         case "start" -> {
                             autoResetEnabled = true;
                             autoResetPaused = false;
@@ -2794,10 +3183,24 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 return true;
                             }
                             Arrays.sort(dirs, Comparator.comparingLong(File::lastModified).reversed());
-                            sender.sendMessage("§e--- Backups (" + dirs.length + ") ---");
-                            for (int i = 0; i < dirs.length; i++) {
+
+                            int perPage = 10;
+                            int totalPages = (int) Math.ceil(dirs.length / (double) perPage);
+                            int page = 1;
+                            if (args.length >= 3) {
+                                try { page = Integer.parseInt(args[2]); } catch (NumberFormatException ignored) {}
+                            }
+                            page = Math.max(1, Math.min(page, totalPages));
+                            int start = (page - 1) * perPage;
+                            int end = Math.min(start + perPage, dirs.length);
+
+                            sender.sendMessage("§e--- Backups (" + dirs.length + ") §7— Page " + page + "/" + totalPages + " §e---");
+                            for (int i = start; i < end; i++) {
                                 long size = getDirSize(dirs[i]);
                                 sender.sendMessage("§7 " + (i + 1) + ". §f" + dirs[i].getName() + " §8(§7" + formatFileSize(size) + "§8)");
+                            }
+                            if (page < totalPages) {
+                                sender.sendMessage("§7Use §e/wr backup list " + (page + 1) + " §7for next page.");
                             }
                         }
                         case "load" -> {
@@ -2822,7 +3225,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 File selectedBackup = dirs[index];
                                 sender.sendMessage("§eLoading backup: §f" + selectedBackup.getName() + "§e...");
 
-                                // Use template system to load backup as world
                                 isResetting = true;
                                 isGameReady = false;
                                 sendAllToLimboForReset();
@@ -2831,6 +3233,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     @Override
                                     public void run() {
                                         unloadGameWorlds();
+                                        // Extra delay for Windows file lock release
                                         new BukkitRunnable() {
                                             @Override
                                             public void run() {
@@ -2838,27 +3241,59 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                                 deleteWorldFolder(gameWorldName + "_nether");
                                                 deleteWorldFolder(gameWorldName + "_the_end");
 
-                                                // Copy backup folders as game worlds
+                                                // Full copy of backup (including playerdata, entities, etc.)
                                                 File backupOverworld = new File(selectedBackup, gameWorldName);
                                                 File backupNether = new File(selectedBackup, gameWorldName + "_nether");
                                                 File backupEnd = new File(selectedBackup, gameWorldName + "_the_end");
 
+                                                getLogger().info("Backup load - copying from: " + selectedBackup.getAbsolutePath());
+                                                getLogger().info("  Overworld exists: " + backupOverworld.exists());
+                                                getLogger().info("  level.dat exists: " + new File(backupOverworld, "level.dat").exists());
+
                                                 try {
-                                                    if (backupOverworld.exists()) copyTemplateFolder(backupOverworld, new File(Bukkit.getWorldContainer(), gameWorldName));
-                                                    if (backupNether.exists()) copyTemplateFolder(backupNether, new File(Bukkit.getWorldContainer(), gameWorldName + "_nether"));
-                                                    if (backupEnd.exists()) copyTemplateFolder(backupEnd, new File(Bukkit.getWorldContainer(), gameWorldName + "_the_end"));
+                                                    if (backupOverworld.exists()) {
+                                                        copyDirectory(backupOverworld.toPath(), new File(Bukkit.getWorldContainer(), gameWorldName).toPath());
+                                                        // Remove uid.dat to prevent UUID conflicts
+                                                        File uid = new File(Bukkit.getWorldContainer(), gameWorldName + "/uid.dat");
+                                                        if (uid.exists()) uid.delete();
+                                                    }
+                                                    if (backupNether.exists()) {
+                                                        copyDirectory(backupNether.toPath(), new File(Bukkit.getWorldContainer(), gameWorldName + "_nether").toPath());
+                                                        File uid = new File(Bukkit.getWorldContainer(), gameWorldName + "_nether/uid.dat");
+                                                        if (uid.exists()) uid.delete();
+                                                    }
+                                                    if (backupEnd.exists()) {
+                                                        copyDirectory(backupEnd.toPath(), new File(Bukkit.getWorldContainer(), gameWorldName + "_the_end").toPath());
+                                                        File uid = new File(Bukkit.getWorldContainer(), gameWorldName + "_the_end/uid.dat");
+                                                        if (uid.exists()) uid.delete();
+                                                    }
                                                 } catch (IOException e) {
                                                     getLogger().severe("Failed to load backup: " + e.getMessage());
                                                 }
 
                                                 loadGameWorlds();
                                                 applyLocatorBarGamerule();
-                                                broadcastInfo(getMsg("generation-complete"));
                                                 isGameReady = true;
-                                                startGameForAll();
+
+                                                // Restore player states from backup
+                                                World game = Bukkit.getWorld(gameWorldName);
+                                                if (game != null) {
+                                                    broadcastInfo("§aBackup loaded successfully!");
+                                                    restorePlayerStates(selectedBackup);
+
+                                                    // If no players.yml existed (old backup), just teleport to spawn
+                                                    File playersFile = new File(selectedBackup, "players.yml");
+                                                    if (!playersFile.exists()) {
+                                                        for (Player p : Bukkit.getOnlinePlayers()) {
+                                                            if (p.isDead()) p.spigot().respawn();
+                                                            p.teleport(game.getSpawnLocation());
+                                                            p.setGameMode(GameMode.SURVIVAL);
+                                                        }
+                                                    }
+                                                }
                                                 isResetting = false;
                                             }
-                                        }.runTaskLater(Main.this, 20L);
+                                        }.runTaskLater(Main.this, 40L);
                                     }
                                 }.runTaskLater(Main.this, 20L);
                             } catch (NumberFormatException e) {
@@ -2981,7 +3416,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         sender.sendMessage("");
         sender.sendMessage(isPl ? "§f§l⚙ Gra" : "§f§l⚙ Game");
         sender.sendMessage(isPl ? "  §e/wr reset §6[§esekundy§6] §8- §7Zresetuj świat" : "  §e/wr reset §6[§eseconds§6] §8- §7Reset the world");
-        sender.sendMessage(isPl ? "  §e/wr limbo §6[§esekundy§6] §8- §7Przełącz Limbo" : "  §e/wr limbo §6[§eseconds§6] §8- §7Toggle Limbo");
+        sender.sendMessage(isPl ? "  §e/wr limbo §6[§egracz§6|§eme§6] §8- §7Przenieś do/z Limbo" : "  §e/wr limbo §6[§eplayer§6|§eme§6] §8- §7Toggle Limbo");
         sender.sendMessage(isPl ? "  §e/wr death §8- §7Reset po śmierci" : "  §e/wr death §8- §7Toggle reset-on-death");
         sender.sendMessage("");
         sender.sendMessage(isPl ? "§f§l⏱ Timer i AutoReset" : "§f§l⏱ Timer & AutoReset");
@@ -3009,8 +3444,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     ? "§e/wr reset §6[§edelay-in§6] §6[§edelay-out§6] §8- §7Zresetuj świat.\n§7  delay-in: odliczanie przed resetem. delay-out: odliczanie w limbo przed startem."
                     : "§e/wr reset §6[§edelay-in§6] §6[§edelay-out§6] §8- §7Reset the world.\n§7  delay-in: countdown before reset. delay-out: countdown in limbo before game starts.";
             case "limbo" -> isPl
-                    ? "§e/wr limbo §6[§esekundy§6] §8- §7Wejdź/wyjdź z Limbo (opcjonalne odliczanie)\n§e/wr limbo §6<§ein§6> §6<§eout§6> §8- §7Ustaw automatyczne opóźnienia\n§7  Podczas odliczania §e/wr limbo §7przeskakuje je."
-                    : "§e/wr limbo §6[§eseconds§6] §8- §7Enter/leave Limbo (optional countdown)\n§e/wr limbo §6<§ein§6> §6<§eout§6> §8- §7Set automatic delays\n§7  During active countdown, §e/wr limbo §7skips it.";
+                    ? "§e/wr limbo §8- §7Przenieś wszystkich do/z Limbo\n§e/wr limbo me §8- §7Przenieś tylko siebie\n§e/wr limbo §6<§egracz§6> §8- §7Przenieś wybranego gracza\n§e/wr limbo §6<§esekundy§6> §6[§egracz§6] §8- §7Z odliczaniem (domyślnie wszyscy)\n§e/wr limbo delay §6<§ein§6> §6<§eout§6> §8- §7Ustaw automatyczne opóźnienia"
+                    : "§e/wr limbo §8- §7Toggle all players to/from Limbo\n§e/wr limbo me §8- §7Toggle only yourself\n§e/wr limbo §6<§eplayer§6> §8- §7Toggle specific player\n§e/wr limbo §6<§eseconds§6> §6[§eplayer§6] §8- §7With countdown (default: all)\n§e/wr limbo delay §6<§ein§6> §6<§eout§6> §8- §7Set automatic delays";
             case "death" -> isPl
                     ? "§e/wr death §8- §7Przełącz reset po śmierci.\n§7  Gdy włączony, śmierć gracza resetuje świat."
                     : "§e/wr death §8- §7Toggle Reset-on-Death mode.\n§7  When enabled, any player death resets the world.";
@@ -3062,9 +3497,13 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             if (args[0].equalsIgnoreCase("timer")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "pause", "reset", "enable", "disable", "mode", "scope", "goal"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("compass")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("templates")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "folder", "status"), new ArrayList<>());
-            if (args[0].equalsIgnoreCase("autoreset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "stop", "disable", "loop", "visible", "time"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("autoreset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "stop", "disable", "status", "loop", "visible", "time"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("backup")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "status", "list", "load", "clear", "limit"), new ArrayList<>());
-            if (args[0].equalsIgnoreCase("limbo")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("delay", "3", "5", "10"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("limbo")) {
+                List<String> suggestions = new ArrayList<>(Arrays.asList("me", "all", "delay", "3", "5", "10"));
+                for (Player p : Bukkit.getOnlinePlayers()) suggestions.add(p.getName());
+                return StringUtil.copyPartialMatches(args[1], suggestions, new ArrayList<>());
+            }
             if (args[0].equalsIgnoreCase("reset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("3", "5", "10", "15", "30"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("help") || args[0].equals("?")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("reset", "limbo", "death", "timer", "autoreset", "filter", "seed", "templates", "compass", "backup", "language", "silent", "reload"), new ArrayList<>());
         }
@@ -3108,6 +3547,14 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             }
             if (args[0].equalsIgnoreCase("limbo") && args[1].equalsIgnoreCase("delay")) {
                 return StringUtil.copyPartialMatches(args[2], Arrays.asList("0", "3", "5", "10", "15"), new ArrayList<>());
+            }
+            if (args[0].equalsIgnoreCase("limbo")) {
+                try {
+                    Integer.parseInt(args[1]); // It's a delay number — suggest targets for args[2]
+                    List<String> suggestions = new ArrayList<>(Arrays.asList("me", "all"));
+                    for (Player p : Bukkit.getOnlinePlayers()) suggestions.add(p.getName());
+                    return StringUtil.copyPartialMatches(args[2], suggestions, new ArrayList<>());
+                } catch (NumberFormatException ignored) {}
             }
             if (args[0].equalsIgnoreCase("backup") && args[1].equalsIgnoreCase("limit")) {
                 return StringUtil.copyPartialMatches(args[2], Arrays.asList("all", "3", "5", "10", "20"), new ArrayList<>());

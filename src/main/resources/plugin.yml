@@ -10,7 +10,7 @@ commands:
   worldreset:
     description: Główna komenda
     aliases: [wr]
-    usage: /wr <reset|limbo|seed|language|silent|death|filter|timer|templates|autoreset|reload>
+    usage: /wr <reset|limbo|seed|language|silent|death|filter|timer|templates|autoreset|backup|reload>
     permission: worldreset.admin
 
 permissions:

@@ -14,16 +14,33 @@ Complete scheduled periodic reset system:
 - **Scoreboard:** `wr_autoreset_sec`, `wr_autoreset_min`, `wr_autoreset_status`.
 - **PlaceholderAPI:** `%worldreset_autoreset%`, `%worldreset_autoreset_sec%`, `%worldreset_autoreset_min%`, `%worldreset_autoreset_status%`, `%worldreset_autoreset_loop%`, `%worldreset_autoreset_enabled%`, `%worldreset_autoreset_total%`, `%worldreset_autoreset_total_sec%`.
 
-## Limbo Countdown Delays
+## Limbo Pause & Countdown System
 
-Configurable delays for entering/leaving Limbo during automatic events:
-- **Config:** `limbo.delay-in` (before teleport to Limbo), `limbo.delay-out` (before teleport to game).
-- **Applies to:** death-reset (`reset-on-death`). Does NOT apply to manual `/wr reset`.
-- **AutoReset:** Uses only `delay-out` (autoreset countdown itself serves as the warning).
-- **Countdown display:** Title on screen with adaptive intervals (not every second for long countdowns). Sound effects at ≤5s.
-- **Skip:** `/wr limbo` during active countdown instantly completes the teleport.
-- **Manual:** `/wr limbo <seconds>` for custom countdown on demand.
-- **Set delays:** `/wr limbo <in> <out>` or `/wr limbo delay <in> <out>`.
+`/wr limbo` is now a full pause system with state preservation:
+
+**Targeting:**
+- `/wr limbo` — all online players
+- `/wr limbo me` — only yourself (aliases: `m`, `ja`, `j`)
+- `/wr limbo all` — all players (explicit)
+- `/wr limbo <player>` — specific player by name
+
+**Countdown:**
+- `/wr limbo <seconds>` — all players with countdown
+- `/wr limbo <seconds> <target>` — specific target with countdown (me/all/player)
+
+**State preservation:**
+- Entering limbo saves full player state: position, HP, food, saturation, XP, gamemode, inventory, armor, offhand, potion effects.
+- Leaving limbo restores the exact state (not a fresh start on spawn).
+- Reset clears saved states (world is new, old positions invalid).
+
+**Automatic delays (for death-reset only):**
+- **Config:** `limbo.delay-in` / `limbo.delay-out`
+- **Set via:** `/wr limbo delay <in> <out>`
+- Does NOT apply to manual `/wr reset` or autoreset (autoreset countdown is the warning).
+
+**Countdown display:** Title on screen with adaptive intervals. PLING sound at ≤5s, higher pitch at ≤3s. Red/orange/yellow colors.
+
+**Skip:** `/wr limbo` during active countdown instantly completes the teleport.
 
 ## `/wr reset [delay-in] [delay-out]`
 

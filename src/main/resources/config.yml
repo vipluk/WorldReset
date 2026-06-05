@@ -1,4 +1,4 @@
-# === WorldReset Configuration ===
+# === WorldReset v1.6 Configuration ===
 
 # [PL] Wybierz język wiadomości w grze.
 # [EN] Select in-game language.
@@ -29,7 +29,7 @@ backup:
 
   # [PL] Limit kopii zapasowych ("all" = trzymaj wszystkie, np. 5 = trzymaj 5 ostatnich).
   # [EN] Backup limit ("all" = keep all backups, e.g. 5 = keep the last 5 backups).
-  limit: "all"
+  limit: "30"
 
 # --- Seed (Ziarno) ---
 seed:
@@ -43,7 +43,7 @@ seed:
 
   # [PL] Wartość stałego seeda (liczba lub tekst).
   # [EN] Value of the fixed seed (number or text).
-  value: "123456789"
+  value: "2048005618087379093"
 
 # --- Szablony Światów / World Templates ---
 # [PL] Umożliwia wczytywanie gotowych światów zamiast ich generowania z seeda.
