@@ -72,7 +72,23 @@ Folders with "nether"/"end" in name → dimension-specific. Others → overworld
 
 ## Important Notes
 - `saveResource("file.yml", false)` does NOT overwrite — users keep old files. New keys need fallback logic (`getSubtitle` pattern).
+- `placeholderapi.yml` and `scoreboard.yml` are always overwritten (contain % which breaks YAML parser on older servers).
+- `messages_*.yml` use `updateResourceFile()` — merges missing keys without overwriting.
 - World name cannot be "world" or "limbo".
 - `isResetting` flag blocks commands/events during reset.
 - `isDelayingReset` flag allows respawn in game world during delay-in phase.
 - `parallelDelayOutRunning` flag prevents `generateGameWorldsInternal` from calling `startGameForAll` when parallel countdown handles it.
+- `waterSpawnActive` + `boatGivenPlayers` — gives boat when spawn is on water (no land within 100 blocks).
+- `limboSavedStates` — saves/restores full player state for /wr limbo pause.
+- `lastPlayerSnapshot` — captured before reset for backup player states.
+- Biome/Structure registry iteration uses `catch (Throwable)` for 1.21.0 compatibility (IncompatibleClassChangeError).
+
+## TODO (Next Session)
+- `/wr seed status` — show seed value and enabled state
+- `/wr filter` as toggle (enable/disable filters without clearing them)
+- `/wr filter status` — current info (move from no-args)
+- `/wr filter enable/disable` — toggle filter system
+- Fix water spawn boat not being given (debug logs added — check console output)
+- Update `/wr help seed`, `/wr help filter` with new subcommands
+- Update description.md, changelog16.md, update16.md with seed/filter changes
+- Commit and push to both branches
