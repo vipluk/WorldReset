@@ -189,6 +189,6 @@ scoreboard_objectives:
 
 # [EN] Vanilla Scoreboard display commands / [PL] Wbudowane komendy wyświetlania:
 display_commands:
-  tab_list: "/scoreboard objectives setdisplay list wr_pb [EN/PL]"
-  below_name: "/scoreboard objectives setdisplay belowName wr_attempts [EN/PL]"
-  sidebar: "/scoreboard objectives setdisplay sidebar wr_completions [EN/PL]"
+  tab_list: "/scoreboard objectives setdisplay list wr_pb"
+  below_name: "/scoreboard objectives setdisplay belowName wr_attempts"
+  sidebar: "/scoreboard objectives setdisplay sidebar wr_completions"
