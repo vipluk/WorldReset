@@ -1148,6 +1148,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     // --- LOGIKA FILTRÓW (EXCLUSIVE) ---
     private void applyFiltersAndShiftSpawn(World w) {
+        if (!getConfig().getBoolean("filter.enabled", true)) return;
+
         String structReq = getConfig().getString("filter.structure", "").toUpperCase();
         String biomeReq = getConfig().getString("filter.biome", "").toUpperCase();
 
@@ -2785,6 +2787,14 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         getConfig().set("seed.value", "");
                         saveConfig();
                         sender.sendMessage("§aSeed cleared and set to random.");
+                    } else if (sub.equals("status")) {
+                        boolean fixed = getConfig().getBoolean("seed.use-fixed", false);
+                        String val = getConfig().getString("seed.value", "");
+                        sender.sendMessage("§e--- Seed Status ---");
+                        sender.sendMessage("§7Mode: " + (fixed ? "§eFixed" : "§aRandom"));
+                        if (!val.isEmpty()) sender.sendMessage("§7Value: §f" + val);
+                        World game = Bukkit.getWorld(gameWorldName);
+                        if (game != null) sender.sendMessage("§7Active world seed: §f" + game.getSeed());
                     } else {
                         // Treat as seed value
                         getConfig().set("seed.use-fixed", true);
@@ -2817,14 +2827,27 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 case "filter" -> {
                     if (hasPerm(sender, "worldreset.filter")) return noPerm(sender, "worldreset.filter");
 
-                    // /wr filter — show current status
                     if (args.length == 1) {
+                        // Toggle filter enabled state
+                        boolean current = getConfig().getBoolean("filter.enabled", true);
+                        boolean newVal = !current;
+                        getConfig().set("filter.enabled", newVal);
+                        saveConfig();
+                        sender.sendMessage(newVal ? "§aFilters enabled." : "§cFilters disabled (values preserved).");
+                        return true;
+                    }
+
+                    String filterSub = args[1].toLowerCase();
+
+                    if (filterSub.equals("status")) {
+                        boolean filterEnabled = getConfig().getBoolean("filter.enabled", true);
                         String filterStruct = getConfig().getString("filter.structure", "");
                         String filterBiome = getConfig().getString("filter.biome", "");
                         boolean fixedSeed = getConfig().getBoolean("seed.use-fixed", false);
                         String seedVal = getConfig().getString("seed.value", "");
 
                         sender.sendMessage("§e--- Filter Status ---");
+                        sender.sendMessage("§7Enabled: " + (filterEnabled ? "§aYes" : "§cNo"));
                         sender.sendMessage("§7Structure: " + (filterStruct.isEmpty() ? "§8None" : "§a" + filterStruct));
                         sender.sendMessage("§7Biome: " + (filterBiome.isEmpty() ? "§8None" : "§a" + filterBiome));
                         sender.sendMessage("§7Seed: " + (fixedSeed ? "§e" + seedVal + " §7(fixed)" : "§aRandom"));
@@ -2835,8 +2858,21 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         return true;
                     }
 
+                    if (isEnableAlias(filterSub)) {
+                        getConfig().set("filter.enabled", true);
+                        saveConfig();
+                        sender.sendMessage("§aFilters enabled.");
+                        return true;
+                    }
+                    if (isDisableAlias(filterSub)) {
+                        getConfig().set("filter.enabled", false);
+                        saveConfig();
+                        sender.sendMessage("§cFilters disabled (values preserved).");
+                        return true;
+                    }
+
                     // /wr filter clear — clear filters AND seed
-                    if (args.length == 2 && args[1].equalsIgnoreCase("clear")) {
+                    if (filterSub.equals("clear")) {
                         getConfig().set("filter.structure", "");
                         getConfig().set("filter.biome", "");
                         getConfig().set("seed.use-fixed", false);
@@ -3587,11 +3623,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     ? "§e/wr autoreset §8- §7Pokaż status\n§e/wr autoreset §6<§estart§6|§estop§6|§edisable§6> §8- §7Steruj odliczaniem\n§e/wr autoreset time §6<§ewartość§6> §8- §7Ustaw interwał §6(§e30s§6, §e5m§6, §e1h§6)\n§e/wr autoreset loop §6[§eenable§6|§edisable§6] §8- §7Pętla\n§e/wr autoreset visible §6[§eenable§6|§edisable§6] §8- §7Widoczność HUD"
                     : "§e/wr autoreset §8- §7Show status\n§e/wr autoreset §6<§estart§6|§estop§6|§edisable§6> §8- §7Control countdown\n§e/wr autoreset time §6<§evalue§6> §8- §7Set interval §6(§e30s§6, §e5m§6, §e1h§6)\n§e/wr autoreset loop §6[§eenable§6|§edisable§6] §8- §7Toggle loop\n§e/wr autoreset visible §6[§eenable§6|§edisable§6] §8- §7Toggle HUD";
             case "filter" -> isPl
-                    ? "§e/wr filter §8- §7Pokaż aktualne filtry i seed\n§e/wr filter structure §6<§enazwa§6> §8- §7Filtr struktury\n§e/wr filter biome §6<§enazwa§6> §8- §7Filtr biomu\n§e/wr filter clear §8- §7Wyczyść filtry i seed"
-                    : "§e/wr filter §8- §7Show current filters & seed\n§e/wr filter structure §6<§ename§6> §8- §7Set structure filter\n§e/wr filter biome §6<§ename§6> §8- §7Set biome filter\n§e/wr filter clear §8- §7Clear all filters & fixed seed";
+                    ? "§e/wr filter §8- §7Przełącz filtry (włącz/wyłącz)\n§e/wr filter §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz filtry\n§e/wr filter status §8- §7Pokaż status filtrów\n§e/wr filter structure §6<§enazwa§6> §8- §7Filtr struktury\n§e/wr filter biome §6<§enazwa§6> §8- §7Filtr biomu\n§e/wr filter clear §8- §7Wyczyść filtry i seed"
+                    : "§e/wr filter §8- §7Toggle filters (enable/disable)\n§e/wr filter §6<§eenable§6|§edisable§6> §8- §7Enable/disable filters\n§e/wr filter status §8- §7Show filter status\n§e/wr filter structure §6<§ename§6> §8- §7Set structure filter\n§e/wr filter biome §6<§ename§6> §8- §7Set biome filter\n§e/wr filter clear §8- §7Clear all filters & seed";
             case "seed" -> isPl
-                    ? "§e/wr seed §8- §7Przełącz stały/losowy seed\n§e/wr seed §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz stały seed\n§e/wr seed §6<§ewartość§6> §8- §7Ustaw seed\n§e/wr seed clear §8- §7Wyczyść i ustaw losowy"
-                    : "§e/wr seed §8- §7Toggle fixed/random seed\n§e/wr seed §6<§eenable§6|§edisable§6> §8- §7Enable/disable fixed seed\n§e/wr seed §6<§evalue§6> §8- §7Set seed value\n§e/wr seed clear §8- §7Clear seed and set random";
+                    ? "§e/wr seed §8- §7Przełącz stały/losowy seed\n§e/wr seed §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz stały seed\n§e/wr seed §6<§ewartość§6> §8- §7Ustaw seed\n§e/wr seed status §8- §7Pokaż status\n§e/wr seed clear §8- §7Wyczyść i ustaw losowy"
+                    : "§e/wr seed §8- §7Toggle fixed/random seed\n§e/wr seed §6<§eenable§6|§edisable§6> §8- §7Enable/disable fixed seed\n§e/wr seed §6<§evalue§6> §8- §7Set seed value\n§e/wr seed status §8- §7Show status\n§e/wr seed clear §8- §7Clear and set random";
             case "templates" -> isPl
                     ? "§e/wr templates §6<§eenable§6|§edisable§6> §8- §7Przełącz szablony\n§e/wr templates folder §6[§eścieżka§6] §8- §7Podgląd/zmiana folderu\n§e/wr templates status §8- §7Info o szablonach"
                     : "§e/wr templates §6<§eenable§6|§edisable§6> §8- §7Toggle templates\n§e/wr templates folder §6[§epath§6] §8- §7View/set folder\n§e/wr templates status §8- §7Show template info";
@@ -3622,7 +3658,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
         if (args.length == 2) {
             if (args[0].equalsIgnoreCase("filter")) {
-                return StringUtil.copyPartialMatches(args[1], Arrays.asList("structure", "biome", "clear"), new ArrayList<>());
+                return StringUtil.copyPartialMatches(args[1], Arrays.asList("structure", "biome", "enable", "disable", "status", "clear"), new ArrayList<>());
             }
             if (args[0].equalsIgnoreCase("language")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("en", "pl"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("timer")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "pause", "reset", "enable", "disable", "mode", "scope", "goal"), new ArrayList<>());
@@ -3636,7 +3672,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 return StringUtil.copyPartialMatches(args[1], suggestions, new ArrayList<>());
             }
             if (args[0].equalsIgnoreCase("reset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("3", "5", "10", "15", "30"), new ArrayList<>());
-            if (args[0].equalsIgnoreCase("seed")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "clear"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("seed")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "clear", "status"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("help") || args[0].equals("?")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("reset", "limbo", "death", "timer", "autoreset", "filter", "seed", "templates", "compass", "backup", "language", "silent", "reload"), new ArrayList<>());
         }
         if (args.length == 3) {

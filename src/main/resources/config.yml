@@ -65,6 +65,10 @@ template:
 #      If both fields are empty (""), the filter is disabled (default spawn).
 #      IMPORTANT: If both structure and biome are set, the plugin searches for the structure INSIDE that biome.
 filter:
+  # [PL] Czy filtry spawnu są aktywne? (true/false)
+  # [EN] Are spawn filters active? (true/false)
+  enabled: true
+
   # [PL] 1. STRUKTURA (Zostaw puste "" aby wyłączyć ten warunek)
   #      Ogólna nazwa (np. VILLAGE) lub konkretna (np. minecraft:village_plains).
   #      Popularne opcje: VILLAGE, SHIPWRECK, RUINED_PORTAL, ANCIENT_CITY, MANSION,
