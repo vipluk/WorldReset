@@ -4721,6 +4721,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         sender.sendMessage(isPl ? "  §e/wr seed §6[§ewartość§6] §8- §7Stały/losowy seed" : "  §e/wr seed §6[§evalue§6] §8- §7Fixed/random seed");
         sender.sendMessage(isPl ? "  §e/wr templates §6<§eakcja§6> §8- §7Szablony map" : "  §e/wr templates §6<§eaction§6> §8- §7World templates");
         sender.sendMessage(isPl ? "  §e/wr compass §6[§eenable§6|§edisable§6] §8- §7Locator bar" : "  §e/wr compass §6[§eenable§6|§edisable§6] §8- §7Locator bar");
+        sender.sendMessage(isPl ? "  §e/wr give §6<§eboat§6|§ewood§6> §8- §7Auto dawanie przedmiotów" : "  §e/wr give §6<§eboat§6|§ewood§6> §8- §7Auto item giving");
         sender.sendMessage("");
         sender.sendMessage(isPl ? "§f§l🛠 System" : "§f§l🛠 System");
         sender.sendMessage(isPl ? "  §e/wr backup §6[§eakcja§6] §8- §7Zarządzanie kopiami" : "  §e/wr backup §6[§eaction§6] §8- §7Backup management");
