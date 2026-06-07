@@ -1157,6 +1157,9 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 String biomeReq = getConfig().getString("filter.biome", "").toUpperCase();
                 String structReq = getConfig().getString("filter.structure", "").toUpperCase();
                 
+                // Resolve meta-biomes (virtual groups) to a random specific biome
+                biomeReq = resolveMetaBiome(biomeReq);
+                
                 // Async biome search for ALL biome filters (spreads work across ticks)
                 if (getConfig().getBoolean("filter.enabled", true) && !biomeReq.isEmpty() && structReq.isEmpty()) {
                     int attempts = getConfig().getInt("filter.attempts", 5);
@@ -1706,6 +1709,26 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     }
 
     // --- LOGIKA FILTRÓW (BIOME / STRUCTURE SPAWN SHIFT) ---
+
+    /**
+     * Resolves virtual meta-biome groups to a random specific biome from the group.
+     * If input is not a meta-biome, returns it unchanged.
+     */
+    private String resolveMetaBiome(String biome) {
+        List<String> options = switch (biome) {
+            case "OCEAN_ALL" -> List.of("OCEAN", "DEEP_OCEAN", "COLD_OCEAN", "DEEP_COLD_OCEAN", "FROZEN_OCEAN", "DEEP_FROZEN_OCEAN", "LUKEWARM_OCEAN", "DEEP_LUKEWARM_OCEAN", "WARM_OCEAN");
+            case "FOREST_ALL" -> List.of("FOREST", "BIRCH_FOREST", "DARK_FOREST", "OLD_GROWTH_BIRCH_FOREST", "OLD_GROWTH_SPRUCE_TAIGA", "FLOWER_FOREST");
+            case "MOUNTAIN_ALL" -> List.of("STONY_PEAKS", "JAGGED_PEAKS", "FROZEN_PEAKS", "MEADOW", "GROVE", "SNOWY_SLOPES", "WINDSWEPT_HILLS");
+            case "CAVE_ALL" -> List.of("DRIPSTONE_CAVES", "LUSH_CAVES", "DEEP_DARK");
+            case "DESERT_ALL" -> List.of("DESERT", "BADLANDS", "ERODED_BADLANDS", "WOODED_BADLANDS");
+            case "TAIGA_ALL" -> List.of("TAIGA", "OLD_GROWTH_PINE_TAIGA", "OLD_GROWTH_SPRUCE_TAIGA", "SNOWY_TAIGA");
+            default -> null;
+        };
+        if (options == null) return biome;
+        String selected = options.get(ThreadLocalRandom.current().nextInt(options.size()));
+        getLogger().info("Meta-biome " + biome + " resolved to: " + selected);
+        return selected;
+    }
 
     /** Biomes that are water-based or island-based and require island/shore finding */
     private static final Set<String> WATER_BIOMES = Set.of(
@@ -5038,6 +5061,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 }
                 if (args[1].equalsIgnoreCase("biome")) {
                     List<String> list = new ArrayList<>(BIOME_NAMES);
+                    list.add(0, "OCEAN_ALL");
+                    list.add(1, "FOREST_ALL");
+                    list.add(2, "MOUNTAIN_ALL");
+                    list.add(3, "CAVE_ALL");
+                    list.add(4, "DESERT_ALL");
+                    list.add(5, "TAIGA_ALL");
                     list.add("clear");
                     return StringUtil.copyPartialMatches(args[2], list, new ArrayList<>());
                 }
