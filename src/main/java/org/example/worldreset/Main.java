@@ -1170,6 +1170,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 // Basic land check: ±8 blocks around biome point
                                 Location landSpot = null;
                                 int bx = loc.getBlockX(), bz = loc.getBlockZ();
+                                String reqBiomeLower = biomeReq.toLowerCase();
                                 for (int dx = -8; dx <= 8 && landSpot == null; dx++) {
                                     for (int dz = -8; dz <= 8 && landSpot == null; dz++) {
                                         int x = bx + dx, z = bz + dz;
@@ -1180,7 +1181,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                                 Block a1 = normal.getBlockAt(x, y + 1, z);
                                                 Block a2 = normal.getBlockAt(x, y + 2, z);
                                                 if (a1.getType().isAir() && a2.getType().isAir()) {
-                                                    landSpot = new Location(normal, x + 0.5, y + 1, z + 0.5);
+                                                    // Verify biome at spawn position
+                                                    Biome spawnBiome = normal.getBiome(x, y + 1, z);
+                                                    if (spawnBiome != null && spawnBiome.key().value().equals(reqBiomeLower)) {
+                                                        landSpot = new Location(normal, x + 0.5, y + 1, z + 0.5);
+                                                    }
                                                 }
                                             }
                                         }
