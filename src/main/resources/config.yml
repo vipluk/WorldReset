@@ -185,3 +185,18 @@ limbo:
   #      Players in Limbo see a countdown before game starts.
   #      0 = instant teleport (no countdown).
   delay-out: 5
+
+
+# --- GIVE (Automatyczne dawanie przedmiotów) ---
+give:
+  # [PL] Czy dawać łódkę graczom automatycznie jeśli spawn jest na wodzie?
+  # [EN] Automatically give a boat to players if spawn is on water?
+  boat-if-water: true
+
+  # [PL] Czy dawać drewno graczom automatycznie jeśli spawn jest pod ziemią (biom jaskiniowy)?
+  # [EN] Automatically give wood to players if spawn is underground (cave biome)?
+  wood-if-underground: true
+
+  # [PL] Ilość drewna dawana przy spawnie podziemnym (1-64). 0 = wyłączone.
+  # [EN] Amount of wood given for underground spawn (1-64). 0 = disabled.
+  wood-amount: 5

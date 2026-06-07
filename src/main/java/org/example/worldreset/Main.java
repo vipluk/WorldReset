@@ -587,7 +587,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             new BukkitRunnable() { @Override public void run() { if (p.isOnline()) p.setInvulnerable(false); } }.runTaskLater(Main.this, 40L);
 
             // Give boat if water spawn or player is in/above water
-            if (waterSpawnActive && !boatGivenPlayers.contains(p.getUniqueId())) {
+            if (getConfig().getBoolean("give.boat-if-water", true) && waterSpawnActive && !boatGivenPlayers.contains(p.getUniqueId())) {
                 p.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.OAK_BOAT));
                 boatGivenPlayers.add(p.getUniqueId());
             } else if (!boatGivenPlayers.contains(p.getUniqueId())) {
@@ -597,6 +597,15 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     p.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.OAK_BOAT));
                     boatGivenPlayers.add(p.getUniqueId());
                     waterSpawnActive = true;
+                }
+            }
+
+            // Give wood if underground spawn (cave biome)
+            if (getConfig().getBoolean("give.wood-if-underground", true)) {
+                String biomeFilter = getConfig().getString("filter.biome", "").toUpperCase();
+                if (CAVE_BIOMES.contains(biomeFilter)) {
+                    int amount = Math.max(1, Math.min(getConfig().getInt("give.wood-amount", 5), 64));
+                    p.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.OAK_LOG, amount));
                 }
             }
         });
@@ -1216,7 +1225,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         final boolean isWaterBiome = WATER_BIOMES.contains(biomeName.toUpperCase());
         final boolean isRiverLike = biomeName.equals("river") || biomeName.equals("frozen_river");
-        final int MAX_BIOME_ATTEMPTS = isRiverLike ? 3 : 10;
+        final int MAX_BIOME_ATTEMPTS = isRiverLike ? 3 : 5;
         final int SCAN_RADIUS = isRiverLike ? 1000 : 500;
         final int SCAN_PER_TICK = 80;
 
@@ -3806,6 +3815,18 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         getConfig().set("seed.value", "");
                         saveConfig();
                         sender.sendMessage("§aSeed cleared and set to random.");
+                    } else if (sub.equals("copy")) {
+                        // Copy current world seed to fixed seed config
+                        World game = Bukkit.getWorld(gameWorldName);
+                        if (game != null) {
+                            String seedVal = String.valueOf(game.getSeed());
+                            getConfig().set("seed.use-fixed", true);
+                            getConfig().set("seed.value", seedVal);
+                            saveConfig();
+                            sender.sendMessage("§aCurrent seed copied: §f" + seedVal);
+                        } else {
+                            sender.sendMessage("§cNo game world loaded.");
+                        }
                     } else if (sub.equals("status")) {
                         boolean fixed = getConfig().getBoolean("seed.use-fixed", false);
                         String val = getConfig().getString("seed.value", "");
@@ -3820,6 +3841,74 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         getConfig().set("seed.value", args[1]);
                         saveConfig();
                         sender.sendMessage(getMsg("seed-set").replace("{seed}", args[1]));
+                    }
+                    return true;
+                }
+                case "give" -> {
+                    if (hasPerm(sender, "worldreset.give")) return noPerm(sender, "worldreset.give");
+                    if (args.length < 2) {
+                        sender.sendMessage("§eUsage: /wr give boat <enable|disable>");
+                        sender.sendMessage("§eUsage: /wr give wood <amount|enable|disable>");
+                        return true;
+                    }
+                    String item = args[1].toLowerCase();
+                    if (item.equals("boat")) {
+                        if (args.length < 3) {
+                            boolean current = getConfig().getBoolean("give.boat-if-water", true);
+                            sender.sendMessage("§7Boat if water: " + (current ? "§aenabled" : "§cdisabled"));
+                            return true;
+                        }
+                        String val = args[2].toLowerCase();
+                        if (isEnableAlias(val)) {
+                            getConfig().set("give.boat-if-water", true);
+                            saveConfig();
+                            sender.sendMessage("§aBoat if water: enabled");
+                        } else if (isDisableAlias(val)) {
+                            getConfig().set("give.boat-if-water", false);
+                            saveConfig();
+                            sender.sendMessage("§cBoat if water: disabled");
+                        } else {
+                            sender.sendMessage("§eUsage: /wr give boat <enable|disable>");
+                        }
+                    } else if (item.equals("wood")) {
+                        if (args.length < 3) {
+                            boolean enabled = getConfig().getBoolean("give.wood-if-underground", true);
+                            int amount = getConfig().getInt("give.wood-amount", 5);
+                            sender.sendMessage("§7Wood if underground: " + (enabled ? "§a" + amount : "§cdisabled"));
+                            return true;
+                        }
+                        String val = args[2].toLowerCase();
+                        if (isEnableAlias(val)) {
+                            getConfig().set("give.wood-if-underground", true);
+                            saveConfig();
+                            int amount = getConfig().getInt("give.wood-amount", 5);
+                            sender.sendMessage("§aWood if underground: enabled (" + amount + ")");
+                        } else if (isDisableAlias(val) || val.equals("0")) {
+                            getConfig().set("give.wood-if-underground", false);
+                            getConfig().set("give.wood-amount", 0);
+                            saveConfig();
+                            sender.sendMessage("§cWood if underground: disabled");
+                        } else {
+                            try {
+                                int amount = Integer.parseInt(val);
+                                amount = Math.max(0, Math.min(amount, 64));
+                                if (amount == 0) {
+                                    getConfig().set("give.wood-if-underground", false);
+                                    getConfig().set("give.wood-amount", 0);
+                                    saveConfig();
+                                    sender.sendMessage("§cWood if underground: disabled");
+                                } else {
+                                    getConfig().set("give.wood-if-underground", true);
+                                    getConfig().set("give.wood-amount", amount);
+                                    saveConfig();
+                                    sender.sendMessage("§aWood if underground: " + amount);
+                                }
+                            } catch (NumberFormatException e) {
+                                sender.sendMessage("§eUsage: /wr give wood <amount|enable|disable>");
+                            }
+                        }
+                    } else {
+                        sender.sendMessage("§eUsage: /wr give <boat|wood> ...");
                     }
                     return true;
                 }
@@ -4645,8 +4734,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     ? "§e/wr filter §8- §7Przełącz filtry (włącz/wyłącz)\n§e/wr filter §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz filtry\n§e/wr filter status §8- §7Pokaż status filtrów\n§e/wr filter structure §6<§enazwa§6> §8- §7Filtr struktury\n§e/wr filter biome §6<§enazwa§6> §8- §7Filtr biomu\n§e/wr filter clear §8- §7Wyczyść filtry i seed"
                     : "§e/wr filter §8- §7Toggle filters (enable/disable)\n§e/wr filter §6<§eenable§6|§edisable§6> §8- §7Enable/disable filters\n§e/wr filter status §8- §7Show filter status\n§e/wr filter structure §6<§ename§6> §8- §7Set structure filter\n§e/wr filter biome §6<§ename§6> §8- §7Set biome filter\n§e/wr filter clear §8- §7Clear all filters & seed";
             case "seed" -> isPl
-                    ? "§e/wr seed §8- §7Przełącz stały/losowy seed\n§e/wr seed §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz stały seed\n§e/wr seed §6<§ewartość§6> §8- §7Ustaw seed\n§e/wr seed status §8- §7Pokaż status\n§e/wr seed clear §8- §7Wyczyść i ustaw losowy"
-                    : "§e/wr seed §8- §7Toggle fixed/random seed\n§e/wr seed §6<§eenable§6|§edisable§6> §8- §7Enable/disable fixed seed\n§e/wr seed §6<§evalue§6> §8- §7Set seed value\n§e/wr seed status §8- §7Show status\n§e/wr seed clear §8- §7Clear and set random";
+                    ? "§e/wr seed §8- §7Przełącz stały/losowy seed\n§e/wr seed §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz stały seed\n§e/wr seed §6<§ewartość§6> §8- §7Ustaw seed\n§e/wr seed status §8- §7Pokaż status\n§e/wr seed copy §8- §7Kopiuj aktualny seed\n§e/wr seed clear §8- §7Wyczyść i ustaw losowy"
+                    : "§e/wr seed §8- §7Toggle fixed/random seed\n§e/wr seed §6<§eenable§6|§edisable§6> §8- §7Enable/disable fixed seed\n§e/wr seed §6<§evalue§6> §8- §7Set seed value\n§e/wr seed status §8- §7Show status\n§e/wr seed copy §8- §7Copy current world seed\n§e/wr seed clear §8- §7Clear and set random";
+            case "give" -> isPl
+                    ? "§e/wr give boat §6<§eenable§6|§edisable§6> §8- §7Łódka przy spawnie na wodzie\n§e/wr give wood §6<§eilość§6|§eenable§6|§edisable§6> §8- §7Drewno przy spawnie podziemnym (0=wyłącz)"
+                    : "§e/wr give boat §6<§eenable§6|§edisable§6> §8- §7Boat on water spawn\n§e/wr give wood §6<§eamount§6|§eenable§6|§edisable§6> §8- §7Wood on underground spawn (0=disable)";
             case "templates" -> isPl
                     ? "§e/wr templates §6<§eenable§6|§edisable§6> §8- §7Przełącz szablony\n§e/wr templates folder §6[§eścieżka§6] §8- §7Podgląd/zmiana folderu\n§e/wr templates status §8- §7Info o szablonach"
                     : "§e/wr templates §6<§eenable§6|§edisable§6> §8- §7Toggle templates\n§e/wr templates folder §6[§epath§6] §8- §7View/set folder\n§e/wr templates status §8- §7Show template info";
@@ -4673,7 +4765,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, String[] args) {
         if (args.length == 1) {
-            return StringUtil.copyPartialMatches(args[0], Arrays.asList("reset", "limbo", "seed", "language", "silent", "death", "filter", "timer", "compass", "templates", "autoreset", "backup", "reload", "help"), new ArrayList<>());
+            return StringUtil.copyPartialMatches(args[0], Arrays.asList("reset", "limbo", "seed", "language", "silent", "death", "filter", "timer", "compass", "templates", "autoreset", "backup", "give", "reload", "help"), new ArrayList<>());
         }
         if (args.length == 2) {
             if (args[0].equalsIgnoreCase("filter")) {
@@ -4691,10 +4783,19 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 return StringUtil.copyPartialMatches(args[1], suggestions, new ArrayList<>());
             }
             if (args[0].equalsIgnoreCase("reset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("3", "5", "10", "15", "30"), new ArrayList<>());
-            if (args[0].equalsIgnoreCase("seed")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "clear", "status"), new ArrayList<>());
-            if (args[0].equalsIgnoreCase("help") || args[0].equals("?")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("reset", "limbo", "death", "timer", "autoreset", "filter", "seed", "templates", "compass", "backup", "language", "silent", "reload"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("seed")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "clear", "copy", "status"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("give")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("boat", "wood"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("help") || args[0].equals("?")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("reset", "limbo", "death", "timer", "autoreset", "filter", "seed", "give", "templates", "compass", "backup", "language", "silent", "reload"), new ArrayList<>());
         }
         if (args.length == 3) {
+            if (args[0].equalsIgnoreCase("give")) {
+                if (args[1].equalsIgnoreCase("boat")) {
+                    return StringUtil.copyPartialMatches(args[2], Arrays.asList("enable", "disable"), new ArrayList<>());
+                }
+                if (args[1].equalsIgnoreCase("wood")) {
+                    return StringUtil.copyPartialMatches(args[2], Arrays.asList("enable", "disable", "0", "5", "10", "16", "32"), new ArrayList<>());
+                }
+            }
             if (args[0].equalsIgnoreCase("filter")) {
                 if (args[1].equalsIgnoreCase("structure")) {
                     List<String> list = new ArrayList<>(STRUCTURE_NAMES);
