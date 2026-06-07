@@ -1159,6 +1159,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 if (getConfig().getBoolean("filter.enabled", true) && !biomeReq.isEmpty() && structReq.isEmpty()) {
                     final World fw = normal;
                     final boolean fUseDelayOut = useDelayOut;
+                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+                    broadcastInfo(isPl ? "§7Szukanie bezpiecznego spawnu..." : "§7Searching for safe spawn...");
                     startAsyncBiomeSpawnSearch(fw, biomeReq.toLowerCase(), () -> {
                         if (!skipFindSafeSpawn) {
                             findSafeSpawn(fw);
@@ -4929,6 +4931,10 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     List<String> list = new ArrayList<>(BIOME_NAMES);
                     list.add("clear");
                     return StringUtil.copyPartialMatches(args[2], list, new ArrayList<>());
+                }
+                if (args[1].equalsIgnoreCase("attempts")) {
+                    String current = String.valueOf(getConfig().getInt("filter.attempts", 5));
+                    return StringUtil.copyPartialMatches(args[2], Arrays.asList(current, "3", "5", "10", "15", "20"), new ArrayList<>());
                 }
             }
             if (args[0].equalsIgnoreCase("timer")) {
