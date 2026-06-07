@@ -1152,6 +1152,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             normal.setDifficulty(difficulty);
             if (!templateApplied) {
                 skipFindSafeSpawn = false;
+                waterSpawnActive = false;
+                boatGivenPlayers.clear();
                 String biomeReq = getConfig().getString("filter.biome", "").toUpperCase();
                 String structReq = getConfig().getString("filter.structure", "").toUpperCase();
                 
