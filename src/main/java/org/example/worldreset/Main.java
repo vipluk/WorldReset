@@ -3552,12 +3552,16 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         syncAllScoreboards();
 
-        // Give boat if water spawn is active and player hasn't received one
-        if (waterSpawnActive && !boatGivenPlayers.contains(p.getUniqueId())) {
+        // Give boat if water spawn is active and player respawns in/above water
+        if (getConfig().getBoolean("give.boat-if-water", true) && waterSpawnActive && !boatGivenPlayers.contains(p.getUniqueId())) {
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    if (p.isOnline() && !boatGivenPlayers.contains(p.getUniqueId())) {
+                    if (!p.isOnline() || boatGivenPlayers.contains(p.getUniqueId())) return;
+                    // Only give boat if player is actually in/above water (not at bed on land)
+                    Block below = p.getLocation().getBlock().getRelative(0, -1, 0);
+                    Block feet = p.getLocation().getBlock();
+                    if (below.getType() == Material.WATER || feet.getType() == Material.WATER) {
                         p.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.OAK_BOAT));
                         boatGivenPlayers.add(p.getUniqueId());
                     }
