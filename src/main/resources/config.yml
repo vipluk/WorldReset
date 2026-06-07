@@ -93,7 +93,7 @@ filter:
   #      Wyższa = większa szansa znalezienia, ale dłuższe szukanie.
   # [EN] Maximum attempts to find an island/land in water/island biomes.
   #      Higher = better chance of finding, but longer search time.
-  attempts: 5
+  attempts: 3
 
 # [PL] Czy wyświetlać komunikaty o resecie na czacie globalnym? (true/false)
 # [EN] Should the plugin broadcast world reset messages in global chat? (true/false)

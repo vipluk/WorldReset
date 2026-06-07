@@ -1167,6 +1167,9 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             BiomeSearchResult result = normal.locateNearestBiome(new Location(normal, 0, 62, 0), 2500, targetBiome);
                             if (result != null) {
                                 Location loc = result.getLocation();
+                                loc.setY(62);
+                                // Estimate center of biome for better positioning
+                                loc = estimateBiomeCenter(normal, loc, biomeReq.toLowerCase());
                                 // Basic land check: ±8 blocks around biome point
                                 Location landSpot = null;
                                 int bx = loc.getBlockX(), bz = loc.getBlockZ();
