@@ -3864,7 +3864,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             sender.sendMessage(helpLine);
                             sender.sendMessage("§8§m----------------------------");
                         } else {
-                            sender.sendMessage("§cUnknown command: §e" + topic + "§c. Use §e/wr help §cfor full list.");
+                            boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+                            sender.sendMessage(isPl ? "§cNieznana komenda: §e" + topic + "§c. Użyj §e/wr help §cpo pełną listę." : "§cUnknown command: §e" + topic + "§c. Use §e/wr help §cfor full list.");
                         }
                     } else {
                         sendFullHelp(sender);
@@ -3875,7 +3876,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     if (hasPerm(sender, "worldreset.admin")) return noPerm(sender, "worldreset.admin");
                     loadConfigValues();
                     loadLanguage();
-                    sender.sendMessage("§aConfiguration and languages reloaded!");
+                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+                    sender.sendMessage(isPl ? "§aKonfiguracja i języki przeładowane!" : "§aConfiguration and languages reloaded!");
                     return true;
                 }
                 case "reset" -> {
@@ -3905,12 +3907,14 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                         startReset();
                                     }
                                 });
-                                String msg = "§eReset scheduled in §c" + delayIn + "s§e...";
+                                boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+                                String msg = isPl ? "§eReset zaplanowany za §c" + delayIn + "s§e..." : "§eReset scheduled in §c" + delayIn + "s§e...";
                                 if (delayOut > 0) msg += " §7(delay-out: " + delayOut + "s)";
                                 sender.sendMessage(msg);
                             }
                         } catch (NumberFormatException e) {
-                            sender.sendMessage("§cUsage: /wr reset [delay-in] [delay-out]");
+                            boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+                            sender.sendMessage(isPl ? "§cUżycie: /wr reset [opóźnienie-wejścia] [opóźnienie-wyjścia]" : "§cUsage: /wr reset [delay-in] [delay-out]");
                         }
                     } else {
                         startReset();
@@ -3926,19 +3930,20 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
                     // /wr limbo delay <in> <out>
                     if (args.length >= 2 && args[1].equalsIgnoreCase("delay")) {
+                        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
                         if (args.length < 4) {
-                            sender.sendMessage("§eCurrent delays: §fIn=" + limboDelayIn + "s §7| §fOut=" + limboDelayOut + "s");
-                            sender.sendMessage("§cUsage: /wr limbo delay <in_seconds> <out_seconds>");
+                            sender.sendMessage((isPl ? "§eAktualne opóźnienia: §fWejście=" : "§eCurrent delays: §fIn=") + limboDelayIn + "s §7| §f" + (isPl ? "Wyjście=" : "Out=") + limboDelayOut + "s");
+                            sender.sendMessage(isPl ? "§cUżycie: /wr limbo delay <sekundy_wejścia> <sekundy_wyjścia>" : "§cUsage: /wr limbo delay <in_seconds> <out_seconds>");
                             return true;
                         }
                         try {
                             int delayIn = Integer.parseInt(args[2]);
                             int delayOut = Integer.parseInt(args[3]);
-                            if (delayIn < 0 || delayOut < 0) { sender.sendMessage("§cDelay values must be >= 0!"); return true; }
+                            if (delayIn < 0 || delayOut < 0) { sender.sendMessage(isPl ? "§cOpóźnienia muszą być >= 0!" : "§cDelay values must be >= 0!"); return true; }
                             limboDelayIn = delayIn; limboDelayOut = delayOut;
                             getConfig().set("limbo.delay-in", delayIn); getConfig().set("limbo.delay-out", delayOut); saveConfig();
-                            sender.sendMessage("§aLimbo delays set: §eIn=" + delayIn + "s §7| §eOut=" + delayOut + "s");
-                        } catch (NumberFormatException e) { sender.sendMessage("§cInvalid number!"); }
+                            sender.sendMessage((isPl ? "§aOpóźnienia Limbo ustawione: §eWejście=" : "§aLimbo delays set: §eIn=") + delayIn + "s §7| §e" + (isPl ? "Wyjście=" : "Out=") + delayOut + "s");
+                        } catch (NumberFormatException e) { sender.sendMessage(isPl ? "§cNieprawidłowa liczba!" : "§cInvalid number!"); }
                         return true;
                     }
 
@@ -3968,7 +3973,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     if (target != null) {
                                         targets.add(target);
                                     } else {
-                                        sender.sendMessage("§cPlayer not found: §e" + arg2);
+                                        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+                                        sender.sendMessage(isPl ? "§cNie znaleziono gracza: §e" + arg2 : "§cPlayer not found: §e" + arg2);
                                         return true;
                                     }
                                 }
@@ -3987,7 +3993,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 if (target != null) {
                                     targets.add(target);
                                 } else {
-                                    sender.sendMessage("§cPlayer not found: §e" + arg1);
+                                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+                                    sender.sendMessage(isPl ? "§cNie znaleziono gracza: §e" + arg1 : "§cPlayer not found: §e" + arg1);
                                     return true;
                                 }
                             }
@@ -4065,13 +4072,14 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             sender.sendMessage(getConfig().getString("language", "en").equalsIgnoreCase("pl") ? "§cŚwiat gry nie jest załadowany." : "§cNo game world loaded.");
                         }
                     } else if (sub.equals("status")) {
+                        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
                         boolean fixed = getConfig().getBoolean("seed.use-fixed", false);
                         String val = getConfig().getString("seed.value", "");
-                        sender.sendMessage("§e--- Seed Status ---");
-                        sender.sendMessage("§7Mode: " + (fixed ? "§eFixed" : "§aRandom"));
-                        if (!val.isEmpty()) sender.sendMessage("§7Value: §f" + val);
+                        sender.sendMessage(isPl ? "§e--- Status Seeda ---" : "§e--- Seed Status ---");
+                        sender.sendMessage((isPl ? "§7Tryb: " : "§7Mode: ") + (fixed ? (isPl ? "§eStały" : "§eFixed") : (isPl ? "§aLosowy" : "§aRandom")));
+                        if (!val.isEmpty()) sender.sendMessage((isPl ? "§7Wartość: §f" : "§7Value: §f") + val);
                         World game = Bukkit.getWorld(gameWorldName);
-                        if (game != null) sender.sendMessage("§7Active world seed: §f" + game.getSeed());
+                        if (game != null) sender.sendMessage((isPl ? "§7Aktywny seed świata: §f" : "§7Active world seed: §f") + game.getSeed());
                     } else {
                         // Treat as seed value
                         getConfig().set("seed.use-fixed", true);
@@ -4172,6 +4180,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 }
                 case "filter" -> {
                     if (hasPerm(sender, "worldreset.filter")) return noPerm(sender, "worldreset.filter");
+                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
 
                     if (args.length == 1) {
                         // Toggle filter enabled state
@@ -4179,7 +4188,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         boolean newVal = !current;
                         getConfig().set("filter.enabled", newVal);
                         saveConfig();
-                        sender.sendMessage(newVal ? "§aFilters enabled." : "§cFilters disabled (values preserved).");
+                        sender.sendMessage(newVal ? (isPl ? "§aFiltry włączone." : "§aFilters enabled.") : (isPl ? "§cFiltry wyłączone (wartości zachowane)." : "§cFilters disabled (values preserved)."));
                         return true;
                     }
 
@@ -4192,15 +4201,15 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         boolean fixedSeed = getConfig().getBoolean("seed.use-fixed", false);
                         String seedVal = getConfig().getString("seed.value", "");
 
-                        sender.sendMessage("§e--- Filter Status ---");
-                        sender.sendMessage("§7Enabled: " + (filterEnabled ? "§aYes" : "§cNo"));
-                        sender.sendMessage("§7Structure: " + (filterStruct.isEmpty() ? "§8None" : "§a" + filterStruct));
-                        sender.sendMessage("§7Biome: " + (filterBiome.isEmpty() ? "§8None" : "§a" + filterBiome));
-                        sender.sendMessage("§7Attempts: §e" + getConfig().getInt("filter.attempts", 5));
-                        sender.sendMessage("§7Seed: " + (fixedSeed ? "§e" + seedVal + " §7(fixed)" : "§aRandom"));
+                        sender.sendMessage(isPl ? "§e--- Status Filtrów ---" : "§e--- Filter Status ---");
+                        sender.sendMessage((isPl ? "§7Włączone: " : "§7Enabled: ") + (filterEnabled ? (isPl ? "§aTak" : "§aYes") : (isPl ? "§cNie" : "§cNo")));
+                        sender.sendMessage((isPl ? "§7Struktura: " : "§7Structure: ") + (filterStruct.isEmpty() ? (isPl ? "§8Brak" : "§8None") : "§a" + filterStruct));
+                        sender.sendMessage((isPl ? "§7Biom: " : "§7Biome: ") + (filterBiome.isEmpty() ? (isPl ? "§8Brak" : "§8None") : "§a" + filterBiome));
+                        sender.sendMessage((isPl ? "§7Próby: §e" : "§7Attempts: §e") + getConfig().getInt("filter.attempts", 5));
+                        sender.sendMessage("§7Seed: " + (fixedSeed ? "§e" + seedVal + (isPl ? " §7(stały)" : " §7(fixed)") : (isPl ? "§aLosowy" : "§aRandom")));
                         World game = Bukkit.getWorld(gameWorldName);
                         if (game != null) {
-                            sender.sendMessage("§7Active world seed: §f" + game.getSeed());
+                            sender.sendMessage((isPl ? "§7Aktywny seed świata: §f" : "§7Active world seed: §f") + game.getSeed());
                         }
                         return true;
                     }
@@ -4208,13 +4217,13 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     if (isEnableAlias(filterSub)) {
                         getConfig().set("filter.enabled", true);
                         saveConfig();
-                        sender.sendMessage("§aFilters enabled.");
+                        sender.sendMessage(isPl ? "§aFiltry włączone." : "§aFilters enabled.");
                         return true;
                     }
                     if (isDisableAlias(filterSub)) {
                         getConfig().set("filter.enabled", false);
                         saveConfig();
-                        sender.sendMessage("§cFilters disabled (values preserved).");
+                        sender.sendMessage(isPl ? "§cFiltry wyłączone (wartości zachowane)." : "§cFilters disabled (values preserved).");
                         return true;
                     }
 
@@ -4225,12 +4234,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         getConfig().set("seed.use-fixed", false);
                         saveConfig();
                         sender.sendMessage(getMsg("filter-disabled"));
-                        sender.sendMessage("§7Fixed seed disabled. Next reset will use a random seed.");
+                        sender.sendMessage(isPl ? "§7Stały seed wyłączony. Następny reset użyje losowego seeda." : "§7Fixed seed disabled. Next reset will use a random seed.");
                         return true;
                     }
 
                     if (filterSub.equals("attempts")) {
-                        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
                         if (args.length < 3) {
                             int current = getConfig().getInt("filter.attempts", 5);
                             sender.sendMessage((isPl ? "§7Próby filtra: §e" : "§7Filter attempts: §e") + current);
@@ -4248,7 +4256,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     }
 
                     if (args.length < 3) {
-                        sender.sendMessage("§cUsage: /wr filter <structure|biome|attempts> <value> or /wr filter clear");
+                        sender.sendMessage(isPl ? "§cUżycie: /wr filter <structure|biome|attempts> <wartość> lub /wr filter clear" : "§cUsage: /wr filter <structure|biome|attempts> <value> or /wr filter clear");
                         return true;
                     }
 
@@ -4259,10 +4267,10 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         if (value.equals("CLEAR")) {
                             getConfig().set("filter.structure", "");
                             saveConfig();
-                            sender.sendMessage("§aStructure filter cleared.");
+                            sender.sendMessage(isPl ? "§aFiltr struktury wyczyszczony." : "§aStructure filter cleared.");
                         } else {
                             if (getStructuresFromName(value).isEmpty()) {
-                                sender.sendMessage("§cInvalid structure name. Try: VILLAGE, SHIPWRECK, etc.");
+                                sender.sendMessage(isPl ? "§cNieprawidłowa nazwa struktury. Spróbuj: VILLAGE, SHIPWRECK, itp." : "§cInvalid structure name. Try: VILLAGE, SHIPWRECK, etc.");
                                 return true;
                             }
                             getConfig().set("filter.structure", value);
@@ -4274,12 +4282,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         if (value.equals("CLEAR")) {
                             getConfig().set("filter.biome", "");
                             saveConfig();
-                            sender.sendMessage("§aBiome filter cleared.");
+                            sender.sendMessage(isPl ? "§aFiltr biomu wyczyszczony." : "§aBiome filter cleared.");
                         } else {
                             Set<String> META_BIOMES = Set.of("OCEAN_ALL", "FOREST_ALL", "MOUNTAIN_ALL", "CAVE_ALL", "DESERT_ALL", "TAIGA_ALL");
                             if (!BIOME_NAMES.contains(value) && !META_BIOMES.contains(value)) {
-                                boolean isPl2 = getConfig().getString("language", "en").equalsIgnoreCase("pl");
-                                sender.sendMessage(isPl2 ? "§cNieprawidłowa nazwa biomu. Spróbuj: PLAINS, DESERT, OCEAN_ALL, itp." : "§cInvalid biome name (or rare). Try: PLAINS, DESERT, OCEAN_ALL, etc.");
+                                sender.sendMessage(isPl ? "§cNieprawidłowa nazwa biomu. Spróbuj: PLAINS, DESERT, OCEAN_ALL, itp." : "§cInvalid biome name (or rare). Try: PLAINS, DESERT, OCEAN_ALL, etc.");
                             }
                             getConfig().set("filter.biome", value);
                             getConfig().set("filter.structure", ""); // AUTO CLEAR STRUCTURE
@@ -4287,7 +4294,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             sender.sendMessage(getMsg("filter-biome-set").replace("{biome}", value));
                         }
                     } else {
-                        sender.sendMessage("§cUsage: /wr filter <structure|biome> <name|clear> or /wr filter clear");
+                        sender.sendMessage(isPl ? "§cUżycie: /wr filter <structure|biome> <nazwa|clear> lub /wr filter clear" : "§cUsage: /wr filter <structure|biome> <name|clear> or /wr filter clear");
                     }
 
                     if (getConfig().getString("filter.structure", "").isEmpty() && getConfig().getString("filter.biome", "").isEmpty()) {
@@ -4298,8 +4305,9 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 }
                 case "timer" -> {
                     if (hasPerm(sender, "worldreset.timer")) return noPerm(sender, "worldreset.timer");
+                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
                     if (args.length < 2) {
-                        sender.sendMessage("§cUsage: /wr timer <start|pause|reset|enable|disable|mode|scope|goal>");
+                        sender.sendMessage(isPl ? "§cUżycie: /wr timer <start|pause|reset|enable|disable|mode|scope|goal>" : "§cUsage: /wr timer <start|pause|reset|enable|disable|mode|scope|goal>");
                         return true;
                     }
 
@@ -4325,7 +4333,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             sender.sendMessage(getMsg("timer-auto-enabled"));
                         }
                         resetAndStartTimer();
-                        broadcastInfo("§eTimer manually reset to 0.");
+                        broadcastInfo(isPl ? "§eTimer ręcznie zresetowany do 0." : "§eTimer manually reset to 0.");
                         return true;
                     } else if (isEnableAlias(sub)) {
                         getConfig().set("timer.enabled", true);
@@ -4351,7 +4359,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             getConfig().set("timer.mode", mode);
                             saveConfig();
                             timerMode = mode;
-                            sender.sendMessage("§aTimer mode set to: §e" + mode);
+                            sender.sendMessage(isPl ? "§aTryb timera ustawiony na: §e" + mode : "§aTimer mode set to: §e" + mode);
                         }
                         return true;
                     } else if (sub.equals("scope")) {
@@ -4361,7 +4369,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             getConfig().set("timer.scope", scope);
                             saveConfig();
                             timerScope = scope;
-                            sender.sendMessage("§aTimer scope set to: §e" + scope);
+                            sender.sendMessage(isPl ? "§aZasięg timera ustawiony na: §e" + scope : "§aTimer scope set to: §e" + scope);
                         }
                         return true;
                     } else if (sub.equals("goal")) {
@@ -4374,12 +4382,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             saveConfig();
                             timerGoalType = "NONE";
                             timerGoalValue = "";
-                            sender.sendMessage("§aTimer goal removed. It will run indefinitely.");
+                            sender.sendMessage(isPl ? "§aCel timera usunięty. Będzie działał bez końca." : "§aTimer goal removed. It will run indefinitely.");
                             return true;
                         }
 
                         if (args.length < 4) {
-                            sender.sendMessage("§cProvide a value for the goal.");
+                            sender.sendMessage(isPl ? "§cPodaj wartość celu." : "§cProvide a value for the goal.");
                             return true;
                         }
 
@@ -4393,11 +4401,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 NamespacedKey key = NamespacedKey.fromString(goalValue);
                                 EntityType t = Registry.ENTITY_TYPE.get(key);
                                 if (t == null || !t.isAlive()) {
-                                    sender.sendMessage("§cInvalid entity type: " + args[3]);
+                                    sender.sendMessage(isPl ? "§cNieprawidłowy typ encji: " + args[3] : "§cInvalid entity type: " + args[3]);
                                     return true;
                                 }
                             } catch (Exception e) {
-                                sender.sendMessage("§cInvalid entity format.");
+                                sender.sendMessage(isPl ? "§cNieprawidłowy format encji." : "§cInvalid entity format.");
                                 return true;
                             }
                         } else if (goalType.equals("ADVANCEMENT")) {
@@ -4407,17 +4415,17 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             try {
                                 NamespacedKey key = NamespacedKey.fromString(goalValue);
                                 if (Bukkit.getAdvancement(key) == null) {
-                                    sender.sendMessage("§cInvalid advancement: " + args[3]);
+                                    sender.sendMessage(isPl ? "§cNieprawidłowy advancement: " + args[3] : "§cInvalid advancement: " + args[3]);
                                     return true;
                                 }
                             } catch (Exception e) {
-                                sender.sendMessage("§cInvalid advancement format.");
+                                sender.sendMessage(isPl ? "§cNieprawidłowy format advancementu." : "§cInvalid advancement format.");
                                 return true;
                             }
                         } else if (goalType.equals("PORTAL")) {
                             goalValue = goalValue.toUpperCase();
                             if (!Arrays.asList("NETHER", "END", "OVERWORLD", "ANY").contains(goalValue)) {
-                                sender.sendMessage("§cInvalid portal! Use: NETHER, END, OVERWORLD, ANY");
+                                sender.sendMessage(isPl ? "§cNieprawidłowy portal! Użyj: NETHER, END, OVERWORLD, ANY" : "§cInvalid portal! Use: NETHER, END, OVERWORLD, ANY");
                                 return true;
                             }
                         } else if (goalType.equals("BLOCK")) {
@@ -4426,11 +4434,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             try {
                                 Material mat = Material.matchMaterial(goalValue);
                                 if (mat == null || !mat.isBlock()) {
-                                    sender.sendMessage("§cInvalid block material: " + args[3]);
+                                    sender.sendMessage(isPl ? "§cNieprawidłowy materiał bloku: " + args[3] : "§cInvalid block material: " + args[3]);
                                     return true;
                                 }
                             } catch (Exception e) {
-                                sender.sendMessage("§cInvalid block format.");
+                                sender.sendMessage(isPl ? "§cNieprawidłowy format bloku." : "§cInvalid block format.");
                                 return true;
                             }
                         } else if (goalType.equals("ITEM")) {
@@ -4439,11 +4447,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             try {
                                 Material mat = Material.matchMaterial(goalValue);
                                 if (mat == null || !mat.isItem()) {
-                                    sender.sendMessage("§cInvalid item material: " + args[3]);
+                                    sender.sendMessage(isPl ? "§cNieprawidłowy materiał przedmiotu: " + args[3] : "§cInvalid item material: " + args[3]);
                                     return true;
                                 }
                             } catch (Exception e) {
-                                sender.sendMessage("§cInvalid item format.");
+                                sender.sendMessage(isPl ? "§cNieprawidłowy format przedmiotu." : "§cInvalid item format.");
                                 return true;
                             }
                         }
@@ -4453,12 +4461,13 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         saveConfig();
                         timerGoalType = goalType;
                         timerGoalValue = goalValue;
-                        sender.sendMessage("§aTimer goal set: §e" + goalType + " -> " + goalValue);
+                        sender.sendMessage(isPl ? "§aCel timera ustawiony: §e" + goalType + " -> " + goalValue : "§aTimer goal set: §e" + goalType + " -> " + goalValue);
                         return true;
                     }
                 }
                 case "compass" -> {
                     if (hasPerm(sender, "worldreset.compass")) return noPerm(sender, "worldreset.compass");
+                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
 
                     boolean newState;
                     if (args.length < 2) {
@@ -4471,7 +4480,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         } else if (isDisableAlias(sub)) {
                             newState = false;
                         } else {
-                            sender.sendMessage("§cUsage: /wr compass <enable|disable>");
+                            sender.sendMessage(isPl ? "§cUżycie: /wr compass <enable|disable>" : "§cUsage: /wr compass <enable|disable>");
                             return true;
                         }
                     }
@@ -4480,11 +4489,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     getConfig().set("compass.enabled", newState);
                     saveConfig();
                     applyLocatorBarGamerule();
-                    sender.sendMessage(newState ? "§aLocator bar enabled!" : "§cLocator bar disabled.");
+                    sender.sendMessage(newState ? (isPl ? "§aLocator bar włączony!" : "§aLocator bar enabled!") : (isPl ? "§cLocator bar wyłączony." : "§cLocator bar disabled."));
                     return true;
                 }
                 case "templates" -> {
                     if (hasPerm(sender, "worldreset.templates")) return noPerm(sender, "worldreset.templates");
+                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
 
                     if (args.length < 2) {
                         // Toggle
@@ -4492,7 +4502,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         boolean newVal = !current;
                         getConfig().set("template.enabled", newVal);
                         saveConfig();
-                        sender.sendMessage(newVal ? "§aTemplates enabled." : "§cTemplates disabled.");
+                        sender.sendMessage(newVal ? (isPl ? "§aSzablony włączone." : "§aTemplates enabled.") : (isPl ? "§cSzablony wyłączone." : "§cTemplates disabled."));
                         return true;
                     }
 
@@ -4500,20 +4510,20 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     if (isEnableAlias(sub)) {
                         getConfig().set("template.enabled", true);
                         saveConfig();
-                        sender.sendMessage("§aTemplates enabled.");
+                        sender.sendMessage(isPl ? "§aSzablony włączone." : "§aTemplates enabled.");
                     } else if (isDisableAlias(sub)) {
                         getConfig().set("template.enabled", false);
                         saveConfig();
-                        sender.sendMessage("§cTemplates disabled.");
+                        sender.sendMessage(isPl ? "§cSzablony wyłączone." : "§cTemplates disabled.");
                     } else if (sub.equals("folder")) {
                         if (args.length < 3) {
                             String currentFolder = getConfig().getString("template.folder", "WorldReset_Templates");
-                            sender.sendMessage("§eCurrent templates folder: §f" + currentFolder);
+                            sender.sendMessage((isPl ? "§eAktualny folder szablonów: §f" : "§eCurrent templates folder: §f") + currentFolder);
                         } else {
                             String newFolder = args[2];
                             getConfig().set("template.folder", newFolder);
                             saveConfig();
-                            sender.sendMessage("§aTemplates folder set to: §f" + newFolder);
+                            sender.sendMessage((isPl ? "§aFolder szablonów ustawiony na: §f" : "§aTemplates folder set to: §f") + newFolder);
                         }
                     } else if (sub.equals("status")) {
                         boolean enabled = getConfig().getBoolean("template.enabled", false);
@@ -4528,17 +4538,18 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 }
                             }
                         }
-                        sender.sendMessage("§e--- Templates Status ---");
-                        sender.sendMessage("§7Enabled: " + (enabled ? "§aYes" : "§cNo"));
-                        sender.sendMessage("§7Folder: §f" + folder);
-                        sender.sendMessage("§7Detected worlds: §f" + worldCount);
+                        sender.sendMessage(isPl ? "§e--- Status Szablonów ---" : "§e--- Templates Status ---");
+                        sender.sendMessage((isPl ? "§7Włączone: " : "§7Enabled: ") + (enabled ? (isPl ? "§aTak" : "§aYes") : (isPl ? "§cNie" : "§cNo")));
+                        sender.sendMessage((isPl ? "§7Folder: §f" : "§7Folder: §f") + folder);
+                        sender.sendMessage((isPl ? "§7Wykryte światy: §f" : "§7Detected worlds: §f") + worldCount);
                     } else {
-                        sender.sendMessage("§cUsage: /wr templates <enable|disable|folder|status>");
+                        sender.sendMessage(isPl ? "§cUżycie: /wr templates <enable|disable|folder|status>" : "§cUsage: /wr templates <enable|disable|folder|status>");
                     }
                     return true;
                 }
                 case "autoreset" -> {
                     if (hasPerm(sender, "worldreset.autoreset")) return noPerm(sender, "worldreset.autoreset");
+                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
 
                     if (args.length < 2) {
                         // Toggle autoreset
@@ -4547,7 +4558,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             autoResetPaused = true;
                             getConfig().set("autoreset.paused", true);
                             saveConfig();
-                            sender.sendMessage("§6AutoReset paused.");
+                            sender.sendMessage(isPl ? "§6AutoReset wstrzymany." : "§6AutoReset paused.");
                         } else if (autoResetEnabled && autoResetPaused) {
                             // Paused → resume
                             autoResetPaused = false;
@@ -4555,7 +4566,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             saveConfig();
                             if (autoResetRemainingSeconds <= 0) autoResetRemainingSeconds = autoResetTotalSeconds;
                             startAutoResetTimer();
-                            sender.sendMessage("§aAutoReset resumed! Time: §e" + formatAutoResetTime(autoResetRemainingSeconds));
+                            sender.sendMessage((isPl ? "§aAutoReset wznowiony! Czas: §e" : "§aAutoReset resumed! Time: §e") + formatAutoResetTime(autoResetRemainingSeconds));
                         } else {
                             // Disabled → enable and start
                             autoResetEnabled = true;
@@ -4565,7 +4576,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             saveConfig();
                             autoResetRemainingSeconds = autoResetTotalSeconds;
                             startAutoResetTimer();
-                            sender.sendMessage("§aAutoReset started! Time: §e" + formatAutoResetTime(autoResetRemainingSeconds));
+                            sender.sendMessage((isPl ? "§aAutoReset uruchomiony! Czas: §e" : "§aAutoReset started! Time: §e") + formatAutoResetTime(autoResetRemainingSeconds));
                         }
                         syncAutoResetScoreboard();
                         return true;
@@ -4575,12 +4586,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
                     switch (sub) {
                         case "status" -> {
-                            String statusStr = !autoResetEnabled ? "§cDisabled" : (autoResetPaused ? "§6Paused" : "§aRunning");
-                            sender.sendMessage("§e--- AutoReset Status ---");
-                            sender.sendMessage("§7Status: " + statusStr);
-                            sender.sendMessage("§7Time: §f" + formatAutoResetTime(autoResetRemainingSeconds) + " §7/ §f" + formatAutoResetTime(autoResetTotalSeconds));
-                            sender.sendMessage("§7Loop: " + (autoResetLoop ? "§aYes" : "§cNo"));
-                            sender.sendMessage("§7Visible: " + (autoResetVisible ? "§aYes" : "§cNo"));
+                            String statusStr = !autoResetEnabled ? (isPl ? "§cWyłączony" : "§cDisabled") : (autoResetPaused ? (isPl ? "§6Wstrzymany" : "§6Paused") : (isPl ? "§aDziała" : "§aRunning"));
+                            sender.sendMessage(isPl ? "§e--- Status AutoResetu ---" : "§e--- AutoReset Status ---");
+                            sender.sendMessage((isPl ? "§7Status: " : "§7Status: ") + statusStr);
+                            sender.sendMessage((isPl ? "§7Czas: §f" : "§7Time: §f") + formatAutoResetTime(autoResetRemainingSeconds) + " §7/ §f" + formatAutoResetTime(autoResetTotalSeconds));
+                            sender.sendMessage((isPl ? "§7Pętla: " : "§7Loop: ") + (autoResetLoop ? (isPl ? "§aTak" : "§aYes") : (isPl ? "§cNie" : "§cNo")));
+                            sender.sendMessage((isPl ? "§7Widoczny: " : "§7Visible: ") + (autoResetVisible ? (isPl ? "§aTak" : "§aYes") : (isPl ? "§cNie" : "§cNo")));
                         }
                         case "start" -> {
                             autoResetEnabled = true;
@@ -4592,14 +4603,14 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 autoResetRemainingSeconds = autoResetTotalSeconds;
                             }
                             startAutoResetTimer();
-                            sender.sendMessage("§aAutoReset started! Time remaining: §e" + formatAutoResetTime(autoResetRemainingSeconds));
+                            sender.sendMessage((isPl ? "§aAutoReset uruchomiony! Pozostały czas: §e" : "§aAutoReset started! Time remaining: §e") + formatAutoResetTime(autoResetRemainingSeconds));
                             syncAutoResetScoreboard();
                         }
                         case "stop", "pause" -> {
                             autoResetPaused = true;
                             getConfig().set("autoreset.paused", true);
                             saveConfig();
-                            sender.sendMessage("§6AutoReset paused. Time remaining: §e" + formatAutoResetTime(autoResetRemainingSeconds));
+                            sender.sendMessage((isPl ? "§6AutoReset wstrzymany. Pozostały czas: §e" : "§6AutoReset paused. Time remaining: §e") + formatAutoResetTime(autoResetRemainingSeconds));
                             syncAutoResetScoreboard();
                         }
                         case "disable" -> {
@@ -4610,7 +4621,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             getConfig().set("autoreset.enabled", false);
                             getConfig().set("autoreset.paused", true);
                             saveConfig();
-                            sender.sendMessage("§cAutoReset disabled and timer reset.");
+                            sender.sendMessage(isPl ? "§cAutoReset wyłączony i timer zresetowany." : "§cAutoReset disabled and timer reset.");
                             syncAutoResetScoreboard();
                         }
                         case "loop" -> {
@@ -4621,7 +4632,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             }
                             getConfig().set("autoreset.loop", autoResetLoop);
                             saveConfig();
-                            sender.sendMessage("§aAutoReset loop: " + (autoResetLoop ? "§aEnabled" : "§cDisabled"));
+                            sender.sendMessage((isPl ? "§aPętla AutoResetu: " : "§aAutoReset loop: ") + (autoResetLoop ? (isPl ? "§aWłączona" : "§aEnabled") : (isPl ? "§cWyłączona" : "§cDisabled")));
                         }
                         case "visible" -> {
                             if (args.length < 3) {
@@ -4631,11 +4642,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             }
                             getConfig().set("autoreset.visible", autoResetVisible);
                             saveConfig();
-                            sender.sendMessage("§aAutoReset visibility: " + (autoResetVisible ? "§aVisible" : "§cHidden"));
+                            sender.sendMessage((isPl ? "§aWidoczność AutoResetu: " : "§aAutoReset visibility: ") + (autoResetVisible ? (isPl ? "§aWidoczny" : "§aVisible") : (isPl ? "§cUkryty" : "§cHidden")));
                         }
                         case "time" -> {
                             if (args.length < 3) {
-                                sender.sendMessage("§cUsage: /wr autoreset time <value> (e.g. 60s, 5m, 1h)");
+                                sender.sendMessage(isPl ? "§cUżycie: /wr autoreset time <wartość> (np. 60s, 5m, 1h)" : "§cUsage: /wr autoreset time <value> (e.g. 60s, 5m, 1h)");
                                 return true;
                             }
                             long newTime = parseTimeToSeconds(args[2]);
@@ -4643,7 +4654,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             autoResetRemainingSeconds = newTime;
                             getConfig().set("autoreset.time", args[2]);
                             saveConfig();
-                            sender.sendMessage("§aAutoReset time set to: §e" + formatAutoResetTime(newTime));
+                            sender.sendMessage((isPl ? "§aCzas AutoResetu ustawiony na: §e" : "§aAutoReset time set to: §e") + formatAutoResetTime(newTime));
 
                             // Restart the timer if it's running
                             if (autoResetEnabled && !autoResetPaused) {
@@ -4652,13 +4663,14 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             syncAutoResetScoreboard();
                         }
                         default -> {
-                            sender.sendMessage("§cUsage: /wr autoreset <start|stop|disable|loop|visible|time>");
+                            sender.sendMessage(isPl ? "§cUżycie: /wr autoreset <start|stop|disable|loop|visible|time>" : "§cUsage: /wr autoreset <start|stop|disable|loop|visible|time>");
                         }
                     }
                     return true;
                 }
                 case "backup" -> {
                     if (hasPerm(sender, "worldreset.admin")) return noPerm(sender, "worldreset.admin");
+                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
 
                     // /wr backup — toggle
                     if (args.length == 1) {
@@ -4666,7 +4678,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         boolean newVal = !current;
                         getConfig().set("backup.enabled", newVal);
                         saveConfig();
-                        sender.sendMessage(newVal ? "§aBackups enabled." : "§cBackups disabled.");
+                        sender.sendMessage(newVal ? (isPl ? "§aKopie zapasowe włączone." : "§aBackups enabled.") : (isPl ? "§cKopie zapasowe wyłączone." : "§cBackups disabled."));
                         return true;
                     }
 
@@ -4676,12 +4688,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         case "enable", "on", "true" -> {
                             getConfig().set("backup.enabled", true);
                             saveConfig();
-                            sender.sendMessage("§aBackups enabled.");
+                            sender.sendMessage(isPl ? "§aKopie zapasowe włączone." : "§aBackups enabled.");
                         }
                         case "disable", "off", "false" -> {
                             getConfig().set("backup.enabled", false);
                             saveConfig();
-                            sender.sendMessage("§cBackups disabled.");
+                            sender.sendMessage(isPl ? "§cKopie zapasowe wyłączone." : "§cBackups disabled.");
                         }
                         case "status" -> {
                             boolean enabled = getConfig().getBoolean("backup.enabled", true);
@@ -4697,23 +4709,23 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     for (File dir : dirs) totalSize += getDirSize(dir);
                                 }
                             }
-                            sender.sendMessage("§e--- Backup Status ---");
-                            sender.sendMessage("§7Enabled: " + (enabled ? "§aYes" : "§cNo"));
-                            sender.sendMessage("§7Limit: §f" + limitStr);
-                            sender.sendMessage("§7Existing backups: §f" + backupCount);
-                            sender.sendMessage("§7Total size: §f" + formatFileSize(totalSize));
-                            sender.sendMessage("§7Folder: §f" + folder);
+                            sender.sendMessage(isPl ? "§e--- Status Kopii Zapasowych ---" : "§e--- Backup Status ---");
+                            sender.sendMessage((isPl ? "§7Włączone: " : "§7Enabled: ") + (enabled ? (isPl ? "§aTak" : "§aYes") : (isPl ? "§cNie" : "§cNo")));
+                            sender.sendMessage((isPl ? "§7Limit: §f" : "§7Limit: §f") + limitStr);
+                            sender.sendMessage((isPl ? "§7Istniejące kopie: §f" : "§7Existing backups: §f") + backupCount);
+                            sender.sendMessage((isPl ? "§7Łączny rozmiar: §f" : "§7Total size: §f") + formatFileSize(totalSize));
+                            sender.sendMessage((isPl ? "§7Folder: §f" : "§7Folder: §f") + folder);
                         }
                         case "list" -> {
                             String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
                             File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
                             if (!backupsDir.exists() || backupsDir.listFiles(File::isDirectory) == null) {
-                                sender.sendMessage("§7No backups found.");
+                                sender.sendMessage(isPl ? "§7Nie znaleziono kopii zapasowych." : "§7No backups found.");
                                 return true;
                             }
                             File[] dirs = backupsDir.listFiles(File::isDirectory);
                             if (dirs == null || dirs.length == 0) {
-                                sender.sendMessage("§7No backups found.");
+                                sender.sendMessage(isPl ? "§7Nie znaleziono kopii zapasowych." : "§7No backups found.");
                                 return true;
                             }
                             Arrays.sort(dirs, Comparator.comparingLong(File::lastModified).reversed());
@@ -4728,36 +4740,36 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             int start = (page - 1) * perPage;
                             int end = Math.min(start + perPage, dirs.length);
 
-                            sender.sendMessage("§e--- Backups (" + dirs.length + ") §7— Page " + page + "/" + totalPages + " §e---");
+                            sender.sendMessage((isPl ? "§e--- Kopie zapasowe (" : "§e--- Backups (") + dirs.length + (isPl ? ") §7— Strona " : ") §7— Page ") + page + "/" + totalPages + " §e---");
                             for (int i = start; i < end; i++) {
                                 long size = getDirSize(dirs[i]);
                                 sender.sendMessage("§7 " + (i + 1) + ". §f" + dirs[i].getName() + " §8(§7" + formatFileSize(size) + "§8)");
                             }
                             if (page < totalPages) {
-                                sender.sendMessage("§7Use §e/wr backup list " + (page + 1) + " §7for next page.");
+                                sender.sendMessage((isPl ? "§7Użyj §e/wr backup list " + (page + 1) + " §7aby zobaczyć następną stronę." : "§7Use §e/wr backup list " + (page + 1) + " §7for next page."));
                             }
                         }
                         case "load" -> {
                             if (args.length < 3) {
-                                sender.sendMessage("§cUsage: /wr backup load <number>");
+                                sender.sendMessage(isPl ? "§cUżycie: /wr backup load <numer>" : "§cUsage: /wr backup load <number>");
                                 return true;
                             }
                             String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
                             File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
                             File[] dirs = backupsDir.exists() ? backupsDir.listFiles(File::isDirectory) : null;
                             if (dirs == null || dirs.length == 0) {
-                                sender.sendMessage("§cNo backups available.");
+                                sender.sendMessage(isPl ? "§cBrak dostępnych kopii zapasowych." : "§cNo backups available.");
                                 return true;
                             }
                             Arrays.sort(dirs, Comparator.comparingLong(File::lastModified).reversed());
                             try {
                                 int index = Integer.parseInt(args[2]) - 1;
                                 if (index < 0 || index >= dirs.length) {
-                                    sender.sendMessage("§cInvalid number! Use 1-" + dirs.length);
+                                    sender.sendMessage(isPl ? "§cNieprawidłowy numer! Użyj 1-" + dirs.length : "§cInvalid number! Use 1-" + dirs.length);
                                     return true;
                                 }
                                 File selectedBackup = dirs[index];
-                                sender.sendMessage("§eLoading backup: §f" + selectedBackup.getName() + "§e...");
+                                sender.sendMessage((isPl ? "§eWczytywanie kopii: §f" : "§eLoading backup: §f") + selectedBackup.getName() + "§e...");
 
                                 isResetting = true;
                                 isGameReady = false;
@@ -4812,7 +4824,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                                 // Restore player states from backup
                                                 World game = Bukkit.getWorld(gameWorldName);
                                                 if (game != null) {
-                                                    broadcastInfo("§aBackup loaded successfully!");
+                                                    boolean isPl2 = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+                                                    broadcastInfo(isPl2 ? "§aKopia zapasowa wczytana pomyślnie!" : "§aBackup loaded successfully!");
                                                     restorePlayerStates(selectedBackup);
 
                                                     // If no players.yml existed (old backup), just teleport to spawn
@@ -4831,7 +4844,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     }
                                 }.runTaskLater(Main.this, 20L);
                             } catch (NumberFormatException e) {
-                                sender.sendMessage("§cUsage: /wr backup load <number>");
+                                sender.sendMessage(isPl ? "§cUżycie: /wr backup load <numer>" : "§cUsage: /wr backup load <number>");
                             }
                         }
                         case "clear" -> {
@@ -4839,7 +4852,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
                             File[] dirs = backupsDir.exists() ? backupsDir.listFiles(File::isDirectory) : null;
                             if (dirs == null || dirs.length == 0) {
-                                sender.sendMessage("§7No backups to clear.");
+                                sender.sendMessage(isPl ? "§7Brak kopii do usunięcia." : "§7No backups to clear.");
                                 return true;
                             }
 
@@ -4848,7 +4861,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 try {
                                     int count = Integer.parseInt(args[2]);
                                     if (count <= 0) {
-                                        sender.sendMessage("§cNumber must be at least 1!");
+                                        sender.sendMessage(isPl ? "§cLiczba musi być co najmniej 1!" : "§cNumber must be at least 1!");
                                         return true;
                                     }
                                     Arrays.sort(dirs, Comparator.comparingLong(File::lastModified));
@@ -4856,9 +4869,9 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     for (int i = 0; i < toDelete; i++) {
                                         deleteDirectoryRecursive(dirs[i]);
                                     }
-                                    sender.sendMessage("§aDeleted §e" + toDelete + " §aoldest backup(s).");
+                                    sender.sendMessage(isPl ? "§aUsunięto §e" + toDelete + " §anajstarszych kopii." : "§aDeleted §e" + toDelete + " §aoldest backup(s).");
                                 } catch (NumberFormatException e) {
-                                    sender.sendMessage("§cUsage: /wr backup clear [number]");
+                                    sender.sendMessage(isPl ? "§cUżycie: /wr backup clear [ilość]" : "§cUsage: /wr backup clear [number]");
                                 }
                             } else {
                                 // /wr backup clear — delete all
@@ -4866,32 +4879,32 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 for (File dir : dirs) {
                                     deleteDirectoryRecursive(dir);
                                 }
-                                sender.sendMessage("§aAll §e" + count + " §abackup(s) deleted.");
+                                sender.sendMessage(isPl ? "§aWszystkie §e" + count + " §akopii usunięte." : "§aAll §e" + count + " §abackup(s) deleted.");
                             }
                         }
                         case "limit" -> {
                             if (args.length < 3) {
                                 String limitStr = getConfig().getString("backup.limit", "all");
-                                sender.sendMessage("§7Current backup limit: §f" + limitStr);
+                                sender.sendMessage((isPl ? "§7Aktualny limit kopii: §f" : "§7Current backup limit: §f") + limitStr);
                                 return true;
                             }
                             String value = args[2].toLowerCase();
                             if (value.equals("all")) {
                                 getConfig().set("backup.limit", "all");
                                 saveConfig();
-                                sender.sendMessage("§aBackup limit set to: §eall §7(keep all backups)");
+                                sender.sendMessage(isPl ? "§aLimit kopii ustawiony na: §eall §7(zachowaj wszystkie)" : "§aBackup limit set to: §eall §7(keep all backups)");
                             } else {
                                 try {
                                     int limit = Integer.parseInt(value);
                                     if (limit < 1) {
-                                        sender.sendMessage("§cLimit must be at least 1 or 'all'!");
+                                        sender.sendMessage(isPl ? "§cLimit musi być co najmniej 1 lub 'all'!" : "§cLimit must be at least 1 or 'all'!");
                                         return true;
                                     }
                                     getConfig().set("backup.limit", String.valueOf(limit));
                                     saveConfig();
-                                    sender.sendMessage("§aBackup limit set to: §e" + limit + " §7(keep last " + limit + " backups)");
+                                    sender.sendMessage(isPl ? "§aLimit kopii ustawiony na: §e" + limit + " §7(zachowaj ostatnie " + limit + ")" : "§aBackup limit set to: §e" + limit + " §7(keep last " + limit + " backups)");
                                 } catch (NumberFormatException e) {
-                                    sender.sendMessage("§cUsage: /wr backup limit <number|all>");
+                                    sender.sendMessage(isPl ? "§cUżycie: /wr backup limit <liczba|all>" : "§cUsage: /wr backup limit <number|all>");
                                 }
                             }
                         }
@@ -4900,14 +4913,14 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             try {
                                 int limit = Integer.parseInt(sub);
                                 if (limit < 1) {
-                                    sender.sendMessage("§cLimit must be at least 1!");
+                                    sender.sendMessage(isPl ? "§cLimit musi być co najmniej 1!" : "§cLimit must be at least 1!");
                                     return true;
                                 }
                                 getConfig().set("backup.limit", String.valueOf(limit));
                                 saveConfig();
-                                sender.sendMessage("§aBackup limit set to: §e" + limit);
+                                sender.sendMessage(isPl ? "§aLimit kopii ustawiony na: §e" + limit : "§aBackup limit set to: §e" + limit);
                             } catch (NumberFormatException e) {
-                                sender.sendMessage("§cUsage: /wr backup <enable|disable|status|limit> or /wr backup <number>");
+                                sender.sendMessage(isPl ? "§cUżycie: /wr backup <enable|disable|status|limit> lub /wr backup <numer>" : "§cUsage: /wr backup <enable|disable|status|limit> or /wr backup <number>");
                             }
                         }
                     }
