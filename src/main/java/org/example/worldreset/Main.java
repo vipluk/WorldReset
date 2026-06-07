@@ -1394,29 +1394,85 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     private void findSafeSpawn(World w) {
         Location spawn = w.getSpawnLocation();
         waterSpawnActive = false;
+
+        // Step 1: Try immediate area (8 block radius) for safe ground
         Location safe = getSafeLocation(spawn);
         if (safe != null) {
             w.setSpawnLocation(safe);
             getLogger().info("Safe spawn found nearby at: " + safe.toVector());
-        } else {
-            // Search up to 100 blocks for land
-            Location extended = findLandNear(w, spawn, 100);
-            if (extended != null) {
-                w.setSpawnLocation(extended);
-                getLogger().info("Safe spawn found " + (int) extended.distance(spawn) + " blocks from target.");
-            } else {
-                // No land found — spawn on water surface and give boat
-                int x = spawn.getBlockX();
-                int z = spawn.getBlockZ();
-                int y = w.getHighestBlockYAt(x, z);
-                w.setSpawnLocation(new Location(w, x + 0.5, y + 1, z + 0.5));
-                getLogger().info("No land within 100 blocks. Spawning on water (boat will be given).");
-                waterSpawnActive = true;
-                boatGivenPlayers.clear();
+            w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+            return;
+        }
+
+        // Step 2: Use locateNearestBiome to find land biomes (BEACH, STONY_SHORE, PLAINS, FOREST)
+        // Much faster than block-by-block — queries the biome noise map directly
+        Location landLoc = findLandViaBiomeSearch(w, spawn, 500);
+        if (landLoc != null) {
+            Location safeLand = getSafeLocation(landLoc);
+            if (safeLand != null) {
+                w.setSpawnLocation(safeLand);
+                getLogger().info("Safe spawn found via biome search at: " + safeLand.toVector() + " (" + (int) safeLand.distance(spawn) + " blocks from target)");
+                w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+                return;
+            }
+            // Biome found but exact spot not safe — try small radius around it
+            Location nearby = findLandNear(w, landLoc, 32);
+            if (nearby != null) {
+                w.setSpawnLocation(nearby);
+                getLogger().info("Safe spawn found near biome hit at: " + nearby.toVector());
+                w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+                return;
             }
         }
+
+        // Step 3: Fallback — no land found. Spawn on water, give boat
+        int x = spawn.getBlockX();
+        int z = spawn.getBlockZ();
+        int y = w.getHighestBlockYAt(x, z);
+        w.setSpawnLocation(new Location(w, x + 0.5, y + 1, z + 0.5));
+        getLogger().info("No land found via biome search. Spawning on water (boat will be given).");
+        waterSpawnActive = true;
+        boatGivenPlayers.clear();
         w.setGameRule(GameRule.SPAWN_RADIUS, 0);
         getLogger().info("Spawn finalized at: " + w.getSpawnLocation().toVector());
+    }
+
+    /**
+     * Uses locateNearestBiome API to find land biomes near a point.
+     * Much faster than block-by-block iteration — queries noise maps directly.
+     */
+    private Location findLandViaBiomeSearch(World w, Location center, int radius) {
+        try {
+            // Search for coastal/land biomes from the given center point
+            Biome[] landBiomes = {
+                Registry.BIOME.get(NamespacedKey.minecraft("beach")),
+                Registry.BIOME.get(NamespacedKey.minecraft("stony_shore")),
+                Registry.BIOME.get(NamespacedKey.minecraft("plains")),
+                Registry.BIOME.get(NamespacedKey.minecraft("forest")),
+                Registry.BIOME.get(NamespacedKey.minecraft("snowy_beach")),
+                Registry.BIOME.get(NamespacedKey.minecraft("mushroom_fields"))
+            };
+
+            // Filter nulls (in case registry doesn't have some on older versions)
+            List<Biome> validBiomes = new ArrayList<>();
+            for (Biome b : landBiomes) {
+                if (b != null) validBiomes.add(b);
+            }
+            if (validBiomes.isEmpty()) return null;
+
+            // Use large horizontal interval (32) for speed — we don't need block precision here
+            for (Biome target : validBiomes) {
+                BiomeSearchResult result = w.locateNearestBiome(center, radius, target);
+                if (result != null) {
+                    Location loc = result.getLocation();
+                    loc.setY(w.getHighestBlockYAt(loc.getBlockX(), loc.getBlockZ()) + 1);
+                    return loc;
+                }
+            }
+        } catch (Throwable e) {
+            getLogger().warning("Biome search failed: " + e.getMessage());
+        }
+        return null;
     }
 
     /**
