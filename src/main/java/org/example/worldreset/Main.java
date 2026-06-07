@@ -46,6 +46,7 @@ import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -103,6 +104,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     private final Map<UUID, Map<String, Object>> limboSavedStates = new HashMap<>(); // Player states saved when entering limbo
     private final Set<UUID> boatGivenPlayers = new HashSet<>(); // Track who got a boat for water spawn
     private boolean waterSpawnActive = false; // True if current spawn is on water
+    private boolean skipFindSafeSpawn = false; // True if ocean island spawn already found correct location
     private FileConfiguration lastPlayerSnapshot; // Saved before reset, used in backup
 
     // Structure list (Overworld only)
@@ -454,6 +456,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         p.setFallDistance(0);
         for (PotionEffect effect : p.getActivePotionEffects()) p.removePotionEffect(effect.getType());
         p.setInvulnerable(false);
+        // Reset boat flag — player will get a new boat after next reset if water spawn
+        boatGivenPlayers.remove(p.getUniqueId());
     }
 
     private void saveLimboState(Player p) {
@@ -563,35 +567,39 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     private void setupGamePlayer(Player p, Location spawn) {
         if (p.isDead()) p.spigot().respawn();
-        p.teleport(spawn);
-        p.setGameMode(GameMode.SURVIVAL);
-        p.getInventory().clear();
-        p.setHealth(p.getMaxHealth());
-        p.setFoodLevel(20);
-        p.setSaturation(5);
-        p.setExp(0);
-        p.setLevel(0);
-        p.setRemainingAir(p.getMaximumAir());
-        p.setFireTicks(0);
-        p.setFallDistance(0);
-        for(PotionEffect pe : p.getActivePotionEffects()) p.removePotionEffect(pe.getType());
 
-        p.setInvulnerable(true);
-        new BukkitRunnable() { @Override public void run() { if (p.isOnline()) p.setInvulnerable(false); } }.runTaskLater(this, 40L);
+        // Use teleportAsync for non-blocking chunk loading (Paper API)
+        p.teleportAsync(spawn).thenAccept(success -> {
+            if (!p.isOnline()) return;
+            p.setGameMode(GameMode.SURVIVAL);
+            p.getInventory().clear();
+            p.setHealth(p.getMaxHealth());
+            p.setFoodLevel(20);
+            p.setSaturation(5);
+            p.setExp(0);
+            p.setLevel(0);
+            p.setRemainingAir(p.getMaximumAir());
+            p.setFireTicks(0);
+            p.setFallDistance(0);
+            for (PotionEffect pe : p.getActivePotionEffects()) p.removePotionEffect(pe.getType());
 
-        // Give boat if water spawn or player is in/above water
-        if (waterSpawnActive && !boatGivenPlayers.contains(p.getUniqueId())) {
-            p.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.OAK_BOAT));
-            boatGivenPlayers.add(p.getUniqueId());
-        } else if (!boatGivenPlayers.contains(p.getUniqueId())) {
-            // Extra check: if player's spawn location is on water, give boat anyway
-            Block below = p.getLocation().getBlock().getRelative(0, -1, 0);
-            if (below.getType() == Material.WATER) {
+            p.setInvulnerable(true);
+            new BukkitRunnable() { @Override public void run() { if (p.isOnline()) p.setInvulnerable(false); } }.runTaskLater(Main.this, 40L);
+
+            // Give boat if water spawn or player is in/above water
+            if (waterSpawnActive && !boatGivenPlayers.contains(p.getUniqueId())) {
                 p.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.OAK_BOAT));
                 boatGivenPlayers.add(p.getUniqueId());
-                waterSpawnActive = true;
+            } else if (!boatGivenPlayers.contains(p.getUniqueId())) {
+                // Extra check: if player's spawn location is on water, give boat anyway
+                Block below = p.getLocation().getBlock().getRelative(0, -1, 0);
+                if (below.getType() == Material.WATER) {
+                    p.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.OAK_BOAT));
+                    boatGivenPlayers.add(p.getUniqueId());
+                    waterSpawnActive = true;
+                }
             }
-        }
+        });
     }
 
     // --- COUNTDOWN SYSTEM ---
@@ -1132,15 +1140,46 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             // Przywróć trudność
             normal.setDifficulty(difficulty);
             if (!templateApplied) {
+                skipFindSafeSpawn = false;
+                String biomeReq = getConfig().getString("filter.biome", "").toUpperCase();
+                String structReq = getConfig().getString("filter.structure", "").toUpperCase();
+                
+                // Async biome search for ALL biome filters (spreads work across ticks)
+                if (getConfig().getBoolean("filter.enabled", true) && !biomeReq.isEmpty() && structReq.isEmpty()) {
+                    final World fw = normal;
+                    final boolean fUseDelayOut = useDelayOut;
+                    startAsyncBiomeSpawnSearch(fw, biomeReq.toLowerCase(), () -> {
+                        if (!skipFindSafeSpawn) {
+                            findSafeSpawn(fw);
+                        }
+                        preGenerateSpawnChunks(fw, fw.getSpawnLocation());
+                        broadcastInfo(getMsg("generation-complete"));
+                        isGameReady = true;
+                        finalizeGameStart(fUseDelayOut);
+                    });
+                    return; // Async — rest handled in callback
+                }
+                
+                // Synchronous path: structures or no filter
                 applyFiltersAndShiftSpawn(normal);
-                findSafeSpawn(normal);
+                if (!skipFindSafeSpawn) {
+                    findSafeSpawn(normal);
+                }
             }
+            // Pre-generate 5x5 chunk grid around spawn asynchronously
+            preGenerateSpawnChunks(normal, normal.getSpawnLocation());
         }
 
         broadcastInfo(getMsg("generation-complete"));
         isGameReady = true;
+        finalizeGameStart(useDelayOut);
+    }
+
+    /**
+     * Finalizes game start — teleports players from limbo.
+     */
+    private void finalizeGameStart(boolean useDelayOut) {
         if (parallelDelayOutRunning) {
-            // Parallel delay-out countdown is handling the teleport — don't start game here
             resetAndStartTimer();
             isResetting = false;
         } else if (useDelayOut && limboDelayOut > 0) {
@@ -1154,7 +1193,462 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
     }
 
-    // --- LOGIKA FILTRÓW (EXCLUSIVE) ---
+    /**
+     * Universal async biome spawn search — works for ALL biomes.
+     * Spread across ticks to avoid blocking main thread.
+     * 
+     * Algorithm:
+     * 1. locateNearestBiome to find the biome (1 tick)
+     * 2. Spiral outward from found point, checking getBiome at each position (fragment per tick)
+     * 3. For each position: check biome at Y from sea level upward through solid blocks
+     * 4. If found: verify biome at exact spawn position, set spawn
+     * 5. If not found after full scan: shift to another biome instance and retry
+     * 6. After max attempts: fallback (water+boat for water biomes, filter-failed for land)
+     */
+    private void startAsyncBiomeSpawnSearch(World w, String biomeName, Runnable onComplete) {
+        Biome targetBiome = Registry.BIOME.get(NamespacedKey.minecraft(biomeName));
+        if (targetBiome == null) {
+            getLogger().warning("Biome not found in registry: " + biomeName);
+            broadcastInfo(getMsg("filter-failed"));
+            onComplete.run();
+            return;
+        }
+
+        final boolean isWaterBiome = WATER_BIOMES.contains(biomeName.toUpperCase());
+        final boolean isRiverLike = biomeName.equals("river") || biomeName.equals("frozen_river");
+        final int MAX_BIOME_ATTEMPTS = isRiverLike ? 3 : 10;
+        final int SCAN_RADIUS = isRiverLike ? 1000 : 500;
+        final int SCAN_PER_TICK = 80;
+
+        new BukkitRunnable() {
+            int biomeAttempt = 0;
+            int searchOffsetX = 0;
+            int searchOffsetZ = 0;
+            // Spiral scan state
+            Location biomePoint = null;
+            int scanRadius = 0;
+
+            @Override
+            public void run() {
+                // Currently scanning around a biome point
+                if (biomePoint != null) {
+                    Location result = scanSpiralFragment();
+                    if (result != null) {
+                        // Found valid spawn!
+                        setSpawnAndFinish(result);
+                        return;
+                    }
+                    if (scanRadius > SCAN_RADIUS) {
+                        // Exhausted this biome point — try next instance
+                        getLogger().info("  No valid spawn in " + biomeName + " near " + biomePoint.toVector() + ". Trying next...");
+                        biomePoint = null;
+                        // Jump far away to find different instance
+                        searchOffsetX += ((biomeAttempt % 2 == 0) ? 5000 : -5000);
+                        searchOffsetZ += ((biomeAttempt % 3 == 0) ? 3000 : -3000);
+                    }
+                    return;
+                }
+
+                // Find next biome instance
+                if (biomeAttempt >= MAX_BIOME_ATTEMPTS) {
+                    // Exhausted all attempts
+                    if (isWaterBiome) {
+                        // Water fallback — spawn on water + boat
+                        BiomeSearchResult fallback = w.locateNearestBiome(new Location(w, 0, 62, 0), 2000, targetBiome);
+                        if (fallback != null) {
+                            Location waterLoc = new Location(w, fallback.getLocation().getBlockX() + 0.5, 63, fallback.getLocation().getBlockZ() + 0.5);
+                            Biome check = w.getBiome(waterLoc.getBlockX(), 63, waterLoc.getBlockZ());
+                            if (check != null && check.key().value().equals(biomeName)) {
+                                w.setSpawnLocation(waterLoc);
+                                waterSpawnActive = true;
+                                boatGivenPlayers.clear();
+                                broadcastInfo(getMsg("filter-shifted").replace("{target}", biomeName.toUpperCase() + " (water)"));
+                            } else {
+                                broadcastInfo(getMsg("filter-failed"));
+                            }
+                        } else {
+                            broadcastInfo(getMsg("filter-failed"));
+                        }
+                    } else {
+                        broadcastInfo(getMsg("filter-failed"));
+                    }
+                    skipFindSafeSpawn = true;
+                    cancel();
+                    onComplete.run();
+                    return;
+                }
+
+                biomeAttempt++;
+                Location searchFrom = new Location(w, searchOffsetX, 62, searchOffsetZ);
+                getLogger().info("Biome search " + biomeAttempt + "/" + MAX_BIOME_ATTEMPTS + " for " + biomeName + " from " + searchOffsetX + "," + searchOffsetZ);
+
+                BiomeSearchResult found = w.locateNearestBiome(searchFrom, 5000, targetBiome);
+                if (found == null) {
+                    // Biome not found from here — shift
+                    searchOffsetX += 4000;
+                    searchOffsetZ += 2000;
+                    return;
+                }
+
+                biomePoint = found.getLocation();
+                biomePoint.setY(62);
+                scanRadius = 0;
+                getLogger().info("  Found " + biomeName + " at " + biomePoint.toVector());
+            }
+
+            /**
+             * Scans one ring of the spiral (SCAN_PER_TICK blocks) around biomePoint.
+             * Returns spawn location if found, null otherwise. Advances scanRadius.
+             */
+            private Location scanSpiralFragment() {
+                int cx = biomePoint.getBlockX();
+                int cz = biomePoint.getBlockZ();
+                int checked = 0;
+                boolean isRiverBiome = biomeName.equals("river") || biomeName.equals("frozen_river");
+
+                while (scanRadius <= SCAN_RADIUS && checked < SCAN_PER_TICK) {
+                    // Check border of current radius
+                    for (int dx = -scanRadius; dx <= scanRadius && checked < SCAN_PER_TICK; dx++) {
+                        for (int dz = -scanRadius; dz <= scanRadius && checked < SCAN_PER_TICK; dz++) {
+                            if (scanRadius > 0 && Math.abs(dx) != scanRadius && Math.abs(dz) != scanRadius) continue;
+                            checked++;
+
+                            int x = cx + dx;
+                            int z = cz + dz;
+
+                            // Quick pre-filter: check biome at sea level — skip if not our biome
+                            Biome quickCheck = w.getBiome(x, 62, z);
+                            if (quickCheck == null || !quickCheck.key().value().equals(biomeName)) continue;
+
+                            if (isRiverBiome) {
+                                // RIVER SPECIAL: look for border — adjacent block NOT river = we're at edge
+                                boolean atBorder = false;
+                                for (int[] dir : new int[][]{{1,0},{-1,0},{0,1},{0,-1}}) {
+                                    Biome neighbor = w.getBiome(x + dir[0], 62, z + dir[1]);
+                                    if (neighbor != null && !neighbor.key().value().equals(biomeName)) {
+                                        atBorder = true;
+                                        break;
+                                    }
+                                }
+                                if (!atBorder) continue; // Skip interior river blocks
+
+                                // At border — check Y=62: must be solid, biome=river, air above
+                                Block ground = w.getBlockAt(x, 62, z);
+                                if (ground.getType().isSolid() && ground.getType() != Material.WATER && ground.getType() != Material.LAVA) {
+                                    Block above1 = w.getBlockAt(x, 63, z);
+                                    Block above2 = w.getBlockAt(x, 64, z);
+                                    if (above1.getType().isAir() && above2.getType().isAir()) {
+                                        Biome groundBiome = w.getBiome(x, 62, z);
+                                        if (groundBiome != null && groundBiome.key().value().equals(biomeName)) {
+                                            return new Location(w, x + 0.5, 63, z + 0.5);
+                                        }
+                                    }
+                                }
+                            } else {
+                                // STANDARD: search Y from 58 upward
+                                for (int y = 58; y <= 90; y++) {
+                                    Biome b = w.getBiome(x, y, z);
+                                    if (b == null || !b.key().value().equals(biomeName)) continue;
+
+                                    Block blockHere = w.getBlockAt(x, y, z);
+                                    if (blockHere.getType().isAir()) {
+                                        Block below = w.getBlockAt(x, y - 1, z);
+                                        if (below.getType().isSolid() && below.getType() != Material.WATER 
+                                                && below.getType() != Material.LAVA) {
+                                            // Verify air above too (not in solid)
+                                            Block head = w.getBlockAt(x, y + 1, z);
+                                            if (head.getType().isAir()) {
+                                                return new Location(w, x + 0.5, y, z + 0.5);
+                                            }
+                                        }
+                                    } else if (blockHere.getType().isSolid() && blockHere.getType() != Material.WATER) {
+                                        Block above = w.getBlockAt(x, y + 1, z);
+                                        Block above2 = w.getBlockAt(x, y + 2, z);
+                                        if (above.getType().isAir() && above2.getType().isAir()) {
+                                            return new Location(w, x + 0.5, y + 1, z + 0.5);
+                                        }
+                                    }
+                                    break; // Only check first matching Y per column
+                                }
+                            }
+                        }
+                    }
+                    scanRadius++;
+                }
+                return null;
+            }
+
+            private void setSpawnAndFinish(Location loc) {
+                // Safety: ensure spawn is not inside a solid block
+                Block atSpawn = w.getBlockAt(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+                if (atSpawn.getType().isSolid()) {
+                    // Move up until air
+                    for (int y = loc.getBlockY(); y < loc.getBlockY() + 10; y++) {
+                        if (w.getBlockAt(loc.getBlockX(), y, loc.getBlockZ()).getType().isAir()) {
+                            loc.setY(y);
+                            break;
+                        }
+                    }
+                }
+                w.setSpawnLocation(loc);
+                w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+                skipFindSafeSpawn = true;
+                broadcastInfo(getMsg("filter-shifted").replace("{target}", biomeName.toUpperCase()));
+                getLogger().info("Spawn set to " + biomeName + " at " + loc.toVector());
+                cancel();
+                onComplete.run();
+            }
+        }.runTaskTimer(this, 1L, 2L); // Every 2 ticks (1 work, 1 rest)
+    }
+    private void startAsyncWaterBiomeSearch(World w, String waterBiomeName, Runnable onComplete) {
+        Biome waterBiome = Registry.BIOME.get(NamespacedKey.minecraft(waterBiomeName));
+        if (waterBiome == null) {
+            getLogger().warning("Water biome not found in registry: " + waterBiomeName);
+            broadcastInfo(getMsg("filter-failed"));
+            onComplete.run();
+            return;
+        }
+
+        Biome[] landBiomes = {
+            Registry.BIOME.get(NamespacedKey.minecraft("beach")),
+            Registry.BIOME.get(NamespacedKey.minecraft("stony_shore")),
+            Registry.BIOME.get(NamespacedKey.minecraft("snowy_beach")),
+            Registry.BIOME.get(NamespacedKey.minecraft("plains")),
+            Registry.BIOME.get(NamespacedKey.minecraft("forest")),
+            Registry.BIOME.get(NamespacedKey.minecraft("mushroom_fields")),
+            Registry.BIOME.get(NamespacedKey.minecraft("sparse_jungle"))
+        };
+
+        final int UNUSED2 = 0; // Offsets grid replaced by ocean-hopping strategy
+
+        final int UNUSED = 0; // Grid offsets no longer needed — using smart ocean-hopping instead
+
+        // Strategy: find ocean broadly, then scan inside. If no island, shift away and find next ocean.
+        // Avoids scanning same ocean multiple times.
+
+        new BukkitRunnable() {
+            final List<Location> checkedOceans = new ArrayList<>(); // Track checked ocean positions
+            Location pendingOceanPoint = null;
+            int subScanRadius = 0;
+            int searchAttempt = 0;
+            int searchOffsetX = 0;
+            int searchOffsetZ = 0;
+            static final int MAX_ATTEMPTS = 20; // Max different ocean patches to try
+            static final int SUB_SCAN_STEP = 32;
+            static final int BLOCK_STEP = 4;
+            // Progressive scan: after finding biome, scan in widening rings
+            int currentScanMax = 300; // Scan radius around each biome point
+            Location savedBiomePoint = null; // Remember where the biome was found
+
+            @Override
+            public void run() {
+                // If we have a pending ocean point, continue sub-scanning it
+                if (pendingOceanPoint != null) {
+                    Location found = scanHeightmapFragment(w, pendingOceanPoint, subScanRadius, Math.min(subScanRadius + SUB_SCAN_STEP, currentScanMax));
+                    if (found != null) {
+                        getLogger().info("Island (heightmap) found at " + found.toVector() + " on ocean attempt " + searchAttempt);
+                        foundIsland(w, found, waterBiomeName);
+                        return;
+                    }
+                    subScanRadius += SUB_SCAN_STEP;
+                    if (subScanRadius >= currentScanMax) {
+                        // Done scanning this area — jump FAR away to find a different instance of this biome
+                        getLogger().info("  No island in this area. Jumping far to find another instance...");
+                        // Jump 5000 blocks in alternating directions
+                        searchOffsetX = pendingOceanPoint.getBlockX() + ((searchAttempt % 4 == 0) ? 5000 : (searchAttempt % 4 == 1) ? -5000 : (searchAttempt % 4 == 2) ? 0 : 0);
+                        searchOffsetZ = pendingOceanPoint.getBlockZ() + ((searchAttempt % 4 == 0) ? 0 : (searchAttempt % 4 == 1) ? 0 : (searchAttempt % 4 == 2) ? 5000 : -5000);
+                        pendingOceanPoint = null;
+                        subScanRadius = 0;
+                    }
+                    return;
+                }
+
+                // Find next ocean
+                if (searchAttempt >= MAX_ATTEMPTS) {
+                    // Exhausted — fallback to water spawn
+                    getLogger().warning("No island found in " + waterBiomeName + " after " + MAX_ATTEMPTS + " ocean patches. Water fallback.");
+                    BiomeSearchResult fallbackResult = w.locateNearestBiome(new Location(w, 0, 62, 0), 1500, waterBiome);
+                    if (fallbackResult != null) {
+                        Location waterLoc = fallbackResult.getLocation();
+                        // Verify biome at Y=63 is correct before spawning
+                        Biome biomeCheck = w.getBiome(waterLoc.getBlockX(), 63, waterLoc.getBlockZ());
+                        if (biomeCheck != null && biomeCheck.key().value().equals(waterBiomeName)) {
+                            Location spawnOnWater = new Location(w, waterLoc.getBlockX() + 0.5, 63, waterLoc.getBlockZ() + 0.5);
+                            w.setSpawnLocation(spawnOnWater);
+                            waterSpawnActive = true;
+                            boatGivenPlayers.clear();
+                            broadcastInfo(getMsg("filter-shifted").replace("{target}", waterBiomeName.toUpperCase() + " (water)"));
+                        } else {
+                            broadcastInfo(getMsg("filter-failed"));
+                        }
+                    } else {
+                        broadcastInfo(getMsg("filter-failed"));
+                    }
+                    skipFindSafeSpawn = true;
+                    cancel();
+                    onComplete.run();
+                    return;
+                }
+
+                searchAttempt++;
+                Location searchFrom = new Location(w, searchOffsetX, 62, searchOffsetZ);
+                getLogger().info("Ocean search " + searchAttempt + "/" + MAX_ATTEMPTS + " from " + searchOffsetX + "," + searchOffsetZ);
+
+                // Find ocean with large radius (5000)
+                BiomeSearchResult waterResult = w.locateNearestBiome(searchFrom, 5000, waterBiome);
+                if (waterResult == null) {
+                    // No biome found from here — shift further in a different direction
+                    searchOffsetX += ((searchAttempt % 2 == 0) ? 3000 : -3000);
+                    searchOffsetZ += ((searchAttempt % 3 == 0) ? 3000 : -2000);
+                    return;
+                }
+
+                Location oceanPoint = waterResult.getLocation();
+                oceanPoint.setY(62);
+
+                // Check if we already scanned near this ocean
+                boolean alreadyChecked = false;
+                for (Location prev : checkedOceans) {
+                    if (prev.distance(oceanPoint) < 300) {
+                        alreadyChecked = true;
+                        break;
+                    }
+                }
+                if (alreadyChecked) {
+                    // Same spot — shift away more aggressively
+                    searchOffsetX = oceanPoint.getBlockX() + ((searchAttempt % 2 == 0) ? 1000 : -1000);
+                    searchOffsetZ = oceanPoint.getBlockZ() + ((searchAttempt % 3 == 0) ? 1000 : -1000);
+                    return;
+                }
+                checkedOceans.add(oceanPoint.clone());
+                getLogger().info("  Found " + waterBiomeName + " at " + oceanPoint.toVector());
+
+                // Quick check: biome search for land biomes first (no chunk gen)
+                // Only for ocean biomes — search for BEACH/PLAINS as island indicators
+                // For other biomes (mushroom_fields, swamp etc.) skip this — go straight to heightmap
+                if (NEEDS_ISLAND_VALIDATION.contains(waterBiomeName.toUpperCase())) {
+                    List<Biome> searchTargets = new ArrayList<>();
+                    for (Biome land : landBiomes) { if (land != null) searchTargets.add(land); }
+                    
+                    for (Biome land : searchTargets) {
+                        if (land == null) continue;
+                        BiomeSearchResult landResult = w.locateNearestBiome(oceanPoint, 500, land);
+                        if (landResult == null) continue;
+                        Location candidate = landResult.getLocation();
+                        if (isLocationSurroundedByWater(w, candidate.getBlockX(), candidate.getBlockZ(), waterBiomeName)) {
+                            getLogger().info("  Island (biome) at " + candidate.toVector());
+                            foundIsland(w, candidate, waterBiomeName);
+                            return;
+                        }
+                    }
+                } else {
+                    // For non-ocean water biomes: check directly around the biome point (±4)
+                    Location directHit = findExactBiomeNearPoint(w, oceanPoint.getBlockX(), oceanPoint.getBlockZ(), waterBiomeName);
+                    if (directHit != null) {
+                        getLogger().info("  Direct land in " + waterBiomeName + " at " + directHit.toVector());
+                        foundIsland(w, directHit, waterBiomeName);
+                        return;
+                    }
+                }
+
+                // Queue heightmap sub-scan for next ticks
+                pendingOceanPoint = oceanPoint;
+                subScanRadius = 0;
+            }
+
+            private Location scanHeightmapFragment(World world, Location center, int minR, int maxR) {
+                int cx = center.getBlockX();
+                int cz = center.getBlockZ();
+                for (int radius = Math.max(minR, BLOCK_STEP); radius <= maxR; radius += BLOCK_STEP) {
+                    for (int dx = -radius; dx <= radius; dx += BLOCK_STEP) {
+                        for (int dz = -radius; dz <= radius; dz += BLOCK_STEP) {
+                            if (Math.abs(dx) < radius - BLOCK_STEP/2 && Math.abs(dz) < radius - BLOCK_STEP/2) continue;
+                            int x = cx + dx;
+                            int z = cz + dz;
+                            int y = world.getHighestBlockYAt(x, z);
+                            if (y >= 62) {
+                                Block ground = world.getBlockAt(x, y, z);
+                                if (ground.getType().isSolid() && ground.getType() != Material.WATER && ground.getType() != Material.LAVA) {
+                                    // Search upward through solid blocks for the correct biome
+                                    for (int checkY = y; checkY <= y + 20; checkY++) {
+                                        Block blockAt = world.getBlockAt(x, checkY, z);
+                                        if (blockAt.getType().isAir()) break; // Stop at air
+                                        Biome b = world.getBiome(x, checkY, z);
+                                        if (b != null && b.key().value().equals(waterBiomeName)) {
+                                            // Found correct biome — spawn on top of this block
+                                            int spawnY = world.getHighestBlockYAt(x, z) + 1;
+                                            return new Location(world, x + 0.5, spawnY, z + 0.5);
+                                        }
+                                    }
+                                    // Also check below (y-1) in case biome is at sea level
+                                    Biome bBelow = world.getBiome(x, y - 1, z);
+                                    if (bBelow != null && bBelow.key().value().equals(waterBiomeName)) {
+                                        return new Location(world, x + 0.5, y + 1, z + 0.5);
+                                    }
+                                    // Still no match — check nearby blocks (±3)
+                                    Location nearby = findExactBiomeNearby(world, x, y, z, waterBiomeName);
+                                    if (nearby != null) return nearby;
+                                }
+                            }
+                        }
+                    }
+                }
+                return null;
+            }
+
+            /**
+             * When we find land but biome doesn't match at that exact spot,
+             * check nearby blocks (within 4 block biome grid) for the correct biome.
+             */
+            private Location findExactBiomeNearby(World world, int cx, int cy, int cz, String biomeName) {
+                for (int dx = -3; dx <= 3; dx++) {
+                    for (int dz = -3; dz <= 3; dz++) {
+                        int x = cx + dx;
+                        int z = cz + dz;
+                        int y = world.getHighestBlockYAt(x, z);
+                        if (y <= 62) continue;
+                        Block ground = world.getBlockAt(x, y, z);
+                        if (!ground.getType().isSolid() || ground.getType() == Material.WATER) continue;
+                        // Check biome at multiple heights
+                        for (int checkY = y - 1; checkY <= y + 2; checkY++) {
+                            Biome b = world.getBiome(x, checkY, z);
+                            if (b != null && b.key().value().equals(biomeName)) {
+                                return new Location(world, x + 0.5, y + 1, z + 0.5);
+                            }
+                        }
+                    }
+                }
+                return null;
+            }
+
+            private void foundIsland(World world, Location loc, String biomeName) {
+                // Don't override Y — loc already has correct Y from search methods
+                world.setSpawnLocation(loc);
+                world.setGameRule(GameRule.SPAWN_RADIUS, 0);
+                broadcastInfo(getMsg("filter-shifted").replace("{target}", biomeName.toUpperCase() + " (island/shore)"));
+                getLogger().info("Spawn shifted to " + biomeName + " island at " + loc.toVector());
+                skipFindSafeSpawn = true;
+                cancel();
+                onComplete.run();
+            }
+        }.runTaskTimer(this, 1L, 2L);
+    }
+
+    // --- LOGIKA FILTRÓW (BIOME / STRUCTURE SPAWN SHIFT) ---
+
+    /** Biomes that are water-based or island-based and require island/shore finding */
+    private static final Set<String> WATER_BIOMES = Set.of(
+        "OCEAN", "DEEP_OCEAN", "COLD_OCEAN", "DEEP_COLD_OCEAN",
+        "FROZEN_OCEAN", "DEEP_FROZEN_OCEAN", "LUKEWARM_OCEAN", "DEEP_LUKEWARM_OCEAN",
+        "WARM_OCEAN", "RIVER", "FROZEN_RIVER", "MUSHROOM_FIELDS",
+        "MANGROVE_SWAMP", "SWAMP", "BEACH", "SNOWY_BEACH", "STONY_SHORE"
+    );
+
+    /** Biomes that are underground (cave biomes) */
+    private static final Set<String> CAVE_BIOMES = Set.of(
+        "DRIPSTONE_CAVES", "LUSH_CAVES", "DEEP_DARK"
+    );
+
     private void applyFiltersAndShiftSpawn(World w) {
         if (!getConfig().getBoolean("filter.enabled", true)) return;
 
@@ -1163,26 +1657,440 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         if (structReq.isEmpty() && biomeReq.isEmpty()) return;
 
-        Location bestLoc;
+        Location bestLoc = null;
         String foundType;
 
         if (!structReq.isEmpty()) {
             bestLoc = findStructureLocation(w, structReq);
             foundType = structReq;
-        }
-        else {
-            bestLoc = findBiomeLocation(w, biomeReq);
+        } else if (WATER_BIOMES.contains(biomeReq)) {
+            // Water biome — find land (island/shore) surrounded by this water biome
+            bestLoc = findLandInWaterBiome(w, biomeReq.toLowerCase());
+            foundType = biomeReq + " (island/shore)";
+        } else if (CAVE_BIOMES.contains(biomeReq)) {
+            // Cave biome — find safe spot underground
+            bestLoc = findSpawnInCaveBiome(w, biomeReq.toLowerCase());
+            foundType = biomeReq + " (underground)";
+        } else {
+            // Normal land biome — find with dry land verification
+            bestLoc = findLandBiomeWithDryGround(w, biomeReq.toLowerCase());
             foundType = biomeReq;
         }
 
         if (bestLoc != null) {
-            bestLoc.setY(w.getHighestBlockYAt(bestLoc) + 1);
+            // Only structures need Y override — biome methods already return correct Y
+            if (!structReq.isEmpty()) {
+                bestLoc.setY(w.getHighestBlockYAt(bestLoc) + 1);
+            }
             w.setSpawnLocation(bestLoc);
+            // Final biome verification at exact spawn position
+            String reqBiome = biomeReq.toLowerCase();
+            if (!reqBiome.isEmpty()) {
+                Biome finalBiome = w.getBiome(bestLoc.getBlockX(), bestLoc.getBlockY(), bestLoc.getBlockZ());
+                if (finalBiome == null || !finalBiome.key().value().equals(reqBiome)) {
+                    // Biome mismatch at spawn — nudge to center of 4x4 biome grid
+                    int alignedX = (bestLoc.getBlockX() >> 2 << 2) + 2; // Center of 4-block biome grid
+                    int alignedZ = (bestLoc.getBlockZ() >> 2 << 2) + 2;
+                    int alignedY = w.getHighestBlockYAt(alignedX, alignedZ) + 1;
+                    Biome alignedBiome = w.getBiome(alignedX, alignedY, alignedZ);
+                    if (alignedBiome != null && alignedBiome.key().value().equals(reqBiome)) {
+                        bestLoc = new Location(w, alignedX + 0.5, alignedY, alignedZ + 0.5);
+                        w.setSpawnLocation(bestLoc);
+                        getLogger().info("Nudged spawn to biome grid center: " + bestLoc.toVector());
+                    }
+                }
+            }
             broadcastInfo(getMsg("filter-shifted").replace("{target}", foundType));
             getLogger().info("Spawn shifted to " + foundType + " at " + bestLoc.toVector());
+            w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+            skipFindSafeSpawn = true;
         } else {
             broadcastInfo(getMsg("filter-failed"));
         }
+    }
+
+    /**
+     * Finds land (island/shore) inside or adjacent to a water biome.
+     * Spreads work across ticks: 1 attempt per tick to avoid blocking main thread.
+     * Players wait in Limbo during the search.
+     * When found (or exhausted), calls back to finalize spawn.
+     */
+    private Location findLandInWaterBiome(World w, String waterBiomeName) {
+        Biome waterBiome = Registry.BIOME.get(NamespacedKey.minecraft(waterBiomeName));
+        if (waterBiome == null) {
+            getLogger().warning("Water biome not found in registry: " + waterBiomeName);
+            return null;
+        }
+
+        // Land biomes that appear on islands/shores
+        Biome[] landBiomes = {
+            Registry.BIOME.get(NamespacedKey.minecraft("beach")),
+            Registry.BIOME.get(NamespacedKey.minecraft("stony_shore")),
+            Registry.BIOME.get(NamespacedKey.minecraft("snowy_beach")),
+            Registry.BIOME.get(NamespacedKey.minecraft("plains")),
+            Registry.BIOME.get(NamespacedKey.minecraft("forest")),
+            Registry.BIOME.get(NamespacedKey.minecraft("mushroom_fields")),
+            Registry.BIOME.get(NamespacedKey.minecraft("sparse_jungle"))
+        };
+
+        // 169 search points in a 13x13 grid, 700 blocks apart (-4200 to +4200)
+        List<int[]> offsets = new ArrayList<>();
+        for (int x = -4200; x <= 4200; x += 700) {
+            for (int z = -4200; z <= 4200; z += 700) {
+                offsets.add(new int[]{x, z});
+            }
+        }
+
+        // Process in batches: 10 attempts per tick to balance speed vs lag
+        final int BATCH_SIZE = 10;
+        for (int batchStart = 0; batchStart < offsets.size(); batchStart += BATCH_SIZE) {
+            int batchEnd = Math.min(batchStart + BATCH_SIZE, offsets.size());
+
+            for (int i = batchStart; i < batchEnd; i++) {
+                int[] offset = offsets.get(i);
+                Location searchFrom = new Location(w, offset[0], 62, offset[1]);
+
+                // Find the water biome — radius 800
+                BiomeSearchResult waterResult = w.locateNearestBiome(searchFrom, 800, waterBiome);
+                if (waterResult == null) continue;
+
+                Location waterPoint = waterResult.getLocation();
+                waterPoint.setY(62);
+
+                // 1) Heightmap scan for land above sea level (catches islands with ocean biome)
+                Location islandDirect = findLandAboveSeaLevel(w, waterPoint, 32);
+                if (islandDirect != null && isLocationSurroundedByWater(w, islandDirect.getBlockX(), islandDirect.getBlockZ(), waterBiomeName)) {
+                    getLogger().info("Island (heightmap) found at " + islandDirect.toVector() + " on attempt " + (i+1) + "/" + offsets.size());
+                    return islandDirect;
+                }
+
+                // 2) Biome search for land biomes (islands that changed to beach/plains)
+                for (Biome land : landBiomes) {
+                    if (land == null) continue;
+                    BiomeSearchResult landResult = w.locateNearestBiome(waterPoint, 500, land);
+                    if (landResult == null) continue;
+
+                    Location candidate = landResult.getLocation();
+                    if (!NEEDS_ISLAND_VALIDATION.contains(waterBiomeName.toUpperCase())
+                            || isLocationSurroundedByWater(w, candidate.getBlockX(), candidate.getBlockZ(), waterBiomeName)) {
+                        getLogger().info("Island (biome) at " + candidate.toVector() + " on attempt " + (i+1) + "/" + offsets.size());
+                        return candidate;
+                    }
+                }
+            }
+        }
+
+        getLogger().warning("No island found in " + waterBiomeName + " after " + offsets.size() + " attempts. Using water fallback.");
+
+        // FALLBACK: spawn on water + boat — force spawn ON water surface in the biome
+        BiomeSearchResult fallbackResult = w.locateNearestBiome(new Location(w, 0, 62, 0), 1500, waterBiome);
+        if (fallbackResult != null) {
+            Location waterLoc = fallbackResult.getLocation();
+            // Verify biome at spawn height is correct
+            Biome biomeCheck = w.getBiome(waterLoc.getBlockX(), 63, waterLoc.getBlockZ());
+            if (biomeCheck != null && biomeCheck.key().value().equals(waterBiomeName)) {
+                Location spawnOnWater = new Location(w, waterLoc.getBlockX() + 0.5, 63, waterLoc.getBlockZ() + 0.5);
+                getLogger().info("Fallback: spawning on water in " + waterBiomeName + " at " + spawnOnWater.toVector());
+                waterSpawnActive = true;
+                boatGivenPlayers.clear();
+                return spawnOnWater;
+            }
+        }
+
+        return null;
+    }
+
+    /** Biomes that need "surrounded by water" validation to confirm it's an island (not continent edge) */
+    private static final Set<String> NEEDS_ISLAND_VALIDATION = Set.of(
+        "OCEAN", "DEEP_OCEAN", "COLD_OCEAN", "DEEP_COLD_OCEAN",
+        "FROZEN_OCEAN", "DEEP_FROZEN_OCEAN", "LUKEWARM_OCEAN", "DEEP_LUKEWARM_OCEAN",
+        "WARM_OCEAN"
+    );
+
+    /**
+     * Checks if location is surrounded by the EXACT requested water biome at Y=62.
+     * Checks 4 directions (16 blocks) — all 4 must be exactly that biome.
+     */
+    private boolean isLocationSurroundedByWater(World w, int x, int z, String waterBiomeName) {
+        int[][] dirs = {{0,-16},{0,16},{-16,0},{16,0}};
+        for (int[] d : dirs) {
+            Biome b = w.getBiome(x + d[0], 62, z + d[1]);
+            if (b == null) return false;
+            if (!b.key().value().equals(waterBiomeName)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Checks area around a point for a safe spawn with the exact biome.
+     * For each column: checks biome at locateNearestBiome Y, then searches up/down.
+     * If air → go down. If solid → go up. Spirals outward (±8 blocks).
+     */
+    private Location findExactBiomeNearPoint(World w, int cx, int cz, String biomeName) {
+        // Get the Y that locateNearestBiome returned (stored as 62 for water biomes)
+        int startY = 62;
+
+        for (int radius = 0; radius <= 300; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (radius > 0 && Math.abs(dx) != radius && Math.abs(dz) != radius) continue;
+                    int x = cx + dx;
+                    int z = cz + dz;
+
+                    // Search vertically for a safe spot with the correct biome
+                    // Only search UPWARD from sea level — avoid underground aquifers
+                    for (int dy = 0; dy <= 30; dy++) {
+                        int yUp = startY + dy;
+                        if (yUp >= 320) break;
+                        Biome bUp = w.getBiome(x, yUp, z);
+                        if (bUp != null && bUp.key().value().equals(biomeName)) {
+                            // Found correct biome — find safe standing position
+                            Block blockHere = w.getBlockAt(x, yUp, z);
+                            if (blockHere.getType().isAir() || !blockHere.getType().isSolid()) {
+                                // Air at this Y — check if solid below (can stand)
+                                Block below = w.getBlockAt(x, yUp - 1, z);
+                                if (below.getType().isSolid() && below.getType() != Material.WATER && below.getType() != Material.LAVA) {
+                                    // Final check: verify biome at EXACT spawn position
+                                    Biome spawnBiome = w.getBiome(x, yUp, z);
+                                    if (spawnBiome != null && spawnBiome.key().value().equals(biomeName)) {
+                                        return new Location(w, x + 0.5, yUp, z + 0.5);
+                                    }
+                                }
+                            } else if (blockHere.getType().isSolid()) {
+                                // Solid block — go up to find air above
+                                for (int up = yUp + 1; up <= yUp + 10; up++) {
+                                    Block abv = w.getBlockAt(x, up, z);
+                                    if (abv.getType().isAir()) {
+                                        Biome bStand = w.getBiome(x, up, z);
+                                        if (bStand != null && bStand.key().value().equals(biomeName)) {
+                                            return new Location(w, x + 0.5, up, z + 0.5);
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Relaxed validation for heightmap hits — accepts if at least 3/4 directions have any ocean biome.
+     * Used when heightmap found land above sea level inside an ocean area.
+     */
+    private boolean isHeightmapHitValid(World w, int x, int z) {
+        int[][] dirs = {{0,-32},{0,32},{-32,0},{32,0}};
+        int waterHits = 0;
+        for (int[] d : dirs) {
+            Biome b = w.getBiome(x + d[0], 62, z + d[1]);
+            if (b != null && b.key().value().contains("ocean")) {
+                waterHits++;
+            }
+        }
+        return waterHits >= 3;
+    }
+
+    /**
+     * Searches in a small radius around a point for any block above sea level (Y > 62).
+     * Uses chunk-aligned steps (every 8 blocks) for speed. Max radius is small (150 blocks).
+     */
+    private Location findLandAboveSeaLevel(World w, Location center, int maxRadius) {
+        int cx = center.getBlockX();
+        int cz = center.getBlockZ();
+
+        for (int radius = 8; radius <= maxRadius; radius += 8) {
+            for (int dx = -radius; dx <= radius; dx += 8) {
+                for (int dz = -radius; dz <= radius; dz += 8) {
+                    if (Math.abs(dx) < radius - 4 && Math.abs(dz) < radius - 4) continue;
+                    int x = cx + dx;
+                    int z = cz + dz;
+                    int y = w.getHighestBlockYAt(x, z);
+                    if (y >= 62) {
+                        Block ground = w.getBlockAt(x, y, z);
+                        if (ground.getType().isSolid() && ground.getType() != Material.WATER && ground.getType() != Material.LAVA) {
+                            return new Location(w, x + 0.5, y + 1, z + 0.5);
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Finds a safe spawn point inside a cave biome (underground).
+     * Locates the biome, then searches downward for a safe air pocket.
+     */
+    private Location findSpawnInCaveBiome(World w, String caveBiomeName) {
+        Biome caveBiome = Registry.BIOME.get(NamespacedKey.minecraft(caveBiomeName));
+        if (caveBiome == null) {
+            getLogger().warning("Cave biome not found in registry: " + caveBiomeName);
+            return null;
+        }
+
+        Location center = new Location(w, 0, 0, 0);
+        BiomeSearchResult result = w.locateNearestBiome(center, 5000, caveBiome);
+        if (result == null) {
+            getLogger().warning("Could not find cave biome: " + caveBiomeName);
+            return null;
+        }
+
+        Location cavePoint = result.getLocation();
+        int cx = cavePoint.getBlockX();
+        int cz = cavePoint.getBlockZ();
+
+        // Search downward from surface to find air pocket with solid floor in cave biome
+        int surfaceY = w.getHighestBlockYAt(cx, cz);
+        for (int y = surfaceY - 5; y >= w.getMinHeight() + 3; y--) {
+            // Check if this Y level is in the cave biome
+            Biome biomeHere = w.getBiome(cx, y, cz);
+            if (biomeHere == null || !biomeHere.key().value().equals(caveBiomeName)) continue;
+
+            // Check for safe air pocket: solid below, air at feet and head
+            if (isLocationSafe(w, cx, y, cz)) {
+                getLogger().info("Cave spawn found in " + caveBiomeName + " at Y=" + y);
+                return new Location(w, cx + 0.5, y, cz + 0.5);
+            }
+        }
+
+        // Spiral outward if center column doesn't work
+        for (int radius = 4; radius <= 32; radius += 4) {
+            for (int dx = -radius; dx <= radius; dx += 4) {
+                for (int dz = -radius; dz <= radius; dz += 4) {
+                    if (Math.abs(dx) < radius - 2 && Math.abs(dz) < radius - 2) continue;
+                    int x = cx + dx;
+                    int z = cz + dz;
+                    int sy = w.getHighestBlockYAt(x, z);
+                    for (int y = sy - 5; y >= w.getMinHeight() + 3; y--) {
+                        Biome biomeHere = w.getBiome(x, y, z);
+                        if (biomeHere == null || !biomeHere.key().value().equals(caveBiomeName)) continue;
+                        if (isLocationSafe(w, x, y, z)) {
+                            getLogger().info("Cave spawn found in " + caveBiomeName + " at " + x + "," + y + "," + z);
+                            return new Location(w, x + 0.5, y, z + 0.5);
+                        }
+                    }
+                }
+            }
+        }
+
+        getLogger().warning("No safe cave spawn found in " + caveBiomeName);
+        return null;
+    }
+
+    /**
+     * Finds a safe spawn location that is STILL within the specified biome.
+     */
+    private Location findSafeSpawnInBiome(World w, Location center, String targetBiomeKey) {
+        int cx = center.getBlockX();
+        int cz = center.getBlockZ();
+
+        int hy = w.getHighestBlockYAt(cx, cz);
+        if (hy > w.getMinHeight() + 1 && isLocationSafe(w, cx, hy + 1, cz)) {
+            return new Location(w, cx + 0.5, hy + 1, cz + 0.5);
+        }
+
+        for (int radius = 1; radius <= 32; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (Math.abs(dx) != radius && Math.abs(dz) != radius) continue;
+                    int x = cx + dx;
+                    int z = cz + dz;
+                    int y = w.getHighestBlockYAt(x, z);
+                    if (y <= w.getMinHeight() + 1) continue;
+                    Biome biome = w.getBiome(x, y, z);
+                    if (biome == null || !biome.key().value().equals(targetBiomeKey)) continue;
+                    if (isLocationSafe(w, x, y + 1, z)) {
+                        return new Location(w, x + 0.5, y + 1, z + 0.5);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Finds a land biome AND verifies there's solid ground above water in it.
+     * If first hit is underwater (like mushroom_fields on ocean floor), searches further.
+     * Tries multiple locations of the biome until one with dry land is found.
+     */
+    private Location findLandBiomeWithDryGround(World w, String biomeName) {
+        Biome targetBiome = Registry.BIOME.get(NamespacedKey.minecraft(biomeName));
+        if (targetBiome == null) {
+            getLogger().warning("Biome not found in registry: " + biomeName);
+            return null;
+        }
+
+        // Try from multiple search centers to find different instances of this biome
+        int[][] searchCenters = {{0,0},{2000,0},{-2000,0},{0,2000},{0,-2000},{3000,3000},{-3000,-3000}};
+
+        for (int[] center : searchCenters) {
+            Location searchFrom = new Location(w, center[0], 64, center[1]);
+            BiomeSearchResult result = w.locateNearestBiome(searchFrom, 3000, targetBiome);
+            if (result == null) continue;
+
+            Location biomePoint = result.getLocation();
+            int bx = biomePoint.getBlockX();
+            int bz = biomePoint.getBlockZ();
+
+            // Check if there's dry land at this biome location
+            // First: check exact point
+            int y = w.getHighestBlockYAt(bx, bz);
+            if (y >= 62) {
+                Block ground = w.getBlockAt(bx, y, bz);
+                if (ground.getType().isSolid() && ground.getType() != Material.WATER) {
+                    // Verify biome at player height
+                    Biome bHere = w.getBiome(bx, y + 1, bz);
+                    if (bHere != null && bHere.key().value().equals(biomeName)) {
+                        return new Location(w, bx + 0.5, y + 1, bz + 0.5);
+                    }
+                }
+            }
+
+            // Spiral search for dry land in this biome instance (32 blocks, then wider 64)
+            Location drySpot = findDryLandInBiome(w, biomePoint, biomeName, 32);
+            if (drySpot != null) return drySpot;
+
+            drySpot = findDryLandInBiome(w, biomePoint, biomeName, 64);
+            if (drySpot != null) return drySpot;
+
+            // This instance of the biome has no dry land — try next one
+            getLogger().info("Biome " + biomeName + " at " + bx + "," + bz + " has no dry land. Trying next...");
+        }
+
+        // Last resort: no dry land found in any instance of this biome — return null (filter failed)
+        getLogger().warning("Could not find dry land in biome: " + biomeName);
+        return null;
+    }
+
+    /**
+     * Searches for dry land (solid block > Y=62 with correct biome) near a point.
+     */
+    private Location findDryLandInBiome(World w, Location center, String biomeName, int maxRadius) {
+        int cx = center.getBlockX();
+        int cz = center.getBlockZ();
+        int step = maxRadius <= 32 ? 2 : 4;
+
+        for (int radius = step; radius <= maxRadius; radius += step) {
+            for (int dx = -radius; dx <= radius; dx += step) {
+                for (int dz = -radius; dz <= radius; dz += step) {
+                    if (Math.abs(dx) < radius - step && Math.abs(dz) < radius - step) continue;
+                    int x = cx + dx;
+                    int z = cz + dz;
+                    int y = w.getHighestBlockYAt(x, z);
+                    if (y <= 62) continue;
+                    Block ground = w.getBlockAt(x, y, z);
+                    if (!ground.getType().isSolid() || ground.getType() == Material.WATER) continue;
+                    Biome b = w.getBiome(x, y, z);
+                    if (b != null && b.key().value().equals(biomeName)) {
+                        return new Location(w, x + 0.5, y + 1, z + 0.5);
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private Location findBiomeLocation(World w, String biomeName) {
@@ -1197,6 +2105,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             }
 
             Location center = new Location(w, 0, 64, 0);
+            // Use standard locateNearestBiome (compatible with all Paper 1.21+ versions)
             BiomeSearchResult result = w.locateNearestBiome(center, 2500, targetBiome);
             if (result != null) return result.getLocation();
         } catch (Exception e) {
@@ -1391,12 +2300,34 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
     }
 
+    /**
+     * Pre-generates a 5x5 chunk grid (80x80 blocks) around spawn location asynchronously.
+     * Uses Paper's getChunkAtAsync to avoid blocking the main thread during chunk generation.
+     * This ensures chunks are ready before players teleport, preventing lag spikes.
+     */
+    private void preGenerateSpawnChunks(World w, Location spawn) {
+        int centerChunkX = spawn.getBlockX() >> 4;
+        int centerChunkZ = spawn.getBlockZ() >> 4;
+        int radius = 2; // 5x5 grid = radius 2 from center
+
+        List<CompletableFuture<Chunk>> futures = new ArrayList<>();
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                futures.add(w.getChunkAtAsync(centerChunkX + dx, centerChunkZ + dz));
+            }
+        }
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).thenRun(() -> {
+            getLogger().info("Pre-generated " + futures.size() + " chunks around spawn (" + centerChunkX + ", " + centerChunkZ + ")");
+        });
+    }
+
     private void findSafeSpawn(World w) {
         Location spawn = w.getSpawnLocation();
         waterSpawnActive = false;
         boatGivenPlayers.clear();
 
-        // Step 1: Try immediate area (8 block radius) for safe ground
+        // Step 1: Try immediate area (32 block radius) for safe ground
         Location safe = getSafeLocation(spawn);
         if (safe != null) {
             w.setSpawnLocation(safe);
@@ -1405,7 +2336,16 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             return;
         }
 
-        // Step 2: Use locateNearestBiome to find land biomes (BEACH, STONY_SHORE, PLAINS, FOREST)
+        // Step 2: Spiral search for solid land in wider radius (up to 100 blocks)
+        Location nearby = findLandNear(w, spawn, 100);
+        if (nearby != null) {
+            w.setSpawnLocation(nearby);
+            getLogger().info("Safe spawn found via spiral search at: " + nearby.toVector());
+            w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+            return;
+        }
+
+        // Step 3: Use locateNearestBiome to find land biomes (BEACH, STONY_SHORE, PLAINS, FOREST)
         // Much faster than block-by-block — queries the biome noise map directly
         Location landLoc = findLandViaBiomeSearch(w, spawn, 10000);
         if (landLoc != null) {
@@ -1416,17 +2356,17 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 w.setGameRule(GameRule.SPAWN_RADIUS, 0);
                 return;
             }
-            // Biome found but exact spot not safe — try small radius around it
-            Location nearby = findLandNear(w, landLoc, 32);
-            if (nearby != null) {
-                w.setSpawnLocation(nearby);
-                getLogger().info("Safe spawn found near biome hit at: " + nearby.toVector());
+            // Biome found but exact spot not safe — try wider spiral around it
+            Location nearBiome = findLandNear(w, landLoc, 64);
+            if (nearBiome != null) {
+                w.setSpawnLocation(nearBiome);
+                getLogger().info("Safe spawn found near biome hit at: " + nearBiome.toVector());
                 w.setGameRule(GameRule.SPAWN_RADIUS, 0);
                 return;
             }
         }
 
-        // Step 3: Fallback — no land found. Spawn on water, give boat
+        // Step 4: Fallback — no land found. Spawn on water, give boat
         int x = spawn.getBlockX();
         int z = spawn.getBlockZ();
         int y = w.getHighestBlockYAt(x, z);
@@ -1461,7 +2401,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             }
             if (validBiomes.isEmpty()) return null;
 
-            // Use large horizontal interval (32) for speed — we don't need block precision here
+            // Use large horizontal interval for speed — we don't need block precision here
             for (Biome target : validBiomes) {
                 BiomeSearchResult result = w.locateNearestBiome(center, radius, target);
                 if (result != null) {
@@ -1523,7 +2463,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
 
         // Spiral search around original position
-        for (int radius = 1; radius <= 8; radius++) {
+        for (int radius = 1; radius <= 32; radius++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     if (Math.abs(dx) != radius && Math.abs(dz) != radius) continue; // Only border
@@ -2476,6 +3416,9 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         if (isResetting) return;
         if (e.getEntity().getWorld().getName().equals(limboWorldName)) return;
         if (!e.getEntity().getWorld().getName().contains(gameWorldName)) return;
+
+        // Reset boat flag on death — player gets new boat after next reset if water spawn
+        boatGivenPlayers.remove(e.getEntity().getUniqueId());
 
         // Capture player states BEFORE death clears them (use pre-death snapshot for backup)
         // The dying player's inventory is in getDrops(), other players are alive
