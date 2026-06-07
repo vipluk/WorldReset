@@ -98,3 +98,58 @@ All `enable`/`disable` arguments across every command also accept `on`/`off` and
 - `limbo-countdown-in`, `limbo-countdown-out`, `limbo-waiting`
 - `reset-countdown`
 - Updated `command-usage`.
+
+
+## Async Biome Spawn System (Rewrite)
+
+Complete rewrite of the biome spawn finding logic:
+
+**How it works:**
+- Uses `locateNearestBiome` to find the biome, then spirals outward checking for dry land with the exact biome at player height.
+- Spread across server ticks (BukkitRunnable every 2 ticks) — never blocks the main thread.
+- Pre-filters columns by biome at Y=62 to skip irrelevant areas quickly.
+- For ocean biomes: finds islands by detecting land above sea level.
+- For river/frozen_river: special border-detection logic finds solid ground at biome edges.
+- Fallback: spawns on water with boat if no land found.
+
+**Supported biomes (async path):** All oceans (7+5 deep), river, frozen_river, mushroom_fields, mangrove_swamp, swamp, beach, snowy_beach, stony_shore.
+
+**Config:** `filter.attempts` — number of biome instances to try before giving up (default 5). Configurable via `/wr filter attempts <number>`.
+
+**Biome accuracy:** Final spawn position is verified with `getBiome` at exact player coordinates. Biome grid alignment (4×4) handled automatically.
+
+## `/wr seed copy`
+
+Copies the current game world seed to the fixed seed config. Equivalent to `/wr seed <currentSeed>` + `/wr seed enable`.
+
+## `/wr give`
+
+Auto-give system for survival convenience:
+- `/wr give boat <enable|disable>` — Toggle automatic boat on water spawn.
+- `/wr give wood <amount|enable|disable>` — Toggle/set automatic wood on underground spawn. Set to `0` or `disable` to turn off.
+
+**Config:**
+```yaml
+give:
+  boat-if-water: true
+  wood-if-underground: true
+  wood-amount: 5
+```
+
+**Wood trigger:** Given when player spawn Y is more than 3 blocks below the surface (highest block). Works for cave biomes AND underground structures.
+
+## Underground Structure Spawn
+
+Structures with characteristic blocks are now searched in full 3D:
+- **Stronghold:** stone_bricks, mossy_stone_bricks, cracked_stone_bricks, end_portal_frame
+- **Ancient City:** deepslate_bricks, deepslate_tiles, sculk
+- **Mineshaft:** oak_planks, rail, oak_fence
+- **Trail Ruins:** mud_bricks, packed_mud
+- **Trial Chambers:** tuff_bricks, oxidized_copper, trial_spawner
+- **Buried Treasure:** chest
+
+The plugin searches ±16 blocks XZ and full Y range for these blocks, then finds a safe air pocket (2 air blocks + solid floor) within ±3 blocks. Fallback: any air pocket in the structure column, then surface spawn.
+
+## Minimum Paper API Version
+
+Plugin now requires **Paper 1.21.4+** for proper Biome API support. The `IncompatibleClassChangeError` on Purpur 1.21.0 is resolved by upgrading the server.

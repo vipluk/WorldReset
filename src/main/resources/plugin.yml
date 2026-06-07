@@ -46,6 +46,10 @@ permissions:
     description: Pozwala zarządzać filtrami struktur i biomów
     default: op
 
+  worldreset.give:
+    description: Pozwala zarządzać automatycznym dawaniem przedmiotów (łódka/drewno)
+    default: op
+
   worldreset.timer:
     description: Pozwala zarządzać timerem speedrunowym (start/pause/reset/mode/scope/goal)
     default: op
@@ -74,6 +78,7 @@ permissions:
       worldreset.language: true
       worldreset.death: true
       worldreset.filter: true
+      worldreset.give: true
       worldreset.timer: true
       worldreset.compass: true
       worldreset.templates: true
