@@ -1225,7 +1225,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         final boolean isWaterBiome = WATER_BIOMES.contains(biomeName.toUpperCase());
         final boolean isRiverLike = biomeName.equals("river") || biomeName.equals("frozen_river");
-        final int MAX_BIOME_ATTEMPTS = isRiverLike ? 3 : 5;
+        final int MAX_BIOME_ATTEMPTS = Math.max(1, getConfig().getInt("filter.attempts", 5));
         final int SCAN_RADIUS = isRiverLike ? 1000 : 500;
         final int SCAN_PER_TICK = 80;
 
@@ -3958,6 +3958,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         sender.sendMessage("§7Enabled: " + (filterEnabled ? "§aYes" : "§cNo"));
                         sender.sendMessage("§7Structure: " + (filterStruct.isEmpty() ? "§8None" : "§a" + filterStruct));
                         sender.sendMessage("§7Biome: " + (filterBiome.isEmpty() ? "§8None" : "§a" + filterBiome));
+                        sender.sendMessage("§7Attempts: §e" + getConfig().getInt("filter.attempts", 5));
                         sender.sendMessage("§7Seed: " + (fixedSeed ? "§e" + seedVal + " §7(fixed)" : "§aRandom"));
                         World game = Bukkit.getWorld(gameWorldName);
                         if (game != null) {
@@ -3990,8 +3991,25 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         return true;
                     }
 
+                    if (filterSub.equals("attempts")) {
+                        if (args.length < 3) {
+                            int current = getConfig().getInt("filter.attempts", 5);
+                            sender.sendMessage("§7Filter attempts: §e" + current);
+                            return true;
+                        }
+                        try {
+                            int val = Math.max(1, Integer.parseInt(args[2]));
+                            getConfig().set("filter.attempts", val);
+                            saveConfig();
+                            sender.sendMessage("§aFilter attempts set to: " + val);
+                        } catch (NumberFormatException e) {
+                            sender.sendMessage("§cUsage: /wr filter attempts <number>");
+                        }
+                        return true;
+                    }
+
                     if (args.length < 3) {
-                        sender.sendMessage("§cUsage: /wr filter <structure|biome> <name|clear> or /wr filter clear");
+                        sender.sendMessage("§cUsage: /wr filter <structure|biome|attempts> <value> or /wr filter clear");
                         return true;
                     }
 
@@ -4731,8 +4749,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     ? "§e/wr autoreset §8- §7Pokaż status\n§e/wr autoreset §6<§estart§6|§estop§6|§edisable§6> §8- §7Steruj odliczaniem\n§e/wr autoreset time §6<§ewartość§6> §8- §7Ustaw interwał §6(§e30s§6, §e5m§6, §e1h§6)\n§e/wr autoreset loop §6[§eenable§6|§edisable§6] §8- §7Pętla\n§e/wr autoreset visible §6[§eenable§6|§edisable§6] §8- §7Widoczność HUD"
                     : "§e/wr autoreset §8- §7Show status\n§e/wr autoreset §6<§estart§6|§estop§6|§edisable§6> §8- §7Control countdown\n§e/wr autoreset time §6<§evalue§6> §8- §7Set interval §6(§e30s§6, §e5m§6, §e1h§6)\n§e/wr autoreset loop §6[§eenable§6|§edisable§6] §8- §7Toggle loop\n§e/wr autoreset visible §6[§eenable§6|§edisable§6] §8- §7Toggle HUD";
             case "filter" -> isPl
-                    ? "§e/wr filter §8- §7Przełącz filtry (włącz/wyłącz)\n§e/wr filter §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz filtry\n§e/wr filter status §8- §7Pokaż status filtrów\n§e/wr filter structure §6<§enazwa§6> §8- §7Filtr struktury\n§e/wr filter biome §6<§enazwa§6> §8- §7Filtr biomu\n§e/wr filter clear §8- §7Wyczyść filtry i seed"
-                    : "§e/wr filter §8- §7Toggle filters (enable/disable)\n§e/wr filter §6<§eenable§6|§edisable§6> §8- §7Enable/disable filters\n§e/wr filter status §8- §7Show filter status\n§e/wr filter structure §6<§ename§6> §8- §7Set structure filter\n§e/wr filter biome §6<§ename§6> §8- §7Set biome filter\n§e/wr filter clear §8- §7Clear all filters & seed";
+                    ? "§e/wr filter §8- §7Przełącz filtry (włącz/wyłącz)\n§e/wr filter §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz filtry\n§e/wr filter status §8- §7Pokaż status filtrów\n§e/wr filter structure §6<§enazwa§6> §8- §7Filtr struktury\n§e/wr filter biome §6<§enazwa§6> §8- §7Filtr biomu\n§e/wr filter attempts §6<§eliczba§6> §8- §7Ilość prób szukania\n§e/wr filter clear §8- §7Wyczyść filtry i seed"
+                    : "§e/wr filter §8- §7Toggle filters (enable/disable)\n§e/wr filter §6<§eenable§6|§edisable§6> §8- §7Enable/disable filters\n§e/wr filter status §8- §7Show filter status\n§e/wr filter structure §6<§ename§6> §8- §7Set structure filter\n§e/wr filter biome §6<§ename§6> §8- §7Set biome filter\n§e/wr filter attempts §6<§enumber§6> §8- §7Search attempts count\n§e/wr filter clear §8- §7Clear all filters & seed";
             case "seed" -> isPl
                     ? "§e/wr seed §8- §7Przełącz stały/losowy seed\n§e/wr seed §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz stały seed\n§e/wr seed §6<§ewartość§6> §8- §7Ustaw seed\n§e/wr seed status §8- §7Pokaż status\n§e/wr seed copy §8- §7Kopiuj aktualny seed\n§e/wr seed clear §8- §7Wyczyść i ustaw losowy"
                     : "§e/wr seed §8- §7Toggle fixed/random seed\n§e/wr seed §6<§eenable§6|§edisable§6> §8- §7Enable/disable fixed seed\n§e/wr seed §6<§evalue§6> §8- §7Set seed value\n§e/wr seed status §8- §7Show status\n§e/wr seed copy §8- §7Copy current world seed\n§e/wr seed clear §8- §7Clear and set random";
@@ -4769,7 +4787,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
         if (args.length == 2) {
             if (args[0].equalsIgnoreCase("filter")) {
-                return StringUtil.copyPartialMatches(args[1], Arrays.asList("structure", "biome", "enable", "disable", "status", "clear"), new ArrayList<>());
+                return StringUtil.copyPartialMatches(args[1], Arrays.asList("structure", "biome", "attempts", "enable", "disable", "status", "clear"), new ArrayList<>());
             }
             if (args[0].equalsIgnoreCase("language")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("en", "pl"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("timer")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "pause", "reset", "enable", "disable", "mode", "scope", "goal"), new ArrayList<>());
