@@ -1580,15 +1580,15 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 // Check if we already scanned near this ocean
                 boolean alreadyChecked = false;
                 for (Location prev : checkedOceans) {
-                    if (prev.distance(oceanPoint) < 300) {
+                    if (prev.distance(oceanPoint) < 1500) {
                         alreadyChecked = true;
                         break;
                     }
                 }
                 if (alreadyChecked) {
-                    // Same spot — shift away more aggressively
-                    searchOffsetX = oceanPoint.getBlockX() + ((searchAttempt % 2 == 0) ? 1000 : -1000);
-                    searchOffsetZ = oceanPoint.getBlockZ() + ((searchAttempt % 3 == 0) ? 1000 : -1000);
+                    // Same ocean — shift far away in alternating direction
+                    searchOffsetX = oceanPoint.getBlockX() + ((searchAttempt % 4 == 0) ? 5000 : (searchAttempt % 4 == 1) ? -5000 : (searchAttempt % 4 == 2) ? 3000 : -3000);
+                    searchOffsetZ = oceanPoint.getBlockZ() + ((searchAttempt % 4 == 0) ? 3000 : (searchAttempt % 4 == 1) ? -3000 : (searchAttempt % 4 == 2) ? -5000 : 5000);
                     return;
                 }
                 checkedOceans.add(oceanPoint.clone());
