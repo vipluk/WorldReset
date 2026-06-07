@@ -1159,10 +1159,45 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 if (getConfig().getBoolean("filter.enabled", true) && !biomeReq.isEmpty() && structReq.isEmpty()) {
                     int attempts = getConfig().getInt("filter.attempts", 5);
                     if (attempts <= 0) {
-                        // 0 attempts = skip async search, use basic findBiomeLocation + surface spawn
-                        applyFiltersAndShiftSpawn(normal);
-                        if (!skipFindSafeSpawn) {
-                            findSafeSpawn(normal);
+                        // 0 attempts = find biome, basic land check (few blocks), fallback water+boat
+                        Biome targetBiome = Registry.BIOME.get(NamespacedKey.minecraft(biomeReq.toLowerCase()));
+                        if (targetBiome != null) {
+                            BiomeSearchResult result = normal.locateNearestBiome(new Location(normal, 0, 62, 0), 2500, targetBiome);
+                            if (result != null) {
+                                Location loc = result.getLocation();
+                                // Basic land check: ±8 blocks around biome point
+                                Location landSpot = null;
+                                int bx = loc.getBlockX(), bz = loc.getBlockZ();
+                                for (int dx = -8; dx <= 8 && landSpot == null; dx++) {
+                                    for (int dz = -8; dz <= 8 && landSpot == null; dz++) {
+                                        int x = bx + dx, z = bz + dz;
+                                        int y = normal.getHighestBlockYAt(x, z);
+                                        if (y >= 62) {
+                                            Block g = normal.getBlockAt(x, y, z);
+                                            if (g.getType().isSolid() && g.getType() != Material.WATER && g.getType() != Material.LAVA) {
+                                                Block a1 = normal.getBlockAt(x, y + 1, z);
+                                                Block a2 = normal.getBlockAt(x, y + 2, z);
+                                                if (a1.getType().isAir() && a2.getType().isAir()) {
+                                                    landSpot = new Location(normal, x + 0.5, y + 1, z + 0.5);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if (landSpot != null) {
+                                    normal.setSpawnLocation(landSpot);
+                                } else {
+                                    // No land in ±8 — water spawn + boat
+                                    normal.setSpawnLocation(new Location(normal, bx + 0.5, 63, bz + 0.5));
+                                    waterSpawnActive = true;
+                                    boatGivenPlayers.clear();
+                                }
+                                normal.setGameRule(GameRule.SPAWN_RADIUS, 0);
+                                broadcastInfo(getMsg("filter-shifted").replace("{target}", biomeReq));
+                                skipFindSafeSpawn = true;
+                            } else {
+                                broadcastInfo(getMsg("filter-failed"));
+                            }
                         }
                     } else {
                         final World fw = normal;
