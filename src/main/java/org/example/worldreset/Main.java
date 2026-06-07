@@ -4051,7 +4051,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         getConfig().set("seed.use-fixed", false);
                         getConfig().set("seed.value", "");
                         saveConfig();
-                        sender.sendMessage("§aSeed cleared and set to random.");
+                        sender.sendMessage(getConfig().getString("language", "en").equalsIgnoreCase("pl") ? "§aSeed wyczyszczony, ustawiono losowy." : "§aSeed cleared and set to random.");
                     } else if (sub.equals("copy")) {
                         // Copy current world seed to fixed seed config
                         World game = Bukkit.getWorld(gameWorldName);
@@ -4060,9 +4060,9 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             getConfig().set("seed.use-fixed", true);
                             getConfig().set("seed.value", seedVal);
                             saveConfig();
-                            sender.sendMessage("§aCurrent seed copied: §f" + seedVal);
+                            sender.sendMessage(getConfig().getString("language", "en").equalsIgnoreCase("pl") ? "§aAktualny seed skopiowany: §f" + seedVal : "§aCurrent seed copied: §f" + seedVal);
                         } else {
-                            sender.sendMessage("§cNo game world loaded.");
+                            sender.sendMessage(getConfig().getString("language", "en").equalsIgnoreCase("pl") ? "§cŚwiat gry nie jest załadowany." : "§cNo game world loaded.");
                         }
                     } else if (sub.equals("status")) {
                         boolean fixed = getConfig().getBoolean("seed.use-fixed", false);
@@ -4083,35 +4083,36 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 }
                 case "give" -> {
                     if (hasPerm(sender, "worldreset.give")) return noPerm(sender, "worldreset.give");
+                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
                     if (args.length < 2) {
-                        sender.sendMessage("§eUsage: /wr give boat <enable|disable>");
-                        sender.sendMessage("§eUsage: /wr give wood <amount|enable|disable>");
+                        sender.sendMessage(isPl ? "§eUżycie: /wr give boat <enable|disable>" : "§eUsage: /wr give boat <enable|disable>");
+                        sender.sendMessage(isPl ? "§eUżycie: /wr give wood <ilość|enable|disable>" : "§eUsage: /wr give wood <amount|enable|disable>");
                         return true;
                     }
                     String item = args[1].toLowerCase();
                     if (item.equals("boat")) {
                         if (args.length < 3) {
                             boolean current = getConfig().getBoolean("give.boat-if-water", true);
-                            sender.sendMessage("§7Boat if water: " + (current ? "§aenabled" : "§cdisabled"));
+                            sender.sendMessage((isPl ? "§7Łódka na wodzie: " : "§7Boat if water: ") + (current ? "§a" + (isPl ? "włączone" : "enabled") : "§c" + (isPl ? "wyłączone" : "disabled")));
                             return true;
                         }
                         String val = args[2].toLowerCase();
                         if (isEnableAlias(val)) {
                             getConfig().set("give.boat-if-water", true);
                             saveConfig();
-                            sender.sendMessage("§aBoat if water: enabled");
+                            sender.sendMessage(isPl ? "§aŁódka na wodzie: włączone" : "§aBoat if water: enabled");
                         } else if (isDisableAlias(val)) {
                             getConfig().set("give.boat-if-water", false);
                             saveConfig();
-                            sender.sendMessage("§cBoat if water: disabled");
+                            sender.sendMessage(isPl ? "§cŁódka na wodzie: wyłączone" : "§cBoat if water: disabled");
                         } else {
-                            sender.sendMessage("§eUsage: /wr give boat <enable|disable>");
+                            sender.sendMessage(isPl ? "§eUżycie: /wr give boat <enable|disable>" : "§eUsage: /wr give boat <enable|disable>");
                         }
                     } else if (item.equals("wood")) {
                         if (args.length < 3) {
                             boolean enabled = getConfig().getBoolean("give.wood-if-underground", true);
                             int amount = getConfig().getInt("give.wood-amount", 5);
-                            sender.sendMessage("§7Wood if underground: " + (enabled ? "§a" + amount : "§cdisabled"));
+                            sender.sendMessage((isPl ? "§7Drewno pod ziemią: " : "§7Wood if underground: ") + (enabled ? "§a" + amount : "§c" + (isPl ? "wyłączone" : "disabled")));
                             return true;
                         }
                         String val = args[2].toLowerCase();
@@ -4119,12 +4120,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             getConfig().set("give.wood-if-underground", true);
                             saveConfig();
                             int amount = getConfig().getInt("give.wood-amount", 5);
-                            sender.sendMessage("§aWood if underground: enabled (" + amount + ")");
+                            sender.sendMessage(isPl ? "§aDrewno pod ziemią: włączone (" + amount + ")" : "§aWood if underground: enabled (" + amount + ")");
                         } else if (isDisableAlias(val) || val.equals("0")) {
                             getConfig().set("give.wood-if-underground", false);
                             getConfig().set("give.wood-amount", 0);
                             saveConfig();
-                            sender.sendMessage("§cWood if underground: disabled");
+                            sender.sendMessage(isPl ? "§cDrewno pod ziemią: wyłączone" : "§cWood if underground: disabled");
                         } else {
                             try {
                                 int amount = Integer.parseInt(val);
@@ -4133,19 +4134,19 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     getConfig().set("give.wood-if-underground", false);
                                     getConfig().set("give.wood-amount", 0);
                                     saveConfig();
-                                    sender.sendMessage("§cWood if underground: disabled");
+                                    sender.sendMessage(isPl ? "§cDrewno pod ziemią: wyłączone" : "§cWood if underground: disabled");
                                 } else {
                                     getConfig().set("give.wood-if-underground", true);
                                     getConfig().set("give.wood-amount", amount);
                                     saveConfig();
-                                    sender.sendMessage("§aWood if underground: " + amount);
+                                    sender.sendMessage(isPl ? "§aDrewno pod ziemią: " + amount : "§aWood if underground: " + amount);
                                 }
                             } catch (NumberFormatException e) {
-                                sender.sendMessage("§eUsage: /wr give wood <amount|enable|disable>");
+                                sender.sendMessage(isPl ? "§eUżycie: /wr give wood <ilość|enable|disable>" : "§eUsage: /wr give wood <amount|enable|disable>");
                             }
                         }
                     } else {
-                        sender.sendMessage("§eUsage: /wr give <boat|wood> ...");
+                        sender.sendMessage(isPl ? "§eUżycie: /wr give <boat|wood> ..." : "§eUsage: /wr give <boat|wood> ...");
                     }
                     return true;
                 }
@@ -4277,7 +4278,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         } else {
                             Set<String> META_BIOMES = Set.of("OCEAN_ALL", "FOREST_ALL", "MOUNTAIN_ALL", "CAVE_ALL", "DESERT_ALL", "TAIGA_ALL");
                             if (!BIOME_NAMES.contains(value) && !META_BIOMES.contains(value)) {
-                                sender.sendMessage("§cInvalid biome name (or rare). Try: PLAINS, DESERT, OCEAN_ALL, etc.");
+                                boolean isPl2 = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+                                sender.sendMessage(isPl2 ? "§cNieprawidłowa nazwa biomu. Spróbuj: PLAINS, DESERT, OCEAN_ALL, itp." : "§cInvalid biome name (or rare). Try: PLAINS, DESERT, OCEAN_ALL, etc.");
                             }
                             getConfig().set("filter.biome", value);
                             getConfig().set("filter.structure", ""); // AUTO CLEAR STRUCTURE
