@@ -1357,17 +1357,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 biomePoint = found.getLocation();
                 biomePoint.setY(62);
 
-                // Nudge toward center of biome — move away from 0,0 to go deeper into the biome
-                int nudgeX = biomePoint.getBlockX() - searchFrom.getBlockX();
-                int nudgeZ = biomePoint.getBlockZ() - searchFrom.getBlockZ();
-                // Normalize and apply 100-block nudge in same direction
-                double dist = Math.sqrt(nudgeX * nudgeX + nudgeZ * nudgeZ);
-                if (dist > 0) {
-                    biomePoint.add((nudgeX / dist) * 100, 0, (nudgeZ / dist) * 100);
-                }
+                // Estimate center of biome by probing 4 directions until biome boundary
+                biomePoint = estimateBiomeCenter(w, biomePoint, biomeName);
 
                 scanRadius = 0;
-                getLogger().info("  Found " + biomeName + " at " + biomePoint.toVector());
+                getLogger().info("  Found " + biomeName + " center at " + biomePoint.toVector());
             }
 
             /**
@@ -1877,6 +1871,52 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
 
         return null;
+    }
+
+    /**
+     * Estimates the center of a biome by probing in 4 cardinal directions from a starting point.
+     * Walks outward in each direction (step=32) until the biome changes, then averages the boundaries.
+     * Fast: uses only getBiome (no chunk gen), max ~50 calls.
+     */
+    private Location estimateBiomeCenter(World w, Location start, String biomeName) {
+        int sx = start.getBlockX();
+        int sz = start.getBlockZ();
+        int maxProbe = 500; // Max distance to probe in each direction
+        int step = 32;
+
+        // Find boundary in each direction
+        int northZ = sz, southZ = sz, westX = sx, eastX = sx;
+
+        // North (Z-)
+        for (int z = sz; z >= sz - maxProbe; z -= step) {
+            Biome b = w.getBiome(sx, 62, z);
+            if (b == null || !b.key().value().equals(biomeName)) break;
+            northZ = z;
+        }
+        // South (Z+)
+        for (int z = sz; z <= sz + maxProbe; z += step) {
+            Biome b = w.getBiome(sx, 62, z);
+            if (b == null || !b.key().value().equals(biomeName)) break;
+            southZ = z;
+        }
+        // West (X-)
+        for (int x = sx; x >= sx - maxProbe; x -= step) {
+            Biome b = w.getBiome(x, 62, sz);
+            if (b == null || !b.key().value().equals(biomeName)) break;
+            westX = x;
+        }
+        // East (X+)
+        for (int x = sx; x <= sx + maxProbe; x += step) {
+            Biome b = w.getBiome(x, 62, sz);
+            if (b == null || !b.key().value().equals(biomeName)) break;
+            eastX = x;
+        }
+
+        // Center = average of boundaries
+        int centerX = (westX + eastX) / 2;
+        int centerZ = (northZ + southZ) / 2;
+
+        return new Location(w, centerX, 62, centerZ);
     }
 
     /** Biomes that need "surrounded by water" validation to confirm it's an island (not continent edge) */
