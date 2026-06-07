@@ -1687,9 +1687,14 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
 
         if (bestLoc != null) {
-            // Only structures need Y override — biome methods already return correct Y
+            // For structures: find safe spawn inside structure (may be underground)
             if (!structReq.isEmpty()) {
-                bestLoc.setY(w.getHighestBlockYAt(bestLoc) + 1);
+                Location structSpawn = findSafeSpawnInStructure(w, bestLoc, structReq);
+                if (structSpawn != null) {
+                    bestLoc = structSpawn;
+                } else {
+                    bestLoc.setY(w.getHighestBlockYAt(bestLoc) + 1);
+                }
             }
             w.setSpawnLocation(bestLoc);
             // Final biome verification at exact spawn position
@@ -2121,6 +2126,76 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             getLogger().warning("Error searching biome: " + e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Finds a safe spawn point inside a structure.
+     * For underground structures: searches downward from surface for air pockets
+     * near characteristic blocks of that structure.
+     * For surface structures: uses getHighestBlockYAt.
+     */
+    private Location findSafeSpawnInStructure(World w, Location structLoc, String structName) {
+        int sx = structLoc.getBlockX();
+        int sz = structLoc.getBlockZ();
+        int surfaceY = w.getHighestBlockYAt(sx, sz);
+
+        // Characteristic blocks for underground structures
+        Set<Material> charBlocks = getStructureCharacteristicBlocks(structName);
+
+        // If structure has no special blocks (surface structure) — use surface
+        if (charBlocks.isEmpty()) {
+            return new Location(w, sx + 0.5, surfaceY + 1, sz + 0.5);
+        }
+
+        // Search for air pocket near characteristic blocks, spiraling from structure center
+        for (int radius = 0; radius <= 16; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (radius > 0 && Math.abs(dx) != radius && Math.abs(dz) != radius) continue;
+                    int x = sx + dx;
+                    int z = sz + dz;
+
+                    // Search downward from surface
+                    for (int y = surfaceY; y >= w.getMinHeight() + 3; y--) {
+                        Block block = w.getBlockAt(x, y, z);
+
+                        // Look for characteristic block of this structure
+                        if (charBlocks.contains(block.getType())) {
+                            // Found structure block — search for air pocket nearby (above it)
+                            for (int ay = y + 1; ay <= y + 5; ay++) {
+                                Block feet = w.getBlockAt(x, ay, z);
+                                Block head = w.getBlockAt(x, ay + 1, z);
+                                Block below = w.getBlockAt(x, ay - 1, z);
+                                if (feet.getType().isAir() && head.getType().isAir()
+                                        && below.getType().isSolid() && below.getType() != Material.LAVA) {
+                                    return new Location(w, x + 0.5, ay, z + 0.5);
+                                }
+                            }
+                            break; // Don't search deeper in this column
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: surface spawn
+        return new Location(w, sx + 0.5, surfaceY + 1, sz + 0.5);
+    }
+
+    /**
+     * Returns characteristic blocks for a given structure type.
+     * Empty set = surface structure (use surface spawn).
+     */
+    private Set<Material> getStructureCharacteristicBlocks(String structName) {
+        return switch (structName) {
+            case "STRONGHOLD" -> Set.of(Material.STONE_BRICKS, Material.MOSSY_STONE_BRICKS, Material.CRACKED_STONE_BRICKS, Material.END_PORTAL_FRAME);
+            case "ANCIENT_CITY" -> Set.of(Material.DEEPSLATE_BRICKS, Material.DEEPSLATE_TILES, Material.SCULK);
+            case "MINESHAFT" -> Set.of(Material.OAK_PLANKS, Material.RAIL, Material.OAK_FENCE);
+            case "TRAIL_RUINS" -> Set.of(Material.MUD_BRICKS, Material.PACKED_MUD);
+            case "TRIAL_CHAMBERS" -> Set.of(Material.TUFF_BRICKS, Material.OXIDIZED_COPPER, Material.TRIAL_SPAWNER);
+            case "BURIED_TREASURE" -> Set.of(Material.CHEST);
+            default -> Set.of(); // Surface structure — no special blocks
+        };
     }
 
     private Location findStructureLocation(World w, String structName) {
