@@ -4275,8 +4275,9 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             saveConfig();
                             sender.sendMessage("§aBiome filter cleared.");
                         } else {
-                            if (!BIOME_NAMES.contains(value)) {
-                                sender.sendMessage("§cInvalid biome name (or rare). Try: PLAINS, DESERT, etc.");
+                            Set<String> META_BIOMES = Set.of("OCEAN_ALL", "FOREST_ALL", "MOUNTAIN_ALL", "CAVE_ALL", "DESERT_ALL", "TAIGA_ALL");
+                            if (!BIOME_NAMES.contains(value) && !META_BIOMES.contains(value)) {
+                                sender.sendMessage("§cInvalid biome name (or rare). Try: PLAINS, DESERT, OCEAN_ALL, etc.");
                             }
                             getConfig().set("filter.biome", value);
                             getConfig().set("filter.structure", ""); // AUTO CLEAR STRUCTURE
