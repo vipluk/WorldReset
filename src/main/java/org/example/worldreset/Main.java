@@ -1356,6 +1356,16 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
                 biomePoint = found.getLocation();
                 biomePoint.setY(62);
+
+                // Nudge toward center of biome — move away from 0,0 to go deeper into the biome
+                int nudgeX = biomePoint.getBlockX() - searchFrom.getBlockX();
+                int nudgeZ = biomePoint.getBlockZ() - searchFrom.getBlockZ();
+                // Normalize and apply 100-block nudge in same direction
+                double dist = Math.sqrt(nudgeX * nudgeX + nudgeZ * nudgeZ);
+                if (dist > 0) {
+                    biomePoint.add((nudgeX / dist) * 100, 0, (nudgeZ / dist) * 100);
+                }
+
                 scanRadius = 0;
                 getLogger().info("  Found " + biomeName + " at " + biomePoint.toVector());
             }
