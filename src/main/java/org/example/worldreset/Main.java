@@ -600,10 +600,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 }
             }
 
-            // Give wood if underground spawn (cave biome)
+            // Give wood if underground spawn (cave biome OR structure below surface)
             if (getConfig().getBoolean("give.wood-if-underground", true)) {
                 String biomeFilter = getConfig().getString("filter.biome", "").toUpperCase();
-                if (CAVE_BIOMES.contains(biomeFilter)) {
+                boolean isCaveBiome = CAVE_BIOMES.contains(biomeFilter);
+                boolean isUnderground = p.getLocation().getBlockY() < (p.getWorld().getHighestBlockYAt(p.getLocation()) - 3);
+                if (isCaveBiome || isUnderground) {
                     int amount = Math.max(1, Math.min(getConfig().getInt("give.wood-amount", 5), 64));
                     p.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.OAK_LOG, amount));
                 }
@@ -2130,24 +2132,24 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     /**
      * Finds a safe spawn point inside a structure.
-     * For underground structures: searches downward from surface for air pockets
-     * near characteristic blocks of that structure.
-     * For surface structures: uses getHighestBlockYAt.
+     * Searches in 3D (all X,Y,Z) for characteristic blocks, then finds air pocket nearby.
+     * If spawn Y < surface Y → underground → wood will be given.
+     * Fallback: spawn at structure's Y coordinate.
      */
     private Location findSafeSpawnInStructure(World w, Location structLoc, String structName) {
         int sx = structLoc.getBlockX();
         int sz = structLoc.getBlockZ();
         int surfaceY = w.getHighestBlockYAt(sx, sz);
 
-        // Characteristic blocks for underground structures
+        // Characteristic blocks for this structure
         Set<Material> charBlocks = getStructureCharacteristicBlocks(structName);
 
-        // If structure has no special blocks (surface structure) — use surface
+        // Surface structure — just use surface
         if (charBlocks.isEmpty()) {
             return new Location(w, sx + 0.5, surfaceY + 1, sz + 0.5);
         }
 
-        // Search for air pocket near characteristic blocks, spiraling from structure center
+        // 3D search: spiral XZ (±16), full Y range (minHeight to surface)
         for (int radius = 0; radius <= 16; radius++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
@@ -2155,31 +2157,58 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     int x = sx + dx;
                     int z = sz + dz;
 
-                    // Search downward from surface
-                    for (int y = surfaceY; y >= w.getMinHeight() + 3; y--) {
+                    for (int y = w.getMinHeight() + 3; y <= surfaceY; y++) {
                         Block block = w.getBlockAt(x, y, z);
+                        if (!charBlocks.contains(block.getType())) continue;
 
-                        // Look for characteristic block of this structure
-                        if (charBlocks.contains(block.getType())) {
-                            // Found structure block — search for air pocket nearby (above it)
-                            for (int ay = y + 1; ay <= y + 5; ay++) {
-                                Block feet = w.getBlockAt(x, ay, z);
-                                Block head = w.getBlockAt(x, ay + 1, z);
-                                Block below = w.getBlockAt(x, ay - 1, z);
-                                if (feet.getType().isAir() && head.getType().isAir()
-                                        && below.getType().isSolid() && below.getType() != Material.LAVA) {
-                                    return new Location(w, x + 0.5, ay, z + 0.5);
-                                }
-                            }
-                            break; // Don't search deeper in this column
+                        // Found structure block — search for air pocket in 3D nearby
+                        Location airPocket = findAirPocketNear(w, x, y, z);
+                        if (airPocket != null) {
+                            return airPocket;
                         }
                     }
                 }
             }
         }
 
-        // Fallback: surface spawn
+        // Fallback: spawn at structure Y (estimated from locateNearestStructure)
+        // Try the point itself — find any air pocket in a column at structure location
+        for (int y = w.getMinHeight() + 3; y <= surfaceY; y++) {
+            Block feet = w.getBlockAt(sx, y, sz);
+            Block head = w.getBlockAt(sx, y + 1, sz);
+            Block below = w.getBlockAt(sx, y - 1, sz);
+            if (feet.getType().isAir() && head.getType().isAir()
+                    && below.getType().isSolid() && below.getType() != Material.LAVA) {
+                return new Location(w, sx + 0.5, y, sz + 0.5);
+            }
+        }
+
+        // Ultimate fallback: surface
         return new Location(w, sx + 0.5, surfaceY + 1, sz + 0.5);
+    }
+
+    /**
+     * Finds an air pocket (2 air blocks + solid floor) within ±3 blocks of a position in 3D.
+     */
+    private Location findAirPocketNear(World w, int cx, int cy, int cz) {
+        for (int dx = -3; dx <= 3; dx++) {
+            for (int dy = -3; dy <= 3; dy++) {
+                for (int dz = -3; dz <= 3; dz++) {
+                    int x = cx + dx;
+                    int y = cy + dy;
+                    int z = cz + dz;
+                    Block feet = w.getBlockAt(x, y, z);
+                    Block head = w.getBlockAt(x, y + 1, z);
+                    Block below = w.getBlockAt(x, y - 1, z);
+                    if (feet.getType().isAir() && head.getType().isAir()
+                            && below.getType().isSolid() && below.getType() != Material.LAVA
+                            && below.getType() != Material.WATER) {
+                        return new Location(w, x + 0.5, y, z + 0.5);
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /**
