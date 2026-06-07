@@ -84,11 +84,21 @@ Folders with "nether"/"end" in name → dimension-specific. Others → overworld
 - Biome/Structure registry iteration uses `catch (Throwable)` for 1.21.0 compatibility (IncompatibleClassChangeError).
 
 ## TODO (Next Session)
-- `/wr seed status` — show seed value and enabled state
-- `/wr filter` as toggle (enable/disable filters without clearing them)
-- `/wr filter status` — current info (move from no-args)
-- `/wr filter enable/disable` — toggle filter system
-- Fix water spawn boat not being given (debug logs added — check console output)
-- Update `/wr help seed`, `/wr help filter` with new subcommands
-- Update description.md, changelog16.md, update16.md with seed/filter changes
-- Commit and push to both branches
+- **PRZEBUDOWA SPAWNU** — fundamentalna zmiana logiki:
+  - Problem: biom ocean → spawn na brzegu kontynentu zamiast wyspy
+  - Problem: findLandViaBiomeSearch od punktu oceanu trafia na kontynent bo punkt to brzeg
+  - Plan (z dokumentu "Optymalizacja Spawnu"):
+    1. Filtr BIOME (np. OCEAN): `locateNearestBiome` szuka biomu → ustawia spawn TAM
+    2. Filtr STRUCTURE: `locateNearestStructure` → ustawia spawn TAM  
+    3. Po ustawieniu spawnu → `findSafeSpawn` musi znaleźć SUCHY LĄD w pobliżu
+    4. Dla oceanicznych biomów: strategia kaskadowa z dokumentu:
+       a) Znajdź DEEP_OCEAN (środek oceanu, nie brzeg)
+       b) Z tego punktu szukaj BEACH/STONY_SHORE (wyspa, nie kontynent) w małym promieniu (1500)
+       c) Walidacja: 4 raycasts na 250 bloków — czy to wyspa (otoczona wodą) czy cypel kontynentu
+    5. Jeśli biom to NIE ocean → `findSafeSpawn` szuka lądu w promieniu 32-100 bloków spiralnie
+    6. Fallback: woda + łódka
+  - Kluczowa zasada: NIGDY spawn w wodzie jeśli jest ląd w rozsądnym promieniu
+  - `getSafeLocation` radius zwiększyć z 8 do 32
+  - `findLandNear` użyć jako ostateczny fallback, nie główny mechanizm
+- Fix: łódka dawana przy KAŻDYM resecie jeśli waterSpawnActive (nie tylko raz)
+- Update description, changelog, help po przebudowie

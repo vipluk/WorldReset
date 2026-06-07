@@ -1394,6 +1394,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     private void findSafeSpawn(World w) {
         Location spawn = w.getSpawnLocation();
         waterSpawnActive = false;
+        boatGivenPlayers.clear();
 
         // Step 1: Try immediate area (8 block radius) for safe ground
         Location safe = getSafeLocation(spawn);
@@ -1406,7 +1407,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         // Step 2: Use locateNearestBiome to find land biomes (BEACH, STONY_SHORE, PLAINS, FOREST)
         // Much faster than block-by-block — queries the biome noise map directly
-        Location landLoc = findLandViaBiomeSearch(w, spawn, 500);
+        Location landLoc = findLandViaBiomeSearch(w, spawn, 10000);
         if (landLoc != null) {
             Location safeLand = getSafeLocation(landLoc);
             if (safeLand != null) {
