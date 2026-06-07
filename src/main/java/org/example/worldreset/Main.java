@@ -579,10 +579,18 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         p.setInvulnerable(true);
         new BukkitRunnable() { @Override public void run() { if (p.isOnline()) p.setInvulnerable(false); } }.runTaskLater(this, 40L);
 
-        // Give boat if water spawn
+        // Give boat if water spawn or player is in/above water
         if (waterSpawnActive && !boatGivenPlayers.contains(p.getUniqueId())) {
             p.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.OAK_BOAT));
             boatGivenPlayers.add(p.getUniqueId());
+        } else if (!boatGivenPlayers.contains(p.getUniqueId())) {
+            // Extra check: if player's spawn location is on water, give boat anyway
+            Block below = p.getLocation().getBlock().getRelative(0, -1, 0);
+            if (below.getType() == Material.WATER) {
+                p.getInventory().addItem(new org.bukkit.inventory.ItemStack(Material.OAK_BOAT));
+                boatGivenPlayers.add(p.getUniqueId());
+                waterSpawnActive = true;
+            }
         }
     }
 
@@ -2588,6 +2596,17 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, String @NotNull [] args) {
         if (args.length > 0) {
             String arg = args[0].toLowerCase();
+
+            // /wr <command> help — show help for that command
+            if (args.length >= 2 && (args[1].equalsIgnoreCase("help") || args[1].equals("?"))) {
+                String helpLine = getHelpForCommand(arg);
+                if (helpLine != null) {
+                    sender.sendMessage("§8§m------§8[ §b§lWorldReset §8]§m------");
+                    sender.sendMessage(helpLine);
+                    sender.sendMessage("§8§m----------------------------");
+                    return true;
+                }
+            }
 
             switch (arg) {
                 case "help", "?" -> {
