@@ -1157,26 +1157,35 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 
                 // Async biome search for ALL biome filters (spreads work across ticks)
                 if (getConfig().getBoolean("filter.enabled", true) && !biomeReq.isEmpty() && structReq.isEmpty()) {
-                    final World fw = normal;
-                    final boolean fUseDelayOut = useDelayOut;
-                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
-                    broadcastInfo(isPl ? "§7Szukanie bezpiecznego spawnu..." : "§7Searching for safe spawn...");
-                    startAsyncBiomeSpawnSearch(fw, biomeReq.toLowerCase(), () -> {
+                    int attempts = getConfig().getInt("filter.attempts", 5);
+                    if (attempts <= 0) {
+                        // 0 attempts = skip async search, use basic findBiomeLocation + surface spawn
+                        applyFiltersAndShiftSpawn(normal);
                         if (!skipFindSafeSpawn) {
-                            findSafeSpawn(fw);
+                            findSafeSpawn(normal);
                         }
-                        preGenerateSpawnChunks(fw, fw.getSpawnLocation());
-                        broadcastInfo(getMsg("generation-complete"));
-                        isGameReady = true;
-                        finalizeGameStart(fUseDelayOut);
-                    });
-                    return; // Async — rest handled in callback
-                }
-                
-                // Synchronous path: structures or no filter
-                applyFiltersAndShiftSpawn(normal);
-                if (!skipFindSafeSpawn) {
-                    findSafeSpawn(normal);
+                    } else {
+                        final World fw = normal;
+                        final boolean fUseDelayOut = useDelayOut;
+                        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
+                        broadcastInfo(isPl ? "§7Szukanie bezpiecznego spawnu..." : "§7Searching for safe spawn...");
+                        startAsyncBiomeSpawnSearch(fw, biomeReq.toLowerCase(), () -> {
+                            if (!skipFindSafeSpawn) {
+                                findSafeSpawn(fw);
+                            }
+                            preGenerateSpawnChunks(fw, fw.getSpawnLocation());
+                            broadcastInfo(getMsg("generation-complete"));
+                            isGameReady = true;
+                            finalizeGameStart(fUseDelayOut);
+                        });
+                        return; // Async — rest handled in callback
+                    }
+                } else {
+                    // Synchronous path: structures or no filter
+                    applyFiltersAndShiftSpawn(normal);
+                    if (!skipFindSafeSpawn) {
+                        findSafeSpawn(normal);
+                    }
                 }
             }
             // Pre-generate 5x5 chunk grid around spawn asynchronously
@@ -4098,18 +4107,19 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     }
 
                     if (filterSub.equals("attempts")) {
+                        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
                         if (args.length < 3) {
                             int current = getConfig().getInt("filter.attempts", 5);
-                            sender.sendMessage("§7Filter attempts: §e" + current);
+                            sender.sendMessage((isPl ? "§7Próby filtra: §e" : "§7Filter attempts: §e") + current);
                             return true;
                         }
                         try {
-                            int val = Math.max(1, Integer.parseInt(args[2]));
+                            int val = Math.max(0, Integer.parseInt(args[2]));
                             getConfig().set("filter.attempts", val);
                             saveConfig();
-                            sender.sendMessage("§aFilter attempts set to: " + val);
+                            sender.sendMessage((isPl ? "§aPróby filtra ustawione na: " : "§aFilter attempts set to: ") + val);
                         } catch (NumberFormatException e) {
-                            sender.sendMessage("§cUsage: /wr filter attempts <number>");
+                            sender.sendMessage(isPl ? "§cUżycie: /wr filter attempts <liczba>" : "§cUsage: /wr filter attempts <number>");
                         }
                         return true;
                     }
