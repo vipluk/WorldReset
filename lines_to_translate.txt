@@ -1,0 +1,20 @@
+3930: sender.sendMessage(isPl ? "§cNieznana komenda: §e" + topic + "§c. Użyj §e/wr help §cpo pełną listę." : "§cUnknown command: §e" + topic + "§c. Use §e/wr help §cfor full list.");
+3973: String msg = isPl ? "§eReset zaplanowany za §c" + delayIn + "s§e..." : "§eReset scheduled in §c" + delayIn + "s§e...";
+4039: sender.sendMessage(isPl ? "§cNie znaleziono gracza: §e" + arg2 : "§cPlayer not found: §e" + arg2);
+4059: sender.sendMessage(isPl ? "§cNie znaleziono gracza: §e" + arg1 : "§cPlayer not found: §e" + arg1);
+4193: sender.sendMessage(isPl ? "§aDrewno pod ziemią: włączone (" + amount + ")" : "§aWood if underground: enabled (" + amount + ")");
+4212: sender.sendMessage(isPl ? "§aDrewno pod ziemią: " + amount : "§aWood if underground: " + amount);
+4424: sender.sendMessage(isPl ? "§aTryb timera ustawiony na: §e" + mode : "§aTimer mode set to: §e" + mode);
+4434: sender.sendMessage(isPl ? "§aZasięg timera ustawiony na: §e" + scope : "§aTimer scope set to: §e" + scope);
+4466: sender.sendMessage(isPl ? "§cNieprawidłowy typ encji: " + args[3] : "§cInvalid entity type: " + args[3]);
+4480: sender.sendMessage(isPl ? "§cNieprawidłowy advancement: " + args[3] : "§cInvalid advancement: " + args[3]);
+4499: sender.sendMessage(isPl ? "§cNieprawidłowy materiał bloku: " + args[3] : "§cInvalid block material: " + args[3]);
+4512: sender.sendMessage(isPl ? "§cNieprawidłowy materiał przedmiotu: " + args[3] : "§cInvalid item material: " + args[3]);
+4526: sender.sendMessage(isPl ? "§aCel timera ustawiony: §e" + goalType + " -> " + goalValue : "§aTimer goal set: §e" + goalType + " -> " + goalValue);
+4811: sender.sendMessage((isPl ? "§7Użyj §e/wr backup list " + (page + 1) + " §7aby zobaczyć następną stronę." : "§7Use §e/wr backup list " + (page + 1) + " §7for next page."));
+4830: sender.sendMessage(isPl ? "§cNieprawidłowy numer! Użyj 1-" + dirs.length : "§cInvalid number! Use 1-" + dirs.length);
+4934: sender.sendMessage(isPl ? "§aUsunięto §e" + toDelete + " §anajstarszych kopii." : "§aDeleted §e" + toDelete + " §aoldest backup(s).");
+4944: sender.sendMessage(isPl ? "§aWszystkie §e" + count + " §akopii usunięte." : "§aAll §e" + count + " §abackup(s) deleted.");
+4967: sender.sendMessage(isPl ? "§aLimit kopii ustawiony na: §e" + limit + " §7(zachowaj ostatnie " + limit + ")" : "§aBackup limit set to: §e" + limit + " §7(keep last " + limit + " backups)");
+4983: sender.sendMessage(isPl ? "§aLimit kopii ustawiony na: §e" + limit : "§aBackup limit set to: §e" + limit);
+5677: return isPl ? switch(diff) {
