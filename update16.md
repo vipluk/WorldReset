@@ -150,6 +150,29 @@ Structures with characteristic blocks are now searched in full 3D:
 
 The plugin searches ±16 blocks XZ and full Y range for these blocks, then finds a safe air pocket (2 air blocks + solid floor) within ±3 blocks. Fallback: any air pocket in the structure column, then surface spawn.
 
-## Minimum Paper API Version
+## Paper API Multi-Version Compatibility (1.21 - 1.21.4+)
 
-Plugin now requires **Paper 1.21.4+** for proper Biome API support. The `IncompatibleClassChangeError` on Purpur 1.21.0 is resolved by upgrading the server.
+The plugin compiles against **Paper 1.21 API** and supports all Minecraft 1.21 revisions (including 1.21.0, 1.21.1, 1.21.2, 1.21.3, and 1.21.4+) natively at runtime. The previous `IncompatibleClassChangeError` when running on older 1.21.0–1.21.3 servers is completely resolved using smart runtime mappings and version-safe abstractions.
+
+## Full Async Overworld Spawn Finder
+
+To eliminate server frame freezes (lag spikes of up to 10+ seconds) on world startups or during bad seed generations, the final fallback safety land-seeker (`findSafeSpawn`) has been rewritten to run fully asynchronously. Slices of world chunks are loaded and scanned across server ticks using `CompletableFuture` and `getChunkAtAsync`, keeping the server main thread perfectly fluid.
+
+## Bilingual Translation Migration
+
+Moved 231 hardcoded bilingual messages from the Java source file directly into external config files: `messages_en.yml` and `messages_pl.yml`. Server administrators can now translate every single output string, broadcast message, action bar message, and GUI item, with dynamic variable replacement supporting `{time}`, `{seed}`, `{player}`, etc.
+
+## Dedicated Error Logging
+
+Errors and console stack traces are now directed to a dedicated `errorlogs.yml` file to keep the server log clean. Comments in the config file are fully translated.
+
+## Resolved Deprecations & Modern API Standards
+
+To guarantee optimal performance and future compatibility, we refactored old Bukkit APIs:
+- **Title Displays:** Replaced deprecated `Player.sendTitle` with modern Kyori Adventure `Player.showTitle(Title)` and `Player.clearTitle()`.
+- **Formatting Colors:** Replaced deprecated `ChatColor` with Kyori's `LegacyComponentSerializer`.
+- **Registry Access:** Replaced deprecated static registries (`Registry.STRUCTURE`, `Registry.BIOME`) with `RegistryAccess.registryAccess()`.
+- **Scoreboard Objectives:** Modernized `Scoreboard.registerNewObjective` using adventure `Component` structures.
+- **Max Health Getter:** Replaced deprecated `Damageable.getMaxHealth()` with attribute getters (`Attribute.GENERIC_MAX_HEALTH`).
+- **Plugin Metadata:** Replaced deprecated `JavaPlugin.getDescription()` calls with `getPluginMeta()`.
+

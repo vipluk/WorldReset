@@ -1,6 +1,6 @@
 ❤️ **If you enjoy this plugin, please consider leaving a like! It means a lot for me.** ❤️
 
-> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21.4+ Paper API**. Tested on Purpur 1.21.5, 1.21.11, Spigot 1.21, and Paper 26.1.2. It should work on 1.21+ Spigot/Purpur/Paper/Bukkit.
+> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21+ Paper API**. Tested on Paper 1.21–1.21.4+, Purpur 1.21.0–1.21.4+, and Spigot 1.21+. It works across all Minecraft 1.21 versions natively at runtime.
 
 If you want to report a bug or suggest a new plugin, join my [Discord server](https://discord.gg/A7WVnYj3BP).
 

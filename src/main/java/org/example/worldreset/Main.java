@@ -7,7 +7,6 @@ import org.bukkit.block.Biome;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabCompleter;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.OfflinePlayer;
@@ -51,8 +50,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
-@SuppressWarnings("deprecation")
-public class Main extends JavaPlugin implements Listener, TabCompleter {
+public class Main extends JavaPlugin implements Listener {
 
     private String gameWorldName;
     private final String limboWorldName = "limbo";
@@ -174,7 +172,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             getLogger().info("Zarejestrowano integrację z PlaceholderAPI!");
         }
 
-        getLogger().info("WorldReset v" + getDescription().getVersion() + " enabled.");
+        getLogger().info("WorldReset v" + getPluginMeta().getVersion() + " enabled.");
 
         // Start autoreset timer if enabled and not paused
         if (autoResetEnabled && !autoResetPaused) {
@@ -283,7 +281,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     }
                 }
             }
-        } catch (Exception e) { getLogger().severe("Error extracting map: " + e.getMessage()); }
+        } catch (Exception e) { 
+            logErrorToFile("Error extracting limbo map", e); 
+            // Abort world loading if critical files couldn't be extracted
+            throw new RuntimeException("Failed to extract Limbo structure from JAR file!", e);
+        }
     }
 
     private void loadLanguage() {
@@ -300,9 +302,27 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     }
 
     private String getSubtitle(String key, String fallback) {
-        String value = langConfig.getString(key);
-        if (value == null || value.isEmpty()) return fallback;
-        return value.replace("&", "§");
+        return langConfig.getString(key, fallback).replace("&", "§");
+    }
+
+    private void logErrorToFile(String context, Exception ex) {
+        getLogger().severe(context + ": " + ex.getMessage());
+        try {
+            File logFile = new File(getDataFolder(), "errorlogs.yml");
+            if (!logFile.exists()) {
+                logFile.getParentFile().mkdirs();
+                logFile.createNewFile();
+            }
+            java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.FileWriter(logFile, true));
+            pw.println("----- " + new java.util.Date().toString() + " -----");
+            pw.println("Context: " + context);
+            pw.println("Exception: " + ex.toString());
+            for (StackTraceElement element : ex.getStackTrace()) {
+                pw.println("  at " + element.toString());
+            }
+            pw.println("----------------------------------------");
+            pw.close();
+        } catch (Exception ignored) {}
     }
 
     /**
@@ -448,7 +468,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     private void setupLimboPlayer(Player p) {
         p.setGameMode(GameMode.ADVENTURE);
         p.getInventory().clear();
-        p.setHealth(p.getMaxHealth());
+        p.setHealth(p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue());
         p.setFoodLevel(20);
         p.setSaturation(20);
         p.setRemainingAir(p.getMaximumAir());
@@ -496,7 +516,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         p.getInventory().setContents((org.bukkit.inventory.ItemStack[]) state.get("inventory"));
         p.getInventory().setArmorContents((org.bukkit.inventory.ItemStack[]) state.get("armor"));
         p.getInventory().setItemInOffHand((org.bukkit.inventory.ItemStack) state.get("offhand"));
-        p.setHealth(Math.min((double) state.get("health"), p.getMaxHealth()));
+        p.setHealth(Math.min((double) state.get("health"), p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue()));
         p.setFoodLevel((int) state.get("food"));
         p.setSaturation((float) state.get("saturation"));
         p.setLevel((int) state.get("xp-level"));
@@ -514,7 +534,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         // Skip active countdown
         if (activeCountdowns.containsKey(p.getUniqueId())) {
             skipCountdown(p);
-            p.sendTitle("", "", 0, 1, 0);
+            p.clearTitle();
         }
 
         if (p.getWorld().getName().equals(limboWorldName)) {
@@ -573,7 +593,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             if (!p.isOnline()) return;
             p.setGameMode(GameMode.SURVIVAL);
             p.getInventory().clear();
-            p.setHealth(p.getMaxHealth());
+            p.setHealth(p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue());
             p.setFoodLevel(20);
             p.setSaturation(5);
             p.setExp(0);
@@ -646,7 +666,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     String color = remaining <= 3 ? "§c§l" : (remaining <= 5 ? "§6§l" : "§e§l");
                     for (Player p : players) {
                         if (p.isOnline()) {
-                            p.sendTitle(color + remaining, "§7" + subtitleMsg, 0, 25, 5);
+                            sendTitleToPlayer(p, color + remaining, "§7" + subtitleMsg, 0, 25, 5);
                             if (remaining <= 5) {
                                 p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, remaining <= 3 ? 1.5f : 1.0f);
                             } else {
@@ -788,7 +808,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         } else {
                             String waitMsg = getSubtitle("limbo-waiting", "Teleporting...");
                             for (Player p : Bukkit.getOnlinePlayers()) {
-                                p.sendTitle("§e⏳", "§7" + waitMsg, 0, 60, 20);
+                                sendTitleToPlayer(p, "§e⏳", "§7" + waitMsg, 0, 60, 20);
                             }
                             new BukkitRunnable() {
                                 @Override
@@ -917,7 +937,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     } else {
                         String waitMsg = getSubtitle("limbo-waiting", "Teleporting...");
                         for (Player p : Bukkit.getOnlinePlayers()) {
-                            p.sendTitle("§e⏳", "§7" + waitMsg, 0, 60, 20);
+                            sendTitleToPlayer(p, "§e⏳", "§7" + waitMsg, 0, 60, 20);
                         }
                         new BukkitRunnable() {
                             @Override
@@ -1005,6 +1025,22 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     private void generateGameWorlds() {
         generateGameWorldsInternal(false);
+    }
+
+    private void finishResetProcess(World w, boolean useDelayOut) {
+        if (!skipFindSafeSpawn) {
+            startAsyncSafeSpawnSearch(w, () -> {
+                preGenerateSpawnChunks(w, w.getSpawnLocation());
+                broadcastInfo(getMsg("generation-complete"));
+                isGameReady = true;
+                finalizeGameStart(useDelayOut);
+            });
+        } else {
+            preGenerateSpawnChunks(w, w.getSpawnLocation());
+            broadcastInfo(getMsg("generation-complete"));
+            isGameReady = true;
+            finalizeGameStart(useDelayOut);
+        }
     }
 
     private void generateGameWorldsInternal(boolean useDelayOut) {
@@ -1215,34 +1251,27 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     } else {
                         final World fw = normal;
                         final boolean fUseDelayOut = useDelayOut;
-                        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
-                        broadcastInfo(isPl ? "§7Szukanie bezpiecznego spawnu..." : "§7Searching for safe spawn...");
-                        startAsyncBiomeSpawnSearch(fw, biomeReq.toLowerCase(), () -> {
-                            if (!skipFindSafeSpawn) {
-                                findSafeSpawn(fw);
-                            }
-                            preGenerateSpawnChunks(fw, fw.getSpawnLocation());
-                            broadcastInfo(getMsg("generation-complete"));
-                            isGameReady = true;
-                            finalizeGameStart(fUseDelayOut);
-                        });
+                        broadcastInfo(getMsg("auto-msg-1"));
+                        startAsyncBiomeSpawnSearch(fw, biomeReq.toLowerCase(), () -> finishResetProcess(fw, fUseDelayOut));
                         return; // Async — rest handled in callback
                     }
                 } else {
-                    // Synchronous path: structures or no filter
-                    applyFiltersAndShiftSpawn(normal);
-                    if (!skipFindSafeSpawn) {
-                        findSafeSpawn(normal);
+                    // Structures or no filter
+                    if (!structReq.isEmpty() && getConfig().getBoolean("filter.enabled", true)) {
+                        broadcastInfo(getMsg("auto-msg-1"));
+                        startAsyncStructureSpawnSearch(normal, structReq, () -> finishResetProcess(normal, useDelayOut));
+                        return; // Async
+                    } else {
+                        applyFiltersAndShiftSpawn(normal);
+                        finishResetProcess(normal, useDelayOut);
                     }
                 }
+            } else {
+                broadcastInfo(getMsg("generation-complete"));
+                isGameReady = true;
+                finalizeGameStart(useDelayOut);
             }
-            // Pre-generate 5x5 chunk grid around spawn asynchronously
-            preGenerateSpawnChunks(normal, normal.getSpawnLocation());
         }
-
-        broadcastInfo(getMsg("generation-complete"));
-        isGameReady = true;
-        finalizeGameStart(useDelayOut);
     }
 
     /**
@@ -1285,6 +1314,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         }
 
         final boolean isWaterBiome = WATER_BIOMES.contains(biomeName.toUpperCase());
+        final boolean isCaveBiome = CAVE_BIOMES.contains(biomeName.toUpperCase());
         final boolean isRiverLike = biomeName.equals("river") || biomeName.equals("frozen_river");
         final int MAX_BIOME_ATTEMPTS = Math.max(1, getConfig().getInt("filter.attempts", 5));
         final int SCAN_RADIUS = isRiverLike ? 1000 : 500;
@@ -1297,25 +1327,51 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             // Spiral scan state
             Location biomePoint = null;
             int scanRadius = 0;
+            boolean waitingForAsync = false;
 
             @Override
             public void run() {
+                if (waitingForAsync) return;
+
                 // Currently scanning around a biome point
                 if (biomePoint != null) {
-                    Location result = scanSpiralFragment();
-                    if (result != null) {
-                        // Found valid spawn!
-                        setSpawnAndFinish(result);
-                        return;
+                    waitingForAsync = true;
+                    int currentRadius = scanRadius;
+                    
+                    // Collect chunks to load for the current ring
+                    java.util.Set<Long> requiredChunks = new java.util.HashSet<>();
+                    int cx = biomePoint.getBlockX();
+                    int cz = biomePoint.getBlockZ();
+                    for (int dx = -currentRadius; dx <= currentRadius; dx++) {
+                        for (int dz = -currentRadius; dz <= currentRadius; dz++) {
+                            if (currentRadius > 0 && Math.abs(dx) != currentRadius && Math.abs(dz) != currentRadius) continue;
+                            int cx_chunk = (cx + dx) >> 4;
+                            int cz_chunk = (cz + dz) >> 4;
+                            requiredChunks.add(((long) cx_chunk << 32) | (cz_chunk & 0xFFFFFFFFL));
+                        }
                     }
-                    if (scanRadius > SCAN_RADIUS) {
-                        // Exhausted this biome point — try next instance
-                        getLogger().info("  No valid spawn in " + biomeName + " near " + biomePoint.toVector() + ". Trying next...");
-                        biomePoint = null;
-                        // Jump far away to find different instance
-                        searchOffsetX += ((biomeAttempt % 2 == 0) ? 5000 : -5000);
-                        searchOffsetZ += ((biomeAttempt % 3 == 0) ? 3000 : -3000);
+                    
+                    java.util.List<java.util.concurrent.CompletableFuture<org.bukkit.Chunk>> futures = new java.util.ArrayList<>();
+                    for (Long chunkKey : requiredChunks) {
+                        futures.add(w.getChunkAtAsync((int)(chunkKey >> 32), chunkKey.intValue()));
                     }
+                    
+                    java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0])).thenRun(() -> {
+                        Bukkit.getScheduler().runTask(Main.this, () -> {
+                            waitingForAsync = false;
+                            Location result = scanSpiralFragment();
+                            if (result != null) {
+                                setSpawnAndFinish(result);
+                                return;
+                            }
+                            if (scanRadius > SCAN_RADIUS) {
+                                getLogger().info("  No valid spawn in " + biomeName + " near " + biomePoint.toVector() + ". Trying next...");
+                                biomePoint = null;
+                                searchOffsetX += ((biomeAttempt % 2 == 0) ? 5000 : -5000);
+                                searchOffsetZ += ((biomeAttempt % 3 == 0) ? 3000 : -3000);
+                            }
+                        });
+                    });
                     return;
                 }
 
@@ -1324,50 +1380,64 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     // Exhausted all attempts
                     if (isWaterBiome) {
                         // Water fallback — spawn on water + boat
-                        BiomeSearchResult fallback = w.locateNearestBiome(new Location(w, 0, 62, 0), 2000, targetBiome);
-                        if (fallback != null) {
-                            Location waterLoc = new Location(w, fallback.getLocation().getBlockX() + 0.5, 63, fallback.getLocation().getBlockZ() + 0.5);
-                            Biome check = w.getBiome(waterLoc.getBlockX(), 63, waterLoc.getBlockZ());
-                            if (check != null && check.key().value().equals(biomeName)) {
-                                w.setSpawnLocation(waterLoc);
-                                waterSpawnActive = true;
-                                boatGivenPlayers.clear();
-                                broadcastInfo(getMsg("filter-shifted").replace("{target}", biomeName.toUpperCase() + " (water)"));
-                            } else {
-                                broadcastInfo(getMsg("filter-failed"));
-                            }
-                        } else {
-                            broadcastInfo(getMsg("filter-failed"));
-                        }
+                        waitingForAsync = true;
+                        java.util.concurrent.CompletableFuture.supplyAsync(() -> w.locateNearestBiome(new Location(w, 0, 62, 0), 2000, targetBiome)).thenAccept(fallback -> {
+                            Bukkit.getScheduler().runTask(Main.this, () -> {
+                                waitingForAsync = false;
+                                if (fallback != null) {
+                                    Location waterLoc = new Location(w, fallback.getLocation().getBlockX() + 0.5, 63, fallback.getLocation().getBlockZ() + 0.5);
+                                    Biome check = w.getBiome(waterLoc.getBlockX(), 63, waterLoc.getBlockZ());
+                                    if (check != null && check.key().value().equals(biomeName)) {
+                                        w.setSpawnLocation(waterLoc);
+                                        waterSpawnActive = true;
+                                        boatGivenPlayers.clear();
+                                        broadcastInfo(getMsg("filter-shifted").replace("{target}", biomeName.toUpperCase() + " (water)"));
+                                    } else {
+                                        broadcastInfo(getMsg("filter-failed"));
+                                    }
+                                } else {
+                                    broadcastInfo(getMsg("filter-failed"));
+                                }
+                                skipFindSafeSpawn = true;
+                                cancel();
+                                onComplete.run();
+                            });
+                        });
+                        return;
                     } else {
                         broadcastInfo(getMsg("filter-failed"));
+                        skipFindSafeSpawn = true;
+                        cancel();
+                        onComplete.run();
+                        return;
                     }
-                    skipFindSafeSpawn = true;
-                    cancel();
-                    onComplete.run();
-                    return;
                 }
 
                 biomeAttempt++;
                 Location searchFrom = new Location(w, searchOffsetX, 62, searchOffsetZ);
                 getLogger().info("Biome search " + biomeAttempt + "/" + MAX_BIOME_ATTEMPTS + " for " + biomeName + " from " + searchOffsetX + "," + searchOffsetZ);
 
-                BiomeSearchResult found = w.locateNearestBiome(searchFrom, 5000, targetBiome);
-                if (found == null) {
-                    // Biome not found from here — shift
-                    searchOffsetX += 4000;
-                    searchOffsetZ += 2000;
-                    return;
-                }
+                waitingForAsync = true;
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> w.locateNearestBiome(searchFrom, 5000, targetBiome)).thenAccept(found -> {
+                    Bukkit.getScheduler().runTask(Main.this, () -> {
+                        waitingForAsync = false;
+                        if (found == null) {
+                            // Biome not found from here — shift
+                            searchOffsetX += 4000;
+                            searchOffsetZ += 2000;
+                            return;
+                        }
 
-                biomePoint = found.getLocation();
-                biomePoint.setY(62);
+                        biomePoint = found.getLocation();
+                        biomePoint.setY(62);
 
-                // Estimate center of biome by probing 4 directions until biome boundary
-                biomePoint = estimateBiomeCenter(w, biomePoint, biomeName);
+                        // Estimate center of biome by probing 4 directions until biome boundary
+                        biomePoint = estimateBiomeCenter(w, biomePoint, biomeName);
 
-                scanRadius = 0;
-                getLogger().info("  Found " + biomeName + " center at " + biomePoint.toVector());
+                        scanRadius = 0;
+                        getLogger().info("  Found " + biomeName + " center at " + biomePoint.toVector());
+                    });
+                });
             }
 
             /**
@@ -1419,8 +1489,19 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     }
                                 }
                             } else {
-                                // STANDARD: search Y from 58 upward
-                                for (int y = 58; y <= 90; y++) {
+                                // STANDARD / CAVE:
+                                int startY, endY, step;
+                                if (isCaveBiome) {
+                                    startY = 60;
+                                    endY = w.getMinHeight() + 3;
+                                    step = -1;
+                                } else {
+                                    startY = 58;
+                                    endY = 90;
+                                    step = 1;
+                                }
+                                
+                                for (int y = startY; isCaveBiome ? (y >= endY) : (y <= endY); y += step) {
                                     Biome b = w.getBiome(x, y, z);
                                     if (b == null || !b.key().value().equals(biomeName)) continue;
 
@@ -1442,7 +1523,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                             return new Location(w, x + 0.5, y + 1, z + 0.5);
                                         }
                                     }
-                                    break; // Only check first matching Y per column
+                                    if (!isCaveBiome) break; // Only check first matching Y per column for surface biomes
                                 }
                             }
                         }
@@ -1473,239 +1554,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 onComplete.run();
             }
         }.runTaskTimer(this, 1L, 2L); // Every 2 ticks (1 work, 1 rest)
-    }
-    private void startAsyncWaterBiomeSearch(World w, String waterBiomeName, Runnable onComplete) {
-        Biome waterBiome = Registry.BIOME.get(NamespacedKey.minecraft(waterBiomeName));
-        if (waterBiome == null) {
-            getLogger().warning("Water biome not found in registry: " + waterBiomeName);
-            broadcastInfo(getMsg("filter-failed"));
-            onComplete.run();
-            return;
-        }
-
-        Biome[] landBiomes = {
-            Registry.BIOME.get(NamespacedKey.minecraft("beach")),
-            Registry.BIOME.get(NamespacedKey.minecraft("stony_shore")),
-            Registry.BIOME.get(NamespacedKey.minecraft("snowy_beach")),
-            Registry.BIOME.get(NamespacedKey.minecraft("plains")),
-            Registry.BIOME.get(NamespacedKey.minecraft("forest")),
-            Registry.BIOME.get(NamespacedKey.minecraft("mushroom_fields")),
-            Registry.BIOME.get(NamespacedKey.minecraft("sparse_jungle"))
-        };
-
-        final int UNUSED2 = 0; // Offsets grid replaced by ocean-hopping strategy
-
-        final int UNUSED = 0; // Grid offsets no longer needed — using smart ocean-hopping instead
-
-        // Strategy: find ocean broadly, then scan inside. If no island, shift away and find next ocean.
-        // Avoids scanning same ocean multiple times.
-
-        new BukkitRunnable() {
-            final List<Location> checkedOceans = new ArrayList<>(); // Track checked ocean positions
-            Location pendingOceanPoint = null;
-            int subScanRadius = 0;
-            int searchAttempt = 0;
-            int searchOffsetX = 0;
-            int searchOffsetZ = 0;
-            static final int MAX_ATTEMPTS = 20; // Max different ocean patches to try
-            static final int SUB_SCAN_STEP = 32;
-            static final int BLOCK_STEP = 4;
-            // Progressive scan: after finding biome, scan in widening rings
-            int currentScanMax = 300; // Scan radius around each biome point
-            Location savedBiomePoint = null; // Remember where the biome was found
-
-            @Override
-            public void run() {
-                // If we have a pending ocean point, continue sub-scanning it
-                if (pendingOceanPoint != null) {
-                    Location found = scanHeightmapFragment(w, pendingOceanPoint, subScanRadius, Math.min(subScanRadius + SUB_SCAN_STEP, currentScanMax));
-                    if (found != null) {
-                        getLogger().info("Island (heightmap) found at " + found.toVector() + " on ocean attempt " + searchAttempt);
-                        foundIsland(w, found, waterBiomeName);
-                        return;
-                    }
-                    subScanRadius += SUB_SCAN_STEP;
-                    if (subScanRadius >= currentScanMax) {
-                        // Done scanning this area — jump FAR away to find a different instance of this biome
-                        getLogger().info("  No island in this area. Jumping far to find another instance...");
-                        // Jump 5000 blocks in alternating directions
-                        searchOffsetX = pendingOceanPoint.getBlockX() + ((searchAttempt % 4 == 0) ? 5000 : (searchAttempt % 4 == 1) ? -5000 : (searchAttempt % 4 == 2) ? 0 : 0);
-                        searchOffsetZ = pendingOceanPoint.getBlockZ() + ((searchAttempt % 4 == 0) ? 0 : (searchAttempt % 4 == 1) ? 0 : (searchAttempt % 4 == 2) ? 5000 : -5000);
-                        pendingOceanPoint = null;
-                        subScanRadius = 0;
-                    }
-                    return;
-                }
-
-                // Find next ocean
-                if (searchAttempt >= MAX_ATTEMPTS) {
-                    // Exhausted — fallback to water spawn
-                    getLogger().warning("No island found in " + waterBiomeName + " after " + MAX_ATTEMPTS + " ocean patches. Water fallback.");
-                    BiomeSearchResult fallbackResult = w.locateNearestBiome(new Location(w, 0, 62, 0), 1500, waterBiome);
-                    if (fallbackResult != null) {
-                        Location waterLoc = fallbackResult.getLocation();
-                        // Verify biome at Y=63 is correct before spawning
-                        Biome biomeCheck = w.getBiome(waterLoc.getBlockX(), 63, waterLoc.getBlockZ());
-                        if (biomeCheck != null && biomeCheck.key().value().equals(waterBiomeName)) {
-                            Location spawnOnWater = new Location(w, waterLoc.getBlockX() + 0.5, 63, waterLoc.getBlockZ() + 0.5);
-                            w.setSpawnLocation(spawnOnWater);
-                            waterSpawnActive = true;
-                            boatGivenPlayers.clear();
-                            broadcastInfo(getMsg("filter-shifted").replace("{target}", waterBiomeName.toUpperCase() + " (water)"));
-                        } else {
-                            broadcastInfo(getMsg("filter-failed"));
-                        }
-                    } else {
-                        broadcastInfo(getMsg("filter-failed"));
-                    }
-                    skipFindSafeSpawn = true;
-                    cancel();
-                    onComplete.run();
-                    return;
-                }
-
-                searchAttempt++;
-                Location searchFrom = new Location(w, searchOffsetX, 62, searchOffsetZ);
-                getLogger().info("Ocean search " + searchAttempt + "/" + MAX_ATTEMPTS + " from " + searchOffsetX + "," + searchOffsetZ);
-
-                // Find ocean with large radius (5000)
-                BiomeSearchResult waterResult = w.locateNearestBiome(searchFrom, 5000, waterBiome);
-                if (waterResult == null) {
-                    // No biome found from here — shift further in a different direction
-                    searchOffsetX += ((searchAttempt % 2 == 0) ? 3000 : -3000);
-                    searchOffsetZ += ((searchAttempt % 3 == 0) ? 3000 : -2000);
-                    return;
-                }
-
-                Location oceanPoint = waterResult.getLocation();
-                oceanPoint.setY(62);
-
-                // Check if we already scanned near this ocean
-                boolean alreadyChecked = false;
-                for (Location prev : checkedOceans) {
-                    if (prev.distance(oceanPoint) < 1500) {
-                        alreadyChecked = true;
-                        break;
-                    }
-                }
-                if (alreadyChecked) {
-                    // Same ocean — shift far away in alternating direction
-                    searchOffsetX = oceanPoint.getBlockX() + ((searchAttempt % 4 == 0) ? 5000 : (searchAttempt % 4 == 1) ? -5000 : (searchAttempt % 4 == 2) ? 3000 : -3000);
-                    searchOffsetZ = oceanPoint.getBlockZ() + ((searchAttempt % 4 == 0) ? 3000 : (searchAttempt % 4 == 1) ? -3000 : (searchAttempt % 4 == 2) ? -5000 : 5000);
-                    return;
-                }
-                checkedOceans.add(oceanPoint.clone());
-                getLogger().info("  Found " + waterBiomeName + " at " + oceanPoint.toVector());
-
-                // Quick check: biome search for land biomes first (no chunk gen)
-                // Only for ocean biomes — search for BEACH/PLAINS as island indicators
-                // For other biomes (mushroom_fields, swamp etc.) skip this — go straight to heightmap
-                if (NEEDS_ISLAND_VALIDATION.contains(waterBiomeName.toUpperCase())) {
-                    List<Biome> searchTargets = new ArrayList<>();
-                    for (Biome land : landBiomes) { if (land != null) searchTargets.add(land); }
-                    
-                    for (Biome land : searchTargets) {
-                        if (land == null) continue;
-                        BiomeSearchResult landResult = w.locateNearestBiome(oceanPoint, 500, land);
-                        if (landResult == null) continue;
-                        Location candidate = landResult.getLocation();
-                        if (isLocationSurroundedByWater(w, candidate.getBlockX(), candidate.getBlockZ(), waterBiomeName)) {
-                            getLogger().info("  Island (biome) at " + candidate.toVector());
-                            foundIsland(w, candidate, waterBiomeName);
-                            return;
-                        }
-                    }
-                } else {
-                    // For non-ocean water biomes: check directly around the biome point (±4)
-                    Location directHit = findExactBiomeNearPoint(w, oceanPoint.getBlockX(), oceanPoint.getBlockZ(), waterBiomeName);
-                    if (directHit != null) {
-                        getLogger().info("  Direct land in " + waterBiomeName + " at " + directHit.toVector());
-                        foundIsland(w, directHit, waterBiomeName);
-                        return;
-                    }
-                }
-
-                // Queue heightmap sub-scan for next ticks
-                pendingOceanPoint = oceanPoint;
-                subScanRadius = 0;
-            }
-
-            private Location scanHeightmapFragment(World world, Location center, int minR, int maxR) {
-                int cx = center.getBlockX();
-                int cz = center.getBlockZ();
-                for (int radius = Math.max(minR, BLOCK_STEP); radius <= maxR; radius += BLOCK_STEP) {
-                    for (int dx = -radius; dx <= radius; dx += BLOCK_STEP) {
-                        for (int dz = -radius; dz <= radius; dz += BLOCK_STEP) {
-                            if (Math.abs(dx) < radius - BLOCK_STEP/2 && Math.abs(dz) < radius - BLOCK_STEP/2) continue;
-                            int x = cx + dx;
-                            int z = cz + dz;
-                            int y = world.getHighestBlockYAt(x, z);
-                            if (y >= 62) {
-                                Block ground = world.getBlockAt(x, y, z);
-                                if (ground.getType().isSolid() && ground.getType() != Material.WATER && ground.getType() != Material.LAVA) {
-                                    // Search upward through solid blocks for the correct biome
-                                    for (int checkY = y; checkY <= y + 20; checkY++) {
-                                        Block blockAt = world.getBlockAt(x, checkY, z);
-                                        if (blockAt.getType().isAir()) break; // Stop at air
-                                        Biome b = world.getBiome(x, checkY, z);
-                                        if (b != null && b.key().value().equals(waterBiomeName)) {
-                                            // Found correct biome — spawn on top of this block
-                                            int spawnY = world.getHighestBlockYAt(x, z) + 1;
-                                            return new Location(world, x + 0.5, spawnY, z + 0.5);
-                                        }
-                                    }
-                                    // Also check below (y-1) in case biome is at sea level
-                                    Biome bBelow = world.getBiome(x, y - 1, z);
-                                    if (bBelow != null && bBelow.key().value().equals(waterBiomeName)) {
-                                        return new Location(world, x + 0.5, y + 1, z + 0.5);
-                                    }
-                                    // Still no match — check nearby blocks (±3)
-                                    Location nearby = findExactBiomeNearby(world, x, y, z, waterBiomeName);
-                                    if (nearby != null) return nearby;
-                                }
-                            }
-                        }
-                    }
-                }
-                return null;
-            }
-
-            /**
-             * When we find land but biome doesn't match at that exact spot,
-             * check nearby blocks (within 4 block biome grid) for the correct biome.
-             */
-            private Location findExactBiomeNearby(World world, int cx, int cy, int cz, String biomeName) {
-                for (int dx = -3; dx <= 3; dx++) {
-                    for (int dz = -3; dz <= 3; dz++) {
-                        int x = cx + dx;
-                        int z = cz + dz;
-                        int y = world.getHighestBlockYAt(x, z);
-                        if (y <= 62) continue;
-                        Block ground = world.getBlockAt(x, y, z);
-                        if (!ground.getType().isSolid() || ground.getType() == Material.WATER) continue;
-                        // Check biome at multiple heights
-                        for (int checkY = y - 1; checkY <= y + 2; checkY++) {
-                            Biome b = world.getBiome(x, checkY, z);
-                            if (b != null && b.key().value().equals(biomeName)) {
-                                return new Location(world, x + 0.5, y + 1, z + 0.5);
-                            }
-                        }
-                    }
-                }
-                return null;
-            }
-
-            private void foundIsland(World world, Location loc, String biomeName) {
-                // Don't override Y — loc already has correct Y from search methods
-                world.setSpawnLocation(loc);
-                world.setGameRule(GameRule.SPAWN_RADIUS, 0);
-                broadcastInfo(getMsg("filter-shifted").replace("{target}", biomeName.toUpperCase() + " (island/shore)"));
-                getLogger().info("Spawn shifted to " + biomeName + " island at " + loc.toVector());
-                skipFindSafeSpawn = true;
-                cancel();
-                onComplete.run();
-            }
-        }.runTaskTimer(this, 1L, 2L);
     }
 
     // --- LOGIKA FILTRÓW (BIOME / STRUCTURE SPAWN SHIFT) ---
@@ -1742,6 +1590,29 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     private static final Set<String> CAVE_BIOMES = Set.of(
         "DRIPSTONE_CAVES", "LUSH_CAVES", "DEEP_DARK"
     );
+
+    
+    private void startAsyncStructureSpawnSearch(World w, String structName, Runnable onComplete) {
+        getLogger().info("Starting async search for structure: " + structName);
+        java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            return findStructureLocation(w, structName);
+        }).thenAccept(bestLoc -> {
+            Bukkit.getScheduler().runTask(Main.this, () -> {
+                if (bestLoc != null) {
+                    Location structSpawn = findSafeSpawnInStructure(w, bestLoc, structName);
+                    Location finalLoc = structSpawn != null ? structSpawn : new Location(w, bestLoc.getX(), w.getHighestBlockYAt(bestLoc) + 1, bestLoc.getZ());
+                    w.setSpawnLocation(finalLoc);
+                    w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+                    skipFindSafeSpawn = true;
+                    broadcastInfo(getMsg("filter-shifted").replace("{target}", structName));
+                    getLogger().info("Spawn shifted to structure " + structName + " at " + finalLoc.toVector());
+                } else {
+                    broadcastInfo(getMsg("filter-failed"));
+                }
+                onComplete.run();
+            });
+        });
+    }
 
     private void applyFiltersAndShiftSpawn(World w) {
         if (!getConfig().getBoolean("filter.enabled", true)) return;
@@ -1957,86 +1828,17 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
      * Checks 4 directions (16 blocks) — all 4 must be exactly that biome.
      */
     private boolean isLocationSurroundedByWater(World w, int x, int z, String waterBiomeName) {
-        int[][] dirs = {{0,-16},{0,16},{-16,0},{16,0}};
-        for (int[] d : dirs) {
-            Biome b = w.getBiome(x + d[0], 62, z + d[1]);
-            if (b == null) return false;
-            if (!b.key().value().equals(waterBiomeName)) return false;
+        try {
+            org.bukkit.block.Biome waterBiome = org.bukkit.Registry.BIOME.get(org.bukkit.NamespacedKey.minecraft(waterBiomeName.toLowerCase()));
+            if (waterBiome == null) return false;
+            // Sprawdza asynchronicznie dystans 100 kratek bez ładowania chunków (matematycznie)
+            org.bukkit.util.BiomeSearchResult result = w.locateNearestBiome(new org.bukkit.Location(w, x, 62, z), 100, waterBiome);
+            return result != null;
+        } catch (Exception e) {
+            return false;
         }
-        return true;
     }
 
-    /**
-     * Checks area around a point for a safe spawn with the exact biome.
-     * For each column: checks biome at locateNearestBiome Y, then searches up/down.
-     * If air → go down. If solid → go up. Spirals outward (±8 blocks).
-     */
-    private Location findExactBiomeNearPoint(World w, int cx, int cz, String biomeName) {
-        // Get the Y that locateNearestBiome returned (stored as 62 for water biomes)
-        int startY = 62;
-
-        for (int radius = 0; radius <= 300; radius++) {
-            for (int dx = -radius; dx <= radius; dx++) {
-                for (int dz = -radius; dz <= radius; dz++) {
-                    if (radius > 0 && Math.abs(dx) != radius && Math.abs(dz) != radius) continue;
-                    int x = cx + dx;
-                    int z = cz + dz;
-
-                    // Search vertically for a safe spot with the correct biome
-                    // Only search UPWARD from sea level — avoid underground aquifers
-                    for (int dy = 0; dy <= 30; dy++) {
-                        int yUp = startY + dy;
-                        if (yUp >= 320) break;
-                        Biome bUp = w.getBiome(x, yUp, z);
-                        if (bUp != null && bUp.key().value().equals(biomeName)) {
-                            // Found correct biome — find safe standing position
-                            Block blockHere = w.getBlockAt(x, yUp, z);
-                            if (blockHere.getType().isAir() || !blockHere.getType().isSolid()) {
-                                // Air at this Y — check if solid below (can stand)
-                                Block below = w.getBlockAt(x, yUp - 1, z);
-                                if (below.getType().isSolid() && below.getType() != Material.WATER && below.getType() != Material.LAVA) {
-                                    // Final check: verify biome at EXACT spawn position
-                                    Biome spawnBiome = w.getBiome(x, yUp, z);
-                                    if (spawnBiome != null && spawnBiome.key().value().equals(biomeName)) {
-                                        return new Location(w, x + 0.5, yUp, z + 0.5);
-                                    }
-                                }
-                            } else if (blockHere.getType().isSolid()) {
-                                // Solid block — go up to find air above
-                                for (int up = yUp + 1; up <= yUp + 10; up++) {
-                                    Block abv = w.getBlockAt(x, up, z);
-                                    if (abv.getType().isAir()) {
-                                        Biome bStand = w.getBiome(x, up, z);
-                                        if (bStand != null && bStand.key().value().equals(biomeName)) {
-                                            return new Location(w, x + 0.5, up, z + 0.5);
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Relaxed validation for heightmap hits — accepts if at least 3/4 directions have any ocean biome.
-     * Used when heightmap found land above sea level inside an ocean area.
-     */
-    private boolean isHeightmapHitValid(World w, int x, int z) {
-        int[][] dirs = {{0,-32},{0,32},{-32,0},{32,0}};
-        int waterHits = 0;
-        for (int[] d : dirs) {
-            Biome b = w.getBiome(x + d[0], 62, z + d[1]);
-            if (b != null && b.key().value().contains("ocean")) {
-                waterHits++;
-            }
-        }
-        return waterHits >= 3;
-    }
 
     /**
      * Searches in a small radius around a point for any block above sea level (Y > 62).
@@ -2126,37 +1928,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     }
 
     /**
-     * Finds a safe spawn location that is STILL within the specified biome.
-     */
-    private Location findSafeSpawnInBiome(World w, Location center, String targetBiomeKey) {
-        int cx = center.getBlockX();
-        int cz = center.getBlockZ();
-
-        int hy = w.getHighestBlockYAt(cx, cz);
-        if (hy > w.getMinHeight() + 1 && isLocationSafe(w, cx, hy + 1, cz)) {
-            return new Location(w, cx + 0.5, hy + 1, cz + 0.5);
-        }
-
-        for (int radius = 1; radius <= 32; radius++) {
-            for (int dx = -radius; dx <= radius; dx++) {
-                for (int dz = -radius; dz <= radius; dz++) {
-                    if (Math.abs(dx) != radius && Math.abs(dz) != radius) continue;
-                    int x = cx + dx;
-                    int z = cz + dz;
-                    int y = w.getHighestBlockYAt(x, z);
-                    if (y <= w.getMinHeight() + 1) continue;
-                    Biome biome = w.getBiome(x, y, z);
-                    if (biome == null || !biome.key().value().equals(targetBiomeKey)) continue;
-                    if (isLocationSafe(w, x, y + 1, z)) {
-                        return new Location(w, x + 0.5, y + 1, z + 0.5);
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
      * Finds a land biome AND verifies there's solid ground above water in it.
      * If first hit is underwater (like mushroom_fields on ocean floor), searches further.
      * Tries multiple locations of the biome until one with dry land is found.
@@ -2234,27 +2005,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     }
                 }
             }
-        }
-        return null;
-    }
-
-    private Location findBiomeLocation(World w, String biomeName) {
-        try {
-            Registry<@NotNull Biome> biomeRegistry = Registry.BIOME;
-            NamespacedKey key = NamespacedKey.minecraft(biomeName.toLowerCase());
-            Biome targetBiome = biomeRegistry.get(key);
-
-            if (targetBiome == null) {
-                getLogger().warning("Biome not found in registry: " + biomeName);
-                return null;
-            }
-
-            Location center = new Location(w, 0, 64, 0);
-            // Use standard locateNearestBiome (compatible with all Paper 1.21+ versions)
-            BiomeSearchResult result = w.locateNearestBiome(center, 2500, targetBiome);
-            if (result != null) return result.getLocation();
-        } catch (Exception e) {
-            getLogger().warning("Error searching biome: " + e.getMessage());
         }
         return null;
     }
@@ -2385,7 +2135,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     private List<Structure> getStructuresFromName(String name) {
         List<Structure> list = new ArrayList<>();
-        Registry<@NotNull Structure> reg = Registry.STRUCTURE;
+        Registry<@NotNull Structure> reg = io.papermc.paper.registry.RegistryAccess.registryAccess().getRegistry(io.papermc.paper.registry.RegistryKey.STRUCTURE);
 
         switch (name) {
             case "VILLAGE" -> {
@@ -2564,51 +2314,87 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         });
     }
 
-    private void findSafeSpawn(World w) {
+    private void startAsyncSafeSpawnSearch(World w, Runnable onComplete) {
         Location spawn = w.getSpawnLocation();
         waterSpawnActive = false;
         boatGivenPlayers.clear();
 
-        // Step 1: Try immediate area (32 block radius) for safe ground
-        Location safe = getSafeLocation(spawn);
-        if (safe != null) {
-            w.setSpawnLocation(safe);
-            getLogger().info("Safe spawn found nearby at: " + safe.toVector());
-            w.setGameRule(GameRule.SPAWN_RADIUS, 0);
-            return;
-        }
-
-        // Step 2: Spiral search for solid land in wider radius (up to 100 blocks)
-        Location nearby = findLandNear(w, spawn, 100);
-        if (nearby != null) {
-            w.setSpawnLocation(nearby);
-            getLogger().info("Safe spawn found via spiral search at: " + nearby.toVector());
-            w.setGameRule(GameRule.SPAWN_RADIUS, 0);
-            return;
-        }
-
-        // Step 3: Use locateNearestBiome to find land biomes (BEACH, STONY_SHORE, PLAINS, FOREST)
-        // Much faster than block-by-block — queries the biome noise map directly
-        Location landLoc = findLandViaBiomeSearch(w, spawn, 10000);
-        if (landLoc != null) {
-            Location safeLand = getSafeLocation(landLoc);
-            if (safeLand != null) {
-                w.setSpawnLocation(safeLand);
-                getLogger().info("Safe spawn found via biome search at: " + safeLand.toVector() + " (" + (int) safeLand.distance(spawn) + " blocks from target)");
-                w.setGameRule(GameRule.SPAWN_RADIUS, 0);
-                return;
-            }
-            // Biome found but exact spot not safe — try wider spiral around it
-            Location nearBiome = findLandNear(w, landLoc, 64);
-            if (nearBiome != null) {
-                w.setSpawnLocation(nearBiome);
-                getLogger().info("Safe spawn found near biome hit at: " + nearBiome.toVector());
-                w.setGameRule(GameRule.SPAWN_RADIUS, 0);
-                return;
+        int cx = spawn.getBlockX() >> 4;
+        int cz = spawn.getBlockZ() >> 4;
+        
+        java.util.List<java.util.concurrent.CompletableFuture<org.bukkit.Chunk>> initialFutures = new java.util.ArrayList<>();
+        for (int dx = -7; dx <= 7; dx++) {
+            for (int dz = -7; dz <= 7; dz++) {
+                initialFutures.add(w.getChunkAtAsync(cx + dx, cz + dz));
             }
         }
 
-        // Step 4: Fallback — no land found. Spawn on water, give boat
+        java.util.concurrent.CompletableFuture.allOf(initialFutures.toArray(new java.util.concurrent.CompletableFuture[0])).thenRun(() -> {
+            Bukkit.getScheduler().runTask(Main.this, () -> {
+                Location safe = getSafeLocation(spawn);
+                if (safe != null) {
+                    w.setSpawnLocation(safe);
+                    w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+                    getLogger().info("Safe spawn found nearby at: " + safe.toVector());
+                    onComplete.run();
+                    return;
+                }
+
+                Location nearby = findLandNear(w, spawn, 100);
+                if (nearby != null) {
+                    w.setSpawnLocation(nearby);
+                    w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+                    getLogger().info("Safe spawn found via spiral search at: " + nearby.toVector());
+                    onComplete.run();
+                    return;
+                }
+
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> findLandViaBiomeSearch(w, spawn, 10000)).thenAccept(landLoc -> {
+                    Bukkit.getScheduler().runTask(Main.this, () -> {
+                        if (landLoc != null) {
+                            int bcx = landLoc.getBlockX() >> 4;
+                            int bcz = landLoc.getBlockZ() >> 4;
+                            java.util.List<java.util.concurrent.CompletableFuture<org.bukkit.Chunk>> bFutures = new java.util.ArrayList<>();
+                            for (int dx = -4; dx <= 4; dx++) {
+                                for (int dz = -4; dz <= 4; dz++) {
+                                    bFutures.add(w.getChunkAtAsync(bcx + dx, bcz + dz));
+                                }
+                            }
+                            java.util.concurrent.CompletableFuture.allOf(bFutures.toArray(new java.util.concurrent.CompletableFuture[0])).thenRun(() -> {
+                                Bukkit.getScheduler().runTask(Main.this, () -> {
+                                    Location safeLand = getSafeLocation(landLoc);
+                                    if (safeLand != null) {
+                                        w.setSpawnLocation(safeLand);
+                                        w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+                                        getLogger().info("Safe spawn found via biome search at: " + safeLand.toVector());
+                                        onComplete.run();
+                                        return;
+                                    }
+                                    
+                                    Location nearBiome = findLandNear(w, landLoc, 64);
+                                    if (nearBiome != null) {
+                                        w.setSpawnLocation(nearBiome);
+                                        w.setGameRule(GameRule.SPAWN_RADIUS, 0);
+                                        getLogger().info("Safe spawn found near biome hit at: " + nearBiome.toVector());
+                                        onComplete.run();
+                                        return;
+                                    }
+                                    
+                                    finalizeSafeSpawnFallback(w, spawn);
+                                    onComplete.run();
+                                });
+                            });
+                        } else {
+                            finalizeSafeSpawnFallback(w, spawn);
+                            onComplete.run();
+                        }
+                    });
+                });
+            });
+        });
+    }
+
+    private void finalizeSafeSpawnFallback(World w, Location spawn) {
         int x = spawn.getBlockX();
         int z = spawn.getBlockZ();
         int y = w.getHighestBlockYAt(x, z);
@@ -2776,17 +2562,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         manageBackupLimit(backupsDir);
     }
 
-    private void savePlayerStates(File backupDir) {
-        try {
-            FileConfiguration playersYml = capturePlayerStates();
-            if (playersYml != null) {
-                playersYml.save(new File(backupDir, "players.yml"));
-            }
-        } catch (Exception e) {
-            getLogger().warning("Failed to save player states: " + e.getMessage());
-        }
-    }
-
     /**
      * Captures current player states into a YamlConfiguration (in memory).
      * Called before players are moved to limbo.
@@ -2807,7 +2582,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             playersYml.set(path + ".yaw", (double) p.getLocation().getYaw());
             playersYml.set(path + ".pitch", (double) p.getLocation().getPitch());
             playersYml.set(path + ".health", p.getHealth());
-            playersYml.set(path + ".max-health", p.getMaxHealth());
+            playersYml.set(path + ".max-health", p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue());
             playersYml.set(path + ".food", p.getFoodLevel());
             playersYml.set(path + ".saturation", (double) p.getSaturation());
             playersYml.set(path + ".xp-level", p.getLevel());
@@ -2831,7 +2606,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         return playersYml;
     }
 
-    @SuppressWarnings("unchecked")
     private void restorePlayerStates(File backupDir) {
         File playersFile = new File(backupDir, "players.yml");
         if (!playersFile.exists()) return;
@@ -2862,7 +2636,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 boolean wasDead = p.getHealth() <= 0 || p.isDead();
                 final Player fp = p;
                 final Location floc = loc;
-                final double fhealth = Math.max(playersYml.getDouble(path + ".health", 20), fp.getMaxHealth() / 2); // Min half HP
+                final double fhealth = Math.max(playersYml.getDouble(path + ".health", 20), fp.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue() / 2); // Min half HP
                 final int ffood = Math.max(playersYml.getInt(path + ".food", 20), 10); // Min half food (10/20)
                 final float fsat = (float) playersYml.getDouble(path + ".saturation", 5);
                 final int flevel = playersYml.getInt(path + ".xp-level", 0);
@@ -2880,7 +2654,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     fp.teleport(safeLoc != null ? safeLoc : floc);
 
                     try { fp.setGameMode(GameMode.valueOf(fgm)); } catch (Exception ignored) { fp.setGameMode(GameMode.SURVIVAL); }
-                    fp.setHealth(Math.min(fhealth, fp.getMaxHealth()));
+                    fp.setHealth(Math.min(fhealth, fp.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue()));
                     fp.setFoodLevel(ffood);
                     fp.setSaturation(fsat);
                     fp.setLevel(flevel);
@@ -3060,10 +2834,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         STRUCTURE_NAMES.addAll(Arrays.asList("VILLAGE", "MINESHAFT", "RUINED_PORTAL", "SHIPWRECK"));
 
         try {
-            @SuppressWarnings({"deprecation", "removal"})
-            Registry<Structure> structRegistry = Registry.STRUCTURE;
+            Registry<Structure> structRegistry = io.papermc.paper.registry.RegistryAccess.registryAccess().getRegistry(io.papermc.paper.registry.RegistryKey.STRUCTURE);
             for (Structure s : structRegistry) {
-                @SuppressWarnings({"deprecation", "removal"})
                 String name = s.key().value().toUpperCase();
                 if (!STRUCTURE_NAMES.contains(name)) {
                     STRUCTURE_NAMES.add(name);
@@ -3079,7 +2851,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         BIOME_NAMES.clear();
         try {
-            for (Biome b : Registry.BIOME) {
+            Registry<Biome> biomeRegistry = io.papermc.paper.registry.RegistryAccess.registryAccess().getRegistry(io.papermc.paper.registry.RegistryKey.BIOME);
+            for (Biome b : biomeRegistry) {
                 String name = b.key().value().toUpperCase();
                 if (!BIOME_NAMES.contains(name)) {
                     BIOME_NAMES.add(name);
@@ -3371,7 +3144,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     recordsConfig.set(path + ".pb", finalTime);
                     String dateStr = new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss").format(new java.util.Date());
                     recordsConfig.set(path + ".pb_date", dateStr);
-                    winner.sendMessage(ChatColor.translateAlternateColorCodes('&', getMsg("timer-new-pb").replace("{time}", formatTime(finalTime, true))));
+                    winner.sendMessage(net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacyAmpersand().deserialize(getMsg("timer-new-pb").replace("{time}", formatTime(finalTime, true))));
                 }
 
                 World w = Bukkit.getWorld(gameWorldName);
@@ -3433,7 +3206,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         if (sb.isEmpty()) return;
 
-        p.sendActionBar(Component.text(ChatColor.translateAlternateColorCodes('&', sb.toString())));
+        p.sendActionBar(net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacyAmpersand().deserialize(sb.toString()));
     }
 
     /**
@@ -3512,7 +3285,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     String subtitle = getSubtitle("autoreset-countdown", "World Reset...");
                     for (Player p : Bukkit.getOnlinePlayers()) {
                         if (!p.getWorld().getName().equals(limboWorldName)) {
-                            p.sendTitle(color + remaining, "§7" + subtitle, 0, 25, 5);
+                            sendTitleToPlayer(p, color + remaining, "§7" + subtitle, 0, 25, 5);
                             p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, remaining <= 3 ? 1.5f : 1.0f);
                         }
                     }
@@ -3557,8 +3330,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             org.bukkit.scoreboard.Objective arMinObj = getOrRegisterObjective(sb, "wr_autoreset_min", "AutoReset (Min)");
             org.bukkit.scoreboard.Objective arStatusObj = getOrRegisterObjective(sb, "wr_autoreset_status", "AutoReset Status");
 
-            int secVal = (int) autoResetRemainingSeconds;
-            int minVal = (int) (autoResetRemainingSeconds / 60);
+            int secVal = !autoResetEnabled ? 0 : (int) autoResetRemainingSeconds;
+            int minVal = !autoResetEnabled ? 0 : (int) (autoResetRemainingSeconds / 60);
             // Status: 0 = disabled, 1 = running, 2 = paused
             int statusVal = !autoResetEnabled ? 0 : (autoResetPaused ? 2 : 1);
 
@@ -3602,7 +3375,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
         if (isResetting) return; // Don't reset HP during backup load
         if (event.getNewGameMode() == GameMode.SURVIVAL && !event.getPlayer().getWorld().getName().equals(limboWorldName)) {
-            event.getPlayer().setHealth(event.getPlayer().getMaxHealth());
+            event.getPlayer().setHealth(event.getPlayer().getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue());
             event.getPlayer().setFoodLevel(20);
         }
     }
@@ -3653,6 +3426,16 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
+        java.util.UUID uuid = e.getPlayer().getUniqueId();
+        playerStartTimes.remove(uuid);
+        playerElapsedTimes.remove(uuid);
+        playerElapsedTicks.remove(uuid);
+        playersFinished.remove(uuid);
+        org.bukkit.scheduler.BukkitTask task = activeCountdowns.remove(uuid);
+        if (task != null) task.cancel();
+        limboSavedStates.remove(uuid);
+        boatGivenPlayers.remove(uuid);
+
         Bukkit.getScheduler().runTaskLater(this, this::syncAllScoreboards, 1L);
     }
 
@@ -3673,7 +3456,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         Player dead = e.getEntity();
         String path = dead.getUniqueId().toString();
         if (lastPlayerSnapshot != null) {
-            lastPlayerSnapshot.set(path + ".health", Math.max(dead.getMaxHealth() / 2, 1)); // Half health on restore
+            lastPlayerSnapshot.set(path + ".health", Math.max(dead.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue() / 2, 1)); // Half health on restore
             // Reconstruct inventory from drops
             org.bukkit.inventory.ItemStack[] inv = new org.bukkit.inventory.ItemStack[41];
             int i = 0;
@@ -3864,8 +3647,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             sender.sendMessage(helpLine);
                             sender.sendMessage("§8§m----------------------------");
                         } else {
-                            boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
-                            sender.sendMessage(isPl ? "§cNieznana komenda: §e" + topic + "§c. Użyj §e/wr help §cpo pełną listę." : "§cUnknown command: §e" + topic + "§c. Use §e/wr help §cfor full list.");
+                            sender.sendMessage(getMsg("cmd-unknown").replace("{v1}", String.valueOf(topic)));
                         }
                     } else {
                         sendFullHelp(sender);
@@ -3876,8 +3658,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     if (hasPerm(sender, "worldreset.admin")) return noPerm(sender, "worldreset.admin");
                     loadConfigValues();
                     loadLanguage();
-                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
-                    sender.sendMessage(isPl ? "§aKonfiguracja i języki przeładowane!" : "§aConfiguration and languages reloaded!");
+                    sender.sendMessage(getMsg("auto-msg-2"));
                     return true;
                 }
                 case "reset" -> {
@@ -3907,14 +3688,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                         startReset();
                                     }
                                 });
-                                boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
-                                String msg = isPl ? "§eReset zaplanowany za §c" + delayIn + "s§e..." : "§eReset scheduled in §c" + delayIn + "s§e...";
+                                String msg = getMsg("reset-scheduled").replace("{v1}", String.valueOf(delayIn));
                                 if (delayOut > 0) msg += " §7(delay-out: " + delayOut + "s)";
                                 sender.sendMessage(msg);
                             }
                         } catch (NumberFormatException e) {
-                            boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
-                            sender.sendMessage(isPl ? "§cUżycie: /wr reset [opóźnienie-wejścia] [opóźnienie-wyjścia]" : "§cUsage: /wr reset [delay-in] [delay-out]");
+                            sender.sendMessage(getMsg("auto-msg-3"));
                         }
                     } else {
                         startReset();
@@ -3930,20 +3709,19 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
                     // /wr limbo delay <in> <out>
                     if (args.length >= 2 && args[1].equalsIgnoreCase("delay")) {
-                        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
                         if (args.length < 4) {
-                            sender.sendMessage((isPl ? "§eAktualne opóźnienia: §fWejście=" : "§eCurrent delays: §fIn=") + limboDelayIn + "s §7| §f" + (isPl ? "Wyjście=" : "Out=") + limboDelayOut + "s");
-                            sender.sendMessage(isPl ? "§cUżycie: /wr limbo delay <sekundy_wejścia> <sekundy_wyjścia>" : "§cUsage: /wr limbo delay <in_seconds> <out_seconds>");
+                            sender.sendMessage((getMsg("auto-msg-4")) + limboDelayIn + "s §7| §f" + (getMsg("auto-msg-5")) + limboDelayOut + "s");
+                            sender.sendMessage(getMsg("auto-msg-6"));
                             return true;
                         }
                         try {
                             int delayIn = Integer.parseInt(args[2]);
                             int delayOut = Integer.parseInt(args[3]);
-                            if (delayIn < 0 || delayOut < 0) { sender.sendMessage(isPl ? "§cOpóźnienia muszą być >= 0!" : "§cDelay values must be >= 0!"); return true; }
+                            if (delayIn < 0 || delayOut < 0) { sender.sendMessage(getMsg("auto-msg-7")); return true; }
                             limboDelayIn = delayIn; limboDelayOut = delayOut;
                             getConfig().set("limbo.delay-in", delayIn); getConfig().set("limbo.delay-out", delayOut); saveConfig();
-                            sender.sendMessage((isPl ? "§aOpóźnienia Limbo ustawione: §eWejście=" : "§aLimbo delays set: §eIn=") + delayIn + "s §7| §e" + (isPl ? "Wyjście=" : "Out=") + delayOut + "s");
-                        } catch (NumberFormatException e) { sender.sendMessage(isPl ? "§cNieprawidłowa liczba!" : "§cInvalid number!"); }
+                            sender.sendMessage((getMsg("auto-msg-8")) + delayIn + "s §7| §e" + (getMsg("auto-msg-9")) + delayOut + "s");
+                        } catch (NumberFormatException e) { sender.sendMessage(getMsg("auto-msg-10")); }
                         return true;
                     }
 
@@ -3973,8 +3751,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     if (target != null) {
                                         targets.add(target);
                                     } else {
-                                        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
-                                        sender.sendMessage(isPl ? "§cNie znaleziono gracza: §e" + arg2 : "§cPlayer not found: §e" + arg2);
+                                        sender.sendMessage(getMsg("player-not-found").replace("{v1}", String.valueOf(arg2)));
                                         return true;
                                     }
                                 }
@@ -3993,8 +3770,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 if (target != null) {
                                     targets.add(target);
                                 } else {
-                                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
-                                    sender.sendMessage(isPl ? "§cNie znaleziono gracza: §e" + arg1 : "§cPlayer not found: §e" + arg1);
+                                    sender.sendMessage(getMsg("player-not-found").replace("{v1}", String.valueOf(arg1)));
                                     return true;
                                 }
                             }
@@ -4072,14 +3848,13 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             sender.sendMessage(getConfig().getString("language", "en").equalsIgnoreCase("pl") ? "§cŚwiat gry nie jest załadowany." : "§cNo game world loaded.");
                         }
                     } else if (sub.equals("status")) {
-                        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
                         boolean fixed = getConfig().getBoolean("seed.use-fixed", false);
                         String val = getConfig().getString("seed.value", "");
-                        sender.sendMessage(isPl ? "§e--- Status Seeda ---" : "§e--- Seed Status ---");
-                        sender.sendMessage((isPl ? "§7Tryb: " : "§7Mode: ") + (fixed ? (isPl ? "§eStały" : "§eFixed") : (isPl ? "§aLosowy" : "§aRandom")));
-                        if (!val.isEmpty()) sender.sendMessage((isPl ? "§7Wartość: §f" : "§7Value: §f") + val);
+                        sender.sendMessage(getMsg("auto-msg-11"));
+                        sender.sendMessage((getMsg("auto-msg-12")) + (fixed ? (getMsg("auto-msg-13")) : (getMsg("auto-msg-14"))));
+                        if (!val.isEmpty()) sender.sendMessage((getMsg("auto-msg-15")) + val);
                         World game = Bukkit.getWorld(gameWorldName);
-                        if (game != null) sender.sendMessage((isPl ? "§7Aktywny seed świata: §f" : "§7Active world seed: §f") + game.getSeed());
+                        if (game != null) sender.sendMessage((getMsg("auto-msg-16")) + game.getSeed());
                     } else {
                         // Treat as seed value
                         getConfig().set("seed.use-fixed", true);
@@ -4091,36 +3866,35 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 }
                 case "give" -> {
                     if (hasPerm(sender, "worldreset.give")) return noPerm(sender, "worldreset.give");
-                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
                     if (args.length < 2) {
-                        sender.sendMessage(isPl ? "§eUżycie: /wr give boat <enable|disable>" : "§eUsage: /wr give boat <enable|disable>");
-                        sender.sendMessage(isPl ? "§eUżycie: /wr give wood <ilość|enable|disable>" : "§eUsage: /wr give wood <amount|enable|disable>");
+                        sender.sendMessage(getMsg("auto-msg-17"));
+                        sender.sendMessage(getMsg("auto-msg-18"));
                         return true;
                     }
                     String item = args[1].toLowerCase();
                     if (item.equals("boat")) {
                         if (args.length < 3) {
                             boolean current = getConfig().getBoolean("give.boat-if-water", true);
-                            sender.sendMessage((isPl ? "§7Łódka na wodzie: " : "§7Boat if water: ") + (current ? "§a" + (isPl ? "włączone" : "enabled") : "§c" + (isPl ? "wyłączone" : "disabled")));
+                            sender.sendMessage((getMsg("auto-msg-19")) + (current ? "§a" + (getMsg("auto-msg-20")) : "§c" + (getMsg("auto-msg-21"))));
                             return true;
                         }
                         String val = args[2].toLowerCase();
                         if (isEnableAlias(val)) {
                             getConfig().set("give.boat-if-water", true);
                             saveConfig();
-                            sender.sendMessage(isPl ? "§aŁódka na wodzie: włączone" : "§aBoat if water: enabled");
+                            sender.sendMessage(getMsg("auto-msg-22"));
                         } else if (isDisableAlias(val)) {
                             getConfig().set("give.boat-if-water", false);
                             saveConfig();
-                            sender.sendMessage(isPl ? "§cŁódka na wodzie: wyłączone" : "§cBoat if water: disabled");
+                            sender.sendMessage(getMsg("auto-msg-23"));
                         } else {
-                            sender.sendMessage(isPl ? "§eUżycie: /wr give boat <enable|disable>" : "§eUsage: /wr give boat <enable|disable>");
+                            sender.sendMessage(getMsg("auto-msg-24"));
                         }
                     } else if (item.equals("wood")) {
                         if (args.length < 3) {
                             boolean enabled = getConfig().getBoolean("give.wood-if-underground", true);
                             int amount = getConfig().getInt("give.wood-amount", 5);
-                            sender.sendMessage((isPl ? "§7Drewno pod ziemią: " : "§7Wood if underground: ") + (enabled ? "§a" + amount : "§c" + (isPl ? "wyłączone" : "disabled")));
+                            sender.sendMessage((getMsg("auto-msg-25")) + (enabled ? "§a" + amount : "§c" + (getMsg("auto-msg-26"))));
                             return true;
                         }
                         String val = args[2].toLowerCase();
@@ -4128,12 +3902,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             getConfig().set("give.wood-if-underground", true);
                             saveConfig();
                             int amount = getConfig().getInt("give.wood-amount", 5);
-                            sender.sendMessage(isPl ? "§aDrewno pod ziemią: włączone (" + amount + ")" : "§aWood if underground: enabled (" + amount + ")");
+                            sender.sendMessage(getMsg("wood-enabled").replace("{v1}", String.valueOf(amount)));
                         } else if (isDisableAlias(val) || val.equals("0")) {
                             getConfig().set("give.wood-if-underground", false);
                             getConfig().set("give.wood-amount", 0);
                             saveConfig();
-                            sender.sendMessage(isPl ? "§cDrewno pod ziemią: wyłączone" : "§cWood if underground: disabled");
+                            sender.sendMessage(getMsg("auto-msg-27"));
                         } else {
                             try {
                                 int amount = Integer.parseInt(val);
@@ -4142,19 +3916,19 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     getConfig().set("give.wood-if-underground", false);
                                     getConfig().set("give.wood-amount", 0);
                                     saveConfig();
-                                    sender.sendMessage(isPl ? "§cDrewno pod ziemią: wyłączone" : "§cWood if underground: disabled");
+                                    sender.sendMessage(getMsg("auto-msg-28"));
                                 } else {
                                     getConfig().set("give.wood-if-underground", true);
                                     getConfig().set("give.wood-amount", amount);
                                     saveConfig();
-                                    sender.sendMessage(isPl ? "§aDrewno pod ziemią: " + amount : "§aWood if underground: " + amount);
+                                    sender.sendMessage(getMsg("wood-amount").replace("{v1}", String.valueOf(amount)));
                                 }
                             } catch (NumberFormatException e) {
-                                sender.sendMessage(isPl ? "§eUżycie: /wr give wood <ilość|enable|disable>" : "§eUsage: /wr give wood <amount|enable|disable>");
+                                sender.sendMessage(getMsg("auto-msg-29"));
                             }
                         }
                     } else {
-                        sender.sendMessage(isPl ? "§eUżycie: /wr give <boat|wood> ..." : "§eUsage: /wr give <boat|wood> ...");
+                        sender.sendMessage(getMsg("auto-msg-30"));
                     }
                     return true;
                 }
@@ -4180,7 +3954,6 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 }
                 case "filter" -> {
                     if (hasPerm(sender, "worldreset.filter")) return noPerm(sender, "worldreset.filter");
-                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
 
                     if (args.length == 1) {
                         // Toggle filter enabled state
@@ -4188,7 +3961,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         boolean newVal = !current;
                         getConfig().set("filter.enabled", newVal);
                         saveConfig();
-                        sender.sendMessage(newVal ? (isPl ? "§aFiltry włączone." : "§aFilters enabled.") : (isPl ? "§cFiltry wyłączone (wartości zachowane)." : "§cFilters disabled (values preserved)."));
+                        sender.sendMessage(newVal ? (getMsg("auto-msg-31")) : (getMsg("auto-msg-32")));
                         return true;
                     }
 
@@ -4201,15 +3974,15 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         boolean fixedSeed = getConfig().getBoolean("seed.use-fixed", false);
                         String seedVal = getConfig().getString("seed.value", "");
 
-                        sender.sendMessage(isPl ? "§e--- Status Filtrów ---" : "§e--- Filter Status ---");
-                        sender.sendMessage((isPl ? "§7Włączone: " : "§7Enabled: ") + (filterEnabled ? (isPl ? "§aTak" : "§aYes") : (isPl ? "§cNie" : "§cNo")));
-                        sender.sendMessage((isPl ? "§7Struktura: " : "§7Structure: ") + (filterStruct.isEmpty() ? (isPl ? "§8Brak" : "§8None") : "§a" + filterStruct));
-                        sender.sendMessage((isPl ? "§7Biom: " : "§7Biome: ") + (filterBiome.isEmpty() ? (isPl ? "§8Brak" : "§8None") : "§a" + filterBiome));
-                        sender.sendMessage((isPl ? "§7Próby: §e" : "§7Attempts: §e") + getConfig().getInt("filter.attempts", 5));
-                        sender.sendMessage("§7Seed: " + (fixedSeed ? "§e" + seedVal + (isPl ? " §7(stały)" : " §7(fixed)") : (isPl ? "§aLosowy" : "§aRandom")));
+                        sender.sendMessage(getMsg("auto-msg-33"));
+                        sender.sendMessage((getMsg("auto-msg-34")) + (filterEnabled ? (getMsg("auto-msg-35")) : (getMsg("auto-msg-36"))));
+                        sender.sendMessage((getMsg("auto-msg-37")) + (filterStruct.isEmpty() ? (getMsg("auto-msg-38")) : "§a" + filterStruct));
+                        sender.sendMessage((getMsg("auto-msg-39")) + (filterBiome.isEmpty() ? (getMsg("auto-msg-40")) : "§a" + filterBiome));
+                        sender.sendMessage((getMsg("auto-msg-41")) + getConfig().getInt("filter.attempts", 5));
+                        sender.sendMessage("§7Seed: " + (fixedSeed ? "§e" + seedVal + (getMsg("auto-msg-42")) : (getMsg("auto-msg-43"))));
                         World game = Bukkit.getWorld(gameWorldName);
                         if (game != null) {
-                            sender.sendMessage((isPl ? "§7Aktywny seed świata: §f" : "§7Active world seed: §f") + game.getSeed());
+                            sender.sendMessage((getMsg("auto-msg-44")) + game.getSeed());
                         }
                         return true;
                     }
@@ -4217,13 +3990,13 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     if (isEnableAlias(filterSub)) {
                         getConfig().set("filter.enabled", true);
                         saveConfig();
-                        sender.sendMessage(isPl ? "§aFiltry włączone." : "§aFilters enabled.");
+                        sender.sendMessage(getMsg("auto-msg-45"));
                         return true;
                     }
                     if (isDisableAlias(filterSub)) {
                         getConfig().set("filter.enabled", false);
                         saveConfig();
-                        sender.sendMessage(isPl ? "§cFiltry wyłączone (wartości zachowane)." : "§cFilters disabled (values preserved).");
+                        sender.sendMessage(getMsg("auto-msg-46"));
                         return true;
                     }
 
@@ -4234,29 +4007,29 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         getConfig().set("seed.use-fixed", false);
                         saveConfig();
                         sender.sendMessage(getMsg("filter-disabled"));
-                        sender.sendMessage(isPl ? "§7Stały seed wyłączony. Następny reset użyje losowego seeda." : "§7Fixed seed disabled. Next reset will use a random seed.");
+                        sender.sendMessage(getMsg("auto-msg-47"));
                         return true;
                     }
 
                     if (filterSub.equals("attempts")) {
                         if (args.length < 3) {
                             int current = getConfig().getInt("filter.attempts", 5);
-                            sender.sendMessage((isPl ? "§7Próby filtra: §e" : "§7Filter attempts: §e") + current);
+                            sender.sendMessage((getMsg("auto-msg-48")) + current);
                             return true;
                         }
                         try {
                             int val = Math.max(0, Integer.parseInt(args[2]));
                             getConfig().set("filter.attempts", val);
                             saveConfig();
-                            sender.sendMessage((isPl ? "§aPróby filtra ustawione na: " : "§aFilter attempts set to: ") + val);
+                            sender.sendMessage((getMsg("auto-msg-49")) + val);
                         } catch (NumberFormatException e) {
-                            sender.sendMessage(isPl ? "§cUżycie: /wr filter attempts <liczba>" : "§cUsage: /wr filter attempts <number>");
+                            sender.sendMessage(getMsg("auto-msg-50"));
                         }
                         return true;
                     }
 
                     if (args.length < 3) {
-                        sender.sendMessage(isPl ? "§cUżycie: /wr filter <structure|biome|attempts> <wartość> lub /wr filter clear" : "§cUsage: /wr filter <structure|biome|attempts> <value> or /wr filter clear");
+                        sender.sendMessage(getMsg("auto-msg-51"));
                         return true;
                     }
 
@@ -4267,10 +4040,10 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         if (value.equals("CLEAR")) {
                             getConfig().set("filter.structure", "");
                             saveConfig();
-                            sender.sendMessage(isPl ? "§aFiltr struktury wyczyszczony." : "§aStructure filter cleared.");
+                            sender.sendMessage(getMsg("auto-msg-52"));
                         } else {
                             if (getStructuresFromName(value).isEmpty()) {
-                                sender.sendMessage(isPl ? "§cNieprawidłowa nazwa struktury. Spróbuj: VILLAGE, SHIPWRECK, itp." : "§cInvalid structure name. Try: VILLAGE, SHIPWRECK, etc.");
+                                sender.sendMessage(getMsg("auto-msg-53"));
                                 return true;
                             }
                             getConfig().set("filter.structure", value);
@@ -4282,11 +4055,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         if (value.equals("CLEAR")) {
                             getConfig().set("filter.biome", "");
                             saveConfig();
-                            sender.sendMessage(isPl ? "§aFiltr biomu wyczyszczony." : "§aBiome filter cleared.");
+                            sender.sendMessage(getMsg("auto-msg-54"));
                         } else {
                             Set<String> META_BIOMES = Set.of("OCEAN_ALL", "FOREST_ALL", "MOUNTAIN_ALL", "CAVE_ALL", "DESERT_ALL", "TAIGA_ALL");
                             if (!BIOME_NAMES.contains(value) && !META_BIOMES.contains(value)) {
-                                sender.sendMessage(isPl ? "§cNieprawidłowa nazwa biomu. Spróbuj: PLAINS, DESERT, OCEAN_ALL, itp." : "§cInvalid biome name (or rare). Try: PLAINS, DESERT, OCEAN_ALL, etc.");
+                                sender.sendMessage(getMsg("auto-msg-55"));
                             }
                             getConfig().set("filter.biome", value);
                             getConfig().set("filter.structure", ""); // AUTO CLEAR STRUCTURE
@@ -4294,7 +4067,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             sender.sendMessage(getMsg("filter-biome-set").replace("{biome}", value));
                         }
                     } else {
-                        sender.sendMessage(isPl ? "§cUżycie: /wr filter <structure|biome> <nazwa|clear> lub /wr filter clear" : "§cUsage: /wr filter <structure|biome> <name|clear> or /wr filter clear");
+                        sender.sendMessage(getMsg("auto-msg-56"));
                     }
 
                     if (getConfig().getString("filter.structure", "").isEmpty() && getConfig().getString("filter.biome", "").isEmpty()) {
@@ -4305,9 +4078,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 }
                 case "timer" -> {
                     if (hasPerm(sender, "worldreset.timer")) return noPerm(sender, "worldreset.timer");
-                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
                     if (args.length < 2) {
-                        sender.sendMessage(isPl ? "§cUżycie: /wr timer <start|pause|reset|enable|disable|mode|scope|goal>" : "§cUsage: /wr timer <start|pause|reset|enable|disable|mode|scope|goal>");
+                        sender.sendMessage(getMsg("auto-msg-57"));
                         return true;
                     }
 
@@ -4333,7 +4105,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             sender.sendMessage(getMsg("timer-auto-enabled"));
                         }
                         resetAndStartTimer();
-                        broadcastInfo(isPl ? "§eTimer ręcznie zresetowany do 0." : "§eTimer manually reset to 0.");
+                        broadcastInfo(getMsg("auto-msg-58"));
                         return true;
                     } else if (isEnableAlias(sub)) {
                         getConfig().set("timer.enabled", true);
@@ -4359,7 +4131,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             getConfig().set("timer.mode", mode);
                             saveConfig();
                             timerMode = mode;
-                            sender.sendMessage(isPl ? "§aTryb timera ustawiony na: §e" + mode : "§aTimer mode set to: §e" + mode);
+                            sender.sendMessage(getMsg("timer-mode-set").replace("{v1}", String.valueOf(mode)));
                         }
                         return true;
                     } else if (sub.equals("scope")) {
@@ -4369,7 +4141,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             getConfig().set("timer.scope", scope);
                             saveConfig();
                             timerScope = scope;
-                            sender.sendMessage(isPl ? "§aZasięg timera ustawiony na: §e" + scope : "§aTimer scope set to: §e" + scope);
+                            sender.sendMessage(getMsg("timer-scope-set").replace("{v1}", String.valueOf(scope)));
                         }
                         return true;
                     } else if (sub.equals("goal")) {
@@ -4382,12 +4154,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             saveConfig();
                             timerGoalType = "NONE";
                             timerGoalValue = "";
-                            sender.sendMessage(isPl ? "§aCel timera usunięty. Będzie działał bez końca." : "§aTimer goal removed. It will run indefinitely.");
+                            sender.sendMessage(getMsg("auto-msg-59"));
                             return true;
                         }
 
                         if (args.length < 4) {
-                            sender.sendMessage(isPl ? "§cPodaj wartość celu." : "§cProvide a value for the goal.");
+                            sender.sendMessage(getMsg("auto-msg-60"));
                             return true;
                         }
 
@@ -4401,11 +4173,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 NamespacedKey key = NamespacedKey.fromString(goalValue);
                                 EntityType t = Registry.ENTITY_TYPE.get(key);
                                 if (t == null || !t.isAlive()) {
-                                    sender.sendMessage(isPl ? "§cNieprawidłowy typ encji: " + args[3] : "§cInvalid entity type: " + args[3]);
+                                    sender.sendMessage(getMsg("invalid-entity").replace("{v1}", String.valueOf(args[3])));
                                     return true;
                                 }
                             } catch (Exception e) {
-                                sender.sendMessage(isPl ? "§cNieprawidłowy format encji." : "§cInvalid entity format.");
+                                sender.sendMessage(getMsg("auto-msg-61"));
                                 return true;
                             }
                         } else if (goalType.equals("ADVANCEMENT")) {
@@ -4415,17 +4187,17 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             try {
                                 NamespacedKey key = NamespacedKey.fromString(goalValue);
                                 if (Bukkit.getAdvancement(key) == null) {
-                                    sender.sendMessage(isPl ? "§cNieprawidłowy advancement: " + args[3] : "§cInvalid advancement: " + args[3]);
+                                    sender.sendMessage(getMsg("invalid-advancement").replace("{v1}", String.valueOf(args[3])));
                                     return true;
                                 }
                             } catch (Exception e) {
-                                sender.sendMessage(isPl ? "§cNieprawidłowy format advancementu." : "§cInvalid advancement format.");
+                                sender.sendMessage(getMsg("auto-msg-62"));
                                 return true;
                             }
                         } else if (goalType.equals("PORTAL")) {
                             goalValue = goalValue.toUpperCase();
                             if (!Arrays.asList("NETHER", "END", "OVERWORLD", "ANY").contains(goalValue)) {
-                                sender.sendMessage(isPl ? "§cNieprawidłowy portal! Użyj: NETHER, END, OVERWORLD, ANY" : "§cInvalid portal! Use: NETHER, END, OVERWORLD, ANY");
+                                sender.sendMessage(getMsg("auto-msg-63"));
                                 return true;
                             }
                         } else if (goalType.equals("BLOCK")) {
@@ -4434,11 +4206,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             try {
                                 Material mat = Material.matchMaterial(goalValue);
                                 if (mat == null || !mat.isBlock()) {
-                                    sender.sendMessage(isPl ? "§cNieprawidłowy materiał bloku: " + args[3] : "§cInvalid block material: " + args[3]);
+                                    sender.sendMessage(getMsg("invalid-block").replace("{v1}", String.valueOf(args[3])));
                                     return true;
                                 }
                             } catch (Exception e) {
-                                sender.sendMessage(isPl ? "§cNieprawidłowy format bloku." : "§cInvalid block format.");
+                                sender.sendMessage(getMsg("auto-msg-64"));
                                 return true;
                             }
                         } else if (goalType.equals("ITEM")) {
@@ -4447,11 +4219,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             try {
                                 Material mat = Material.matchMaterial(goalValue);
                                 if (mat == null || !mat.isItem()) {
-                                    sender.sendMessage(isPl ? "§cNieprawidłowy materiał przedmiotu: " + args[3] : "§cInvalid item material: " + args[3]);
+                                    sender.sendMessage(getMsg("invalid-item").replace("{v1}", String.valueOf(args[3])));
                                     return true;
                                 }
                             } catch (Exception e) {
-                                sender.sendMessage(isPl ? "§cNieprawidłowy format przedmiotu." : "§cInvalid item format.");
+                                sender.sendMessage(getMsg("auto-msg-65"));
                                 return true;
                             }
                         }
@@ -4461,13 +4233,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         saveConfig();
                         timerGoalType = goalType;
                         timerGoalValue = goalValue;
-                        sender.sendMessage(isPl ? "§aCel timera ustawiony: §e" + goalType + " -> " + goalValue : "§aTimer goal set: §e" + goalType + " -> " + goalValue);
+                        sender.sendMessage(getMsg("timer-goal-set").replace("{v1}", String.valueOf(goalType)).replace("{v2}", String.valueOf(goalValue)));
                         return true;
                     }
                 }
                 case "compass" -> {
                     if (hasPerm(sender, "worldreset.compass")) return noPerm(sender, "worldreset.compass");
-                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
 
                     boolean newState;
                     if (args.length < 2) {
@@ -4480,7 +4251,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         } else if (isDisableAlias(sub)) {
                             newState = false;
                         } else {
-                            sender.sendMessage(isPl ? "§cUżycie: /wr compass <enable|disable>" : "§cUsage: /wr compass <enable|disable>");
+                            sender.sendMessage(getMsg("auto-msg-66"));
                             return true;
                         }
                     }
@@ -4489,12 +4260,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     getConfig().set("compass.enabled", newState);
                     saveConfig();
                     applyLocatorBarGamerule();
-                    sender.sendMessage(newState ? (isPl ? "§aLocator bar włączony!" : "§aLocator bar enabled!") : (isPl ? "§cLocator bar wyłączony." : "§cLocator bar disabled."));
+                    sender.sendMessage(newState ? (getMsg("auto-msg-67")) : (getMsg("auto-msg-68")));
                     return true;
                 }
                 case "templates" -> {
                     if (hasPerm(sender, "worldreset.templates")) return noPerm(sender, "worldreset.templates");
-                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
 
                     if (args.length < 2) {
                         // Toggle
@@ -4502,7 +4272,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         boolean newVal = !current;
                         getConfig().set("template.enabled", newVal);
                         saveConfig();
-                        sender.sendMessage(newVal ? (isPl ? "§aSzablony włączone." : "§aTemplates enabled.") : (isPl ? "§cSzablony wyłączone." : "§cTemplates disabled."));
+                        sender.sendMessage(newVal ? (getMsg("auto-msg-69")) : (getMsg("auto-msg-70")));
                         return true;
                     }
 
@@ -4510,20 +4280,20 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     if (isEnableAlias(sub)) {
                         getConfig().set("template.enabled", true);
                         saveConfig();
-                        sender.sendMessage(isPl ? "§aSzablony włączone." : "§aTemplates enabled.");
+                        sender.sendMessage(getMsg("auto-msg-71"));
                     } else if (isDisableAlias(sub)) {
                         getConfig().set("template.enabled", false);
                         saveConfig();
-                        sender.sendMessage(isPl ? "§cSzablony wyłączone." : "§cTemplates disabled.");
+                        sender.sendMessage(getMsg("auto-msg-72"));
                     } else if (sub.equals("folder")) {
                         if (args.length < 3) {
                             String currentFolder = getConfig().getString("template.folder", "WorldReset_Templates");
-                            sender.sendMessage((isPl ? "§eAktualny folder szablonów: §f" : "§eCurrent templates folder: §f") + currentFolder);
+                            sender.sendMessage((getMsg("auto-msg-73")) + currentFolder);
                         } else {
                             String newFolder = args[2];
                             getConfig().set("template.folder", newFolder);
                             saveConfig();
-                            sender.sendMessage((isPl ? "§aFolder szablonów ustawiony na: §f" : "§aTemplates folder set to: §f") + newFolder);
+                            sender.sendMessage((getMsg("auto-msg-74")) + newFolder);
                         }
                     } else if (sub.equals("status")) {
                         boolean enabled = getConfig().getBoolean("template.enabled", false);
@@ -4538,18 +4308,17 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 }
                             }
                         }
-                        sender.sendMessage(isPl ? "§e--- Status Szablonów ---" : "§e--- Templates Status ---");
-                        sender.sendMessage((isPl ? "§7Włączone: " : "§7Enabled: ") + (enabled ? (isPl ? "§aTak" : "§aYes") : (isPl ? "§cNie" : "§cNo")));
-                        sender.sendMessage((isPl ? "§7Folder: §f" : "§7Folder: §f") + folder);
-                        sender.sendMessage((isPl ? "§7Wykryte światy: §f" : "§7Detected worlds: §f") + worldCount);
+                        sender.sendMessage(getMsg("auto-msg-75"));
+                        sender.sendMessage((getMsg("auto-msg-76")) + (enabled ? (getMsg("auto-msg-77")) : (getMsg("auto-msg-78"))));
+                        sender.sendMessage((getMsg("auto-msg-79")) + folder);
+                        sender.sendMessage((getMsg("auto-msg-80")) + worldCount);
                     } else {
-                        sender.sendMessage(isPl ? "§cUżycie: /wr templates <enable|disable|folder|status>" : "§cUsage: /wr templates <enable|disable|folder|status>");
+                        sender.sendMessage(getMsg("auto-msg-81"));
                     }
                     return true;
                 }
                 case "autoreset" -> {
                     if (hasPerm(sender, "worldreset.autoreset")) return noPerm(sender, "worldreset.autoreset");
-                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
 
                     if (args.length < 2) {
                         // Toggle autoreset
@@ -4558,7 +4327,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             autoResetPaused = true;
                             getConfig().set("autoreset.paused", true);
                             saveConfig();
-                            sender.sendMessage(isPl ? "§6AutoReset wstrzymany." : "§6AutoReset paused.");
+                            sender.sendMessage(getMsg("auto-msg-82"));
                         } else if (autoResetEnabled && autoResetPaused) {
                             // Paused → resume
                             autoResetPaused = false;
@@ -4566,7 +4335,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             saveConfig();
                             if (autoResetRemainingSeconds <= 0) autoResetRemainingSeconds = autoResetTotalSeconds;
                             startAutoResetTimer();
-                            sender.sendMessage((isPl ? "§aAutoReset wznowiony! Czas: §e" : "§aAutoReset resumed! Time: §e") + formatAutoResetTime(autoResetRemainingSeconds));
+                            sender.sendMessage((getMsg("auto-msg-83")) + formatAutoResetTime(autoResetRemainingSeconds));
                         } else {
                             // Disabled → enable and start
                             autoResetEnabled = true;
@@ -4576,7 +4345,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             saveConfig();
                             autoResetRemainingSeconds = autoResetTotalSeconds;
                             startAutoResetTimer();
-                            sender.sendMessage((isPl ? "§aAutoReset uruchomiony! Czas: §e" : "§aAutoReset started! Time: §e") + formatAutoResetTime(autoResetRemainingSeconds));
+                            sender.sendMessage((getMsg("auto-msg-84")) + formatAutoResetTime(autoResetRemainingSeconds));
                         }
                         syncAutoResetScoreboard();
                         return true;
@@ -4586,12 +4355,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
                     switch (sub) {
                         case "status" -> {
-                            String statusStr = !autoResetEnabled ? (isPl ? "§cWyłączony" : "§cDisabled") : (autoResetPaused ? (isPl ? "§6Wstrzymany" : "§6Paused") : (isPl ? "§aDziała" : "§aRunning"));
-                            sender.sendMessage(isPl ? "§e--- Status AutoResetu ---" : "§e--- AutoReset Status ---");
-                            sender.sendMessage((isPl ? "§7Status: " : "§7Status: ") + statusStr);
-                            sender.sendMessage((isPl ? "§7Czas: §f" : "§7Time: §f") + formatAutoResetTime(autoResetRemainingSeconds) + " §7/ §f" + formatAutoResetTime(autoResetTotalSeconds));
-                            sender.sendMessage((isPl ? "§7Pętla: " : "§7Loop: ") + (autoResetLoop ? (isPl ? "§aTak" : "§aYes") : (isPl ? "§cNie" : "§cNo")));
-                            sender.sendMessage((isPl ? "§7Widoczny: " : "§7Visible: ") + (autoResetVisible ? (isPl ? "§aTak" : "§aYes") : (isPl ? "§cNie" : "§cNo")));
+                            String statusStr = !autoResetEnabled ? (getMsg("auto-msg-85")) : (autoResetPaused ? (getMsg("auto-msg-86")) : (getMsg("auto-msg-87")));
+                            sender.sendMessage(getMsg("auto-msg-88"));
+                            sender.sendMessage((getMsg("auto-msg-89")) + statusStr);
+                            sender.sendMessage((getMsg("auto-msg-90")) + formatAutoResetTime(autoResetRemainingSeconds) + " §7/ §f" + formatAutoResetTime(autoResetTotalSeconds));
+                            sender.sendMessage((getMsg("auto-msg-91")) + (autoResetLoop ? (getMsg("auto-msg-92")) : (getMsg("auto-msg-93"))));
+                            sender.sendMessage((getMsg("auto-msg-94")) + (autoResetVisible ? (getMsg("auto-msg-95")) : (getMsg("auto-msg-96"))));
                         }
                         case "start" -> {
                             autoResetEnabled = true;
@@ -4603,14 +4372,14 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 autoResetRemainingSeconds = autoResetTotalSeconds;
                             }
                             startAutoResetTimer();
-                            sender.sendMessage((isPl ? "§aAutoReset uruchomiony! Pozostały czas: §e" : "§aAutoReset started! Time remaining: §e") + formatAutoResetTime(autoResetRemainingSeconds));
+                            sender.sendMessage((getMsg("auto-msg-97")) + formatAutoResetTime(autoResetRemainingSeconds));
                             syncAutoResetScoreboard();
                         }
                         case "stop", "pause" -> {
                             autoResetPaused = true;
                             getConfig().set("autoreset.paused", true);
                             saveConfig();
-                            sender.sendMessage((isPl ? "§6AutoReset wstrzymany. Pozostały czas: §e" : "§6AutoReset paused. Time remaining: §e") + formatAutoResetTime(autoResetRemainingSeconds));
+                            sender.sendMessage((getMsg("auto-msg-98")) + formatAutoResetTime(autoResetRemainingSeconds));
                             syncAutoResetScoreboard();
                         }
                         case "disable" -> {
@@ -4621,7 +4390,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             getConfig().set("autoreset.enabled", false);
                             getConfig().set("autoreset.paused", true);
                             saveConfig();
-                            sender.sendMessage(isPl ? "§cAutoReset wyłączony i timer zresetowany." : "§cAutoReset disabled and timer reset.");
+                            sender.sendMessage(getMsg("auto-msg-99"));
                             syncAutoResetScoreboard();
                         }
                         case "loop" -> {
@@ -4632,7 +4401,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             }
                             getConfig().set("autoreset.loop", autoResetLoop);
                             saveConfig();
-                            sender.sendMessage((isPl ? "§aPętla AutoResetu: " : "§aAutoReset loop: ") + (autoResetLoop ? (isPl ? "§aWłączona" : "§aEnabled") : (isPl ? "§cWyłączona" : "§cDisabled")));
+                            sender.sendMessage((getMsg("auto-msg-100")) + (autoResetLoop ? (getMsg("auto-msg-101")) : (getMsg("auto-msg-102"))));
                         }
                         case "visible" -> {
                             if (args.length < 3) {
@@ -4642,11 +4411,11 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             }
                             getConfig().set("autoreset.visible", autoResetVisible);
                             saveConfig();
-                            sender.sendMessage((isPl ? "§aWidoczność AutoResetu: " : "§aAutoReset visibility: ") + (autoResetVisible ? (isPl ? "§aWidoczny" : "§aVisible") : (isPl ? "§cUkryty" : "§cHidden")));
+                            sender.sendMessage((getMsg("auto-msg-103")) + (autoResetVisible ? (getMsg("auto-msg-104")) : (getMsg("auto-msg-105"))));
                         }
                         case "time" -> {
                             if (args.length < 3) {
-                                sender.sendMessage(isPl ? "§cUżycie: /wr autoreset time <wartość> (np. 60s, 5m, 1h)" : "§cUsage: /wr autoreset time <value> (e.g. 60s, 5m, 1h)");
+                                sender.sendMessage(getMsg("auto-msg-106"));
                                 return true;
                             }
                             long newTime = parseTimeToSeconds(args[2]);
@@ -4654,7 +4423,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             autoResetRemainingSeconds = newTime;
                             getConfig().set("autoreset.time", args[2]);
                             saveConfig();
-                            sender.sendMessage((isPl ? "§aCzas AutoResetu ustawiony na: §e" : "§aAutoReset time set to: §e") + formatAutoResetTime(newTime));
+                            sender.sendMessage((getMsg("auto-msg-107")) + formatAutoResetTime(newTime));
 
                             // Restart the timer if it's running
                             if (autoResetEnabled && !autoResetPaused) {
@@ -4663,14 +4432,13 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             syncAutoResetScoreboard();
                         }
                         default -> {
-                            sender.sendMessage(isPl ? "§cUżycie: /wr autoreset <start|stop|disable|loop|visible|time>" : "§cUsage: /wr autoreset <start|stop|disable|loop|visible|time>");
+                            sender.sendMessage(getMsg("auto-msg-108"));
                         }
                     }
                     return true;
                 }
                 case "backup" -> {
                     if (hasPerm(sender, "worldreset.admin")) return noPerm(sender, "worldreset.admin");
-                    boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
 
                     // /wr backup — toggle
                     if (args.length == 1) {
@@ -4678,7 +4446,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         boolean newVal = !current;
                         getConfig().set("backup.enabled", newVal);
                         saveConfig();
-                        sender.sendMessage(newVal ? (isPl ? "§aKopie zapasowe włączone." : "§aBackups enabled.") : (isPl ? "§cKopie zapasowe wyłączone." : "§cBackups disabled."));
+                        sender.sendMessage(newVal ? (getMsg("auto-msg-109")) : (getMsg("auto-msg-110")));
                         return true;
                     }
 
@@ -4688,12 +4456,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                         case "enable", "on", "true" -> {
                             getConfig().set("backup.enabled", true);
                             saveConfig();
-                            sender.sendMessage(isPl ? "§aKopie zapasowe włączone." : "§aBackups enabled.");
+                            sender.sendMessage(getMsg("auto-msg-111"));
                         }
                         case "disable", "off", "false" -> {
                             getConfig().set("backup.enabled", false);
                             saveConfig();
-                            sender.sendMessage(isPl ? "§cKopie zapasowe wyłączone." : "§cBackups disabled.");
+                            sender.sendMessage(getMsg("auto-msg-112"));
                         }
                         case "status" -> {
                             boolean enabled = getConfig().getBoolean("backup.enabled", true);
@@ -4709,23 +4477,23 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     for (File dir : dirs) totalSize += getDirSize(dir);
                                 }
                             }
-                            sender.sendMessage(isPl ? "§e--- Status Kopii Zapasowych ---" : "§e--- Backup Status ---");
-                            sender.sendMessage((isPl ? "§7Włączone: " : "§7Enabled: ") + (enabled ? (isPl ? "§aTak" : "§aYes") : (isPl ? "§cNie" : "§cNo")));
-                            sender.sendMessage((isPl ? "§7Limit: §f" : "§7Limit: §f") + limitStr);
-                            sender.sendMessage((isPl ? "§7Istniejące kopie: §f" : "§7Existing backups: §f") + backupCount);
-                            sender.sendMessage((isPl ? "§7Łączny rozmiar: §f" : "§7Total size: §f") + formatFileSize(totalSize));
-                            sender.sendMessage((isPl ? "§7Folder: §f" : "§7Folder: §f") + folder);
+                            sender.sendMessage(getMsg("auto-msg-113"));
+                            sender.sendMessage((getMsg("auto-msg-114")) + (enabled ? (getMsg("auto-msg-115")) : (getMsg("auto-msg-116"))));
+                            sender.sendMessage((getMsg("auto-msg-117")) + limitStr);
+                            sender.sendMessage((getMsg("auto-msg-118")) + backupCount);
+                            sender.sendMessage((getMsg("auto-msg-119")) + formatFileSize(totalSize));
+                            sender.sendMessage((getMsg("auto-msg-120")) + folder);
                         }
                         case "list" -> {
                             String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
                             File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
                             if (!backupsDir.exists() || backupsDir.listFiles(File::isDirectory) == null) {
-                                sender.sendMessage(isPl ? "§7Nie znaleziono kopii zapasowych." : "§7No backups found.");
+                                sender.sendMessage(getMsg("auto-msg-121"));
                                 return true;
                             }
                             File[] dirs = backupsDir.listFiles(File::isDirectory);
                             if (dirs == null || dirs.length == 0) {
-                                sender.sendMessage(isPl ? "§7Nie znaleziono kopii zapasowych." : "§7No backups found.");
+                                sender.sendMessage(getMsg("auto-msg-122"));
                                 return true;
                             }
                             Arrays.sort(dirs, Comparator.comparingLong(File::lastModified).reversed());
@@ -4740,36 +4508,36 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             int start = (page - 1) * perPage;
                             int end = Math.min(start + perPage, dirs.length);
 
-                            sender.sendMessage((isPl ? "§e--- Kopie zapasowe (" : "§e--- Backups (") + dirs.length + (isPl ? ") §7— Strona " : ") §7— Page ") + page + "/" + totalPages + " §e---");
+                            sender.sendMessage((getMsg("auto-msg-123")) + dirs.length + (getMsg("auto-msg-124")) + page + "/" + totalPages + " §e---");
                             for (int i = start; i < end; i++) {
                                 long size = getDirSize(dirs[i]);
                                 sender.sendMessage("§7 " + (i + 1) + ". §f" + dirs[i].getName() + " §8(§7" + formatFileSize(size) + "§8)");
                             }
                             if (page < totalPages) {
-                                sender.sendMessage((isPl ? "§7Użyj §e/wr backup list " + (page + 1) + " §7aby zobaczyć następną stronę." : "§7Use §e/wr backup list " + (page + 1) + " §7for next page."));
+                                sender.sendMessage(getMsg("backup-list-next").replace("{v1}", String.valueOf(page + 1)));
                             }
                         }
                         case "load" -> {
                             if (args.length < 3) {
-                                sender.sendMessage(isPl ? "§cUżycie: /wr backup load <numer>" : "§cUsage: /wr backup load <number>");
+                                sender.sendMessage(getMsg("auto-msg-125"));
                                 return true;
                             }
                             String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
                             File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
                             File[] dirs = backupsDir.exists() ? backupsDir.listFiles(File::isDirectory) : null;
                             if (dirs == null || dirs.length == 0) {
-                                sender.sendMessage(isPl ? "§cBrak dostępnych kopii zapasowych." : "§cNo backups available.");
+                                sender.sendMessage(getMsg("auto-msg-126"));
                                 return true;
                             }
                             Arrays.sort(dirs, Comparator.comparingLong(File::lastModified).reversed());
                             try {
                                 int index = Integer.parseInt(args[2]) - 1;
                                 if (index < 0 || index >= dirs.length) {
-                                    sender.sendMessage(isPl ? "§cNieprawidłowy numer! Użyj 1-" + dirs.length : "§cInvalid number! Use 1-" + dirs.length);
+                                    sender.sendMessage(getMsg("invalid-number-range").replace("{v1}", String.valueOf(dirs.length)));
                                     return true;
                                 }
                                 File selectedBackup = dirs[index];
-                                sender.sendMessage((isPl ? "§eWczytywanie kopii: §f" : "§eLoading backup: §f") + selectedBackup.getName() + "§e...");
+                                sender.sendMessage((getMsg("auto-msg-127")) + selectedBackup.getName() + "§e...");
 
                                 isResetting = true;
                                 isGameReady = false;
@@ -4844,7 +4612,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     }
                                 }.runTaskLater(Main.this, 20L);
                             } catch (NumberFormatException e) {
-                                sender.sendMessage(isPl ? "§cUżycie: /wr backup load <numer>" : "§cUsage: /wr backup load <number>");
+                                sender.sendMessage(getMsg("auto-msg-128"));
                             }
                         }
                         case "clear" -> {
@@ -4852,7 +4620,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
                             File[] dirs = backupsDir.exists() ? backupsDir.listFiles(File::isDirectory) : null;
                             if (dirs == null || dirs.length == 0) {
-                                sender.sendMessage(isPl ? "§7Brak kopii do usunięcia." : "§7No backups to clear.");
+                                sender.sendMessage(getMsg("auto-msg-129"));
                                 return true;
                             }
 
@@ -4861,7 +4629,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 try {
                                     int count = Integer.parseInt(args[2]);
                                     if (count <= 0) {
-                                        sender.sendMessage(isPl ? "§cLiczba musi być co najmniej 1!" : "§cNumber must be at least 1!");
+                                        sender.sendMessage(getMsg("auto-msg-130"));
                                         return true;
                                     }
                                     Arrays.sort(dirs, Comparator.comparingLong(File::lastModified));
@@ -4869,9 +4637,9 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                     for (int i = 0; i < toDelete; i++) {
                                         deleteDirectoryRecursive(dirs[i]);
                                     }
-                                    sender.sendMessage(isPl ? "§aUsunięto §e" + toDelete + " §anajstarszych kopii." : "§aDeleted §e" + toDelete + " §aoldest backup(s).");
+                                    sender.sendMessage(getMsg("deleted-oldest").replace("{v1}", String.valueOf(toDelete)));
                                 } catch (NumberFormatException e) {
-                                    sender.sendMessage(isPl ? "§cUżycie: /wr backup clear [ilość]" : "§cUsage: /wr backup clear [number]");
+                                    sender.sendMessage(getMsg("auto-msg-131"));
                                 }
                             } else {
                                 // /wr backup clear — delete all
@@ -4879,32 +4647,32 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                                 for (File dir : dirs) {
                                     deleteDirectoryRecursive(dir);
                                 }
-                                sender.sendMessage(isPl ? "§aWszystkie §e" + count + " §akopii usunięte." : "§aAll §e" + count + " §abackup(s) deleted.");
+                                sender.sendMessage(getMsg("deleted-all").replace("{v1}", String.valueOf(count)));
                             }
                         }
                         case "limit" -> {
                             if (args.length < 3) {
                                 String limitStr = getConfig().getString("backup.limit", "all");
-                                sender.sendMessage((isPl ? "§7Aktualny limit kopii: §f" : "§7Current backup limit: §f") + limitStr);
+                                sender.sendMessage((getMsg("auto-msg-132")) + limitStr);
                                 return true;
                             }
                             String value = args[2].toLowerCase();
                             if (value.equals("all")) {
                                 getConfig().set("backup.limit", "all");
                                 saveConfig();
-                                sender.sendMessage(isPl ? "§aLimit kopii ustawiony na: §eall §7(zachowaj wszystkie)" : "§aBackup limit set to: §eall §7(keep all backups)");
+                                sender.sendMessage(getMsg("auto-msg-133"));
                             } else {
                                 try {
                                     int limit = Integer.parseInt(value);
                                     if (limit < 1) {
-                                        sender.sendMessage(isPl ? "§cLimit musi być co najmniej 1 lub 'all'!" : "§cLimit must be at least 1 or 'all'!");
+                                        sender.sendMessage(getMsg("auto-msg-134"));
                                         return true;
                                     }
                                     getConfig().set("backup.limit", String.valueOf(limit));
                                     saveConfig();
-                                    sender.sendMessage(isPl ? "§aLimit kopii ustawiony na: §e" + limit + " §7(zachowaj ostatnie " + limit + ")" : "§aBackup limit set to: §e" + limit + " §7(keep last " + limit + " backups)");
+                                    sender.sendMessage(getMsg("backup-limit-set").replace("{v1}", String.valueOf(limit)));
                                 } catch (NumberFormatException e) {
-                                    sender.sendMessage(isPl ? "§cUżycie: /wr backup limit <liczba|all>" : "§cUsage: /wr backup limit <number|all>");
+                                    sender.sendMessage(getMsg("auto-msg-135"));
                                 }
                             }
                         }
@@ -4913,14 +4681,14 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                             try {
                                 int limit = Integer.parseInt(sub);
                                 if (limit < 1) {
-                                    sender.sendMessage(isPl ? "§cLimit musi być co najmniej 1!" : "§cLimit must be at least 1!");
+                                    sender.sendMessage(getMsg("auto-msg-136"));
                                     return true;
                                 }
                                 getConfig().set("backup.limit", String.valueOf(limit));
                                 saveConfig();
-                                sender.sendMessage(isPl ? "§aLimit kopii ustawiony na: §e" + limit : "§aBackup limit set to: §e" + limit);
+                                sender.sendMessage(getMsg("backup-limit-set-basic").replace("{v1}", String.valueOf(limit)));
                             } catch (NumberFormatException e) {
-                                sender.sendMessage(isPl ? "§cUżycie: /wr backup <enable|disable|status|limit> lub /wr backup <numer>" : "§cUsage: /wr backup <enable|disable|status|limit> or /wr backup <number>");
+                                sender.sendMessage(getMsg("auto-msg-137"));
                             }
                         }
                     }
@@ -4957,31 +4725,30 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     }
 
     private void sendFullHelp(CommandSender sender) {
-        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
         sender.sendMessage("§8§m------§8[ §b§lWorldReset §8]§m------");
-        sender.sendMessage(isPl ? "§7§oWpisz §e/wr help §6<§ekomenda§6> §7§opo szczegóły." : "§7§oUse §e/wr help §6<§ecommand§6> §7§ofor details.");
+        sender.sendMessage(getMsg("auto-msg-138"));
         sender.sendMessage("");
-        sender.sendMessage(isPl ? "§f§l⚙ Gra" : "§f§l⚙ Game");
-        sender.sendMessage(isPl ? "  §e/wr reset §6[§esekundy§6] §8- §7Zresetuj świat" : "  §e/wr reset §6[§eseconds§6] §8- §7Reset the world");
-        sender.sendMessage(isPl ? "  §e/wr limbo §6[§egracz§6|§eme§6] §8- §7Przenieś do/z Limbo" : "  §e/wr limbo §6[§eplayer§6|§eme§6] §8- §7Toggle Limbo");
-        sender.sendMessage(isPl ? "  §e/wr death §8- §7Reset po śmierci" : "  §e/wr death §8- §7Toggle reset-on-death");
+        sender.sendMessage(getMsg("auto-msg-139"));
+        sender.sendMessage(getMsg("auto-msg-140"));
+        sender.sendMessage(getMsg("auto-msg-141"));
+        sender.sendMessage(getMsg("auto-msg-142"));
         sender.sendMessage("");
-        sender.sendMessage(isPl ? "§f§l⏱ Timer i AutoReset" : "§f§l⏱ Timer & AutoReset");
-        sender.sendMessage(isPl ? "  §e/wr timer §6<§eakcja§6> §8- §7Stoper speedrunowy" : "  §e/wr timer §6<§eaction§6> §8- §7Speedrun stopwatch");
-        sender.sendMessage(isPl ? "  §e/wr autoreset §6<§eakcja§6> §8- §7Zaplanowane resety" : "  §e/wr autoreset §6<§eaction§6> §8- §7Scheduled resets");
+        sender.sendMessage(getMsg("auto-msg-143"));
+        sender.sendMessage(getMsg("auto-msg-144"));
+        sender.sendMessage(getMsg("auto-msg-145"));
         sender.sendMessage("");
-        sender.sendMessage(isPl ? "§f§l🌍 Świat" : "§f§l🌍 World");
-        sender.sendMessage(isPl ? "  §e/wr filter §6[§etyp§6] §6[§enazwa§6] §8- §7Filtry spawnu i seed" : "  §e/wr filter §6[§etype§6] §6[§ename§6] §8- §7Spawn filters & seed");
-        sender.sendMessage(isPl ? "  §e/wr seed §6[§ewartość§6] §8- §7Stały/losowy seed" : "  §e/wr seed §6[§evalue§6] §8- §7Fixed/random seed");
-        sender.sendMessage(isPl ? "  §e/wr templates §6<§eakcja§6> §8- §7Szablony map" : "  §e/wr templates §6<§eaction§6> §8- §7World templates");
-        sender.sendMessage(isPl ? "  §e/wr compass §6[§eenable§6|§edisable§6] §8- §7Locator bar" : "  §e/wr compass §6[§eenable§6|§edisable§6] §8- §7Locator bar");
-        sender.sendMessage(isPl ? "  §e/wr give §6<§eboat§6|§ewood§6> §8- §7Auto dawanie przedmiotów" : "  §e/wr give §6<§eboat§6|§ewood§6> §8- §7Auto item giving");
+        sender.sendMessage(getMsg("auto-msg-146"));
+        sender.sendMessage(getMsg("auto-msg-147"));
+        sender.sendMessage(getMsg("auto-msg-148"));
+        sender.sendMessage(getMsg("auto-msg-149"));
+        sender.sendMessage(getMsg("auto-msg-150"));
+        sender.sendMessage(getMsg("auto-msg-151"));
         sender.sendMessage("");
-        sender.sendMessage(isPl ? "§f§l🛠 System" : "§f§l🛠 System");
-        sender.sendMessage(isPl ? "  §e/wr backup §6[§eakcja§6] §8- §7Zarządzanie kopiami" : "  §e/wr backup §6[§eaction§6] §8- §7Backup management");
-        sender.sendMessage(isPl ? "  §e/wr language §6<§een§6|§epl§6> §8- §7Zmień język" : "  §e/wr language §6<§een§6|§epl§6> §8- §7Change language");
-        sender.sendMessage(isPl ? "  §e/wr silent §8- §7Wycisz komunikaty" : "  §e/wr silent §8- §7Toggle broadcasts");
-        sender.sendMessage(isPl ? "  §e/wr reload §8- §7Przeładuj config" : "  §e/wr reload §8- §7Reload config");
+        sender.sendMessage(getMsg("auto-msg-152"));
+        sender.sendMessage(getMsg("auto-msg-153"));
+        sender.sendMessage(getMsg("auto-msg-154"));
+        sender.sendMessage(getMsg("auto-msg-155"));
+        sender.sendMessage(getMsg("auto-msg-156"));
         sender.sendMessage("§8§m----------------------------");
     }
 
@@ -5254,71 +5021,68 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         try {
             org.bukkit.scoreboard.Scoreboard scoreboard = Bukkit.getScoreboardManager().getMainScoreboard();
             
-            String lang = getConfig().getString("language", "en");
-            boolean isPl = lang.equalsIgnoreCase("pl");
-
-            org.bukkit.scoreboard.Objective attemptsObj = getOrRegisterObjective(scoreboard, "wr_attempts", isPl ? "Proby" : "Attempts");
-            org.bukkit.scoreboard.Objective completionsObj = getOrRegisterObjective(scoreboard, "wr_completions", isPl ? "Ukonczenia" : "Completions");
-            org.bukkit.scoreboard.Objective winRatioObj = getOrRegisterObjective(scoreboard, "wr_win_ratio", isPl ? "Procent Wygranych (%)" : "Win Ratio (%)");
-            org.bukkit.scoreboard.Objective topRankObj = getOrRegisterObjective(scoreboard, "wr_top_rank", isPl ? "Pozycja" : "Top Rank");
+            org.bukkit.scoreboard.Objective attemptsObj = getOrRegisterObjective(scoreboard, "wr_attempts", getMsg("auto-msg-157"));
+            org.bukkit.scoreboard.Objective completionsObj = getOrRegisterObjective(scoreboard, "wr_completions", getMsg("auto-msg-158"));
+            org.bukkit.scoreboard.Objective winRatioObj = getOrRegisterObjective(scoreboard, "wr_win_ratio", getMsg("auto-msg-159"));
+            org.bukkit.scoreboard.Objective topRankObj = getOrRegisterObjective(scoreboard, "wr_top_rank", getMsg("auto-msg-160"));
             
             // PB
-            org.bukkit.scoreboard.Objective pbMsObj = getOrRegisterObjective(scoreboard, "wr_pb_ms", isPl ? "PB (Milisekundy)" : "PB (Millis)");
-            org.bukkit.scoreboard.Objective pbSecObj = getOrRegisterObjective(scoreboard, "wr_pb", isPl ? "PB (Sekundy)" : "PB (Seconds)");
-            org.bukkit.scoreboard.Objective pbSecExplicitObj = getOrRegisterObjective(scoreboard, "wr_pb_sec", isPl ? "PB (Sekundy)" : "PB (Seconds)");
-            org.bukkit.scoreboard.Objective pbMinObj = getOrRegisterObjective(scoreboard, "wr_pb_min", isPl ? "PB (Minuty)" : "PB (Minutes)");
-            org.bukkit.scoreboard.Objective pbTicksObj = getOrRegisterObjective(scoreboard, "wr_pb_ticks", isPl ? "PB (Ticki)" : "PB (Ticks)");
+            org.bukkit.scoreboard.Objective pbMsObj = getOrRegisterObjective(scoreboard, "wr_pb_ms", getMsg("auto-msg-161"));
+            org.bukkit.scoreboard.Objective pbSecObj = getOrRegisterObjective(scoreboard, "wr_pb", getMsg("auto-msg-162"));
+            org.bukkit.scoreboard.Objective pbSecExplicitObj = getOrRegisterObjective(scoreboard, "wr_pb_sec", getMsg("auto-msg-163"));
+            org.bukkit.scoreboard.Objective pbMinObj = getOrRegisterObjective(scoreboard, "wr_pb_min", getMsg("auto-msg-164"));
+            org.bukkit.scoreboard.Objective pbTicksObj = getOrRegisterObjective(scoreboard, "wr_pb_ticks", getMsg("auto-msg-165"));
             
             // Record
-            org.bukkit.scoreboard.Objective top1MsObj = getOrRegisterObjective(scoreboard, "wr_top1_ms", isPl ? "Rekord (Milisekundy)" : "Record (Millis)");
-            org.bukkit.scoreboard.Objective top1SecObj = getOrRegisterObjective(scoreboard, "wr_top1_sec", isPl ? "Rekord (Sekundy)" : "Record (Seconds)");
-            org.bukkit.scoreboard.Objective top1MinObj = getOrRegisterObjective(scoreboard, "wr_top1_min", isPl ? "Rekord (Minuty)" : "Record (Minutes)");
-            org.bukkit.scoreboard.Objective top1TicksObj = getOrRegisterObjective(scoreboard, "wr_top1_ticks", isPl ? "Rekord (Ticki)" : "Record (Ticks)");
+            org.bukkit.scoreboard.Objective top1MsObj = getOrRegisterObjective(scoreboard, "wr_top1_ms", getMsg("auto-msg-166"));
+            org.bukkit.scoreboard.Objective top1SecObj = getOrRegisterObjective(scoreboard, "wr_top1_sec", getMsg("auto-msg-167"));
+            org.bukkit.scoreboard.Objective top1MinObj = getOrRegisterObjective(scoreboard, "wr_top1_min", getMsg("auto-msg-168"));
+            org.bukkit.scoreboard.Objective top1TicksObj = getOrRegisterObjective(scoreboard, "wr_top1_ticks", getMsg("auto-msg-169"));
             
             // Last
-            org.bukkit.scoreboard.Objective lastMsObj = getOrRegisterObjective(scoreboard, "wr_last_ms", isPl ? "Ostatni (Milisekundy)" : "Last (Millis)");
-            org.bukkit.scoreboard.Objective lastSecObj = getOrRegisterObjective(scoreboard, "wr_last_sec", isPl ? "Ostatni (Sekundy)" : "Last (Seconds)");
-            org.bukkit.scoreboard.Objective lastMinObj = getOrRegisterObjective(scoreboard, "wr_last_min", isPl ? "Ostatni (Minuty)" : "Last (Minutes)");
-            org.bukkit.scoreboard.Objective lastTicksObj = getOrRegisterObjective(scoreboard, "wr_last_ticks", isPl ? "Ostatni (Ticki)" : "Last (Ticks)");
+            org.bukkit.scoreboard.Objective lastMsObj = getOrRegisterObjective(scoreboard, "wr_last_ms", getMsg("auto-msg-170"));
+            org.bukkit.scoreboard.Objective lastSecObj = getOrRegisterObjective(scoreboard, "wr_last_sec", getMsg("auto-msg-171"));
+            org.bukkit.scoreboard.Objective lastMinObj = getOrRegisterObjective(scoreboard, "wr_last_min", getMsg("auto-msg-172"));
+            org.bukkit.scoreboard.Objective lastTicksObj = getOrRegisterObjective(scoreboard, "wr_last_ticks", getMsg("auto-msg-173"));
 
             // Average
-            org.bukkit.scoreboard.Objective avgMsObj = getOrRegisterObjective(scoreboard, "wr_avg_ms", isPl ? "Srednia (Milisekundy)" : "Avg (Millis)");
-            org.bukkit.scoreboard.Objective avgSecObj = getOrRegisterObjective(scoreboard, "wr_avg_sec", isPl ? "Srednia (Sekundy)" : "Avg (Seconds)");
-            org.bukkit.scoreboard.Objective avgObj = getOrRegisterObjective(scoreboard, "wr_avg", isPl ? "Srednia (Sekundy)" : "Avg (Seconds)");
-            org.bukkit.scoreboard.Objective avgMinObj = getOrRegisterObjective(scoreboard, "wr_avg_min", isPl ? "Srednia (Minuty)" : "Avg (Minutes)");
-            org.bukkit.scoreboard.Objective avgTicksObj = getOrRegisterObjective(scoreboard, "wr_avg_ticks", isPl ? "Srednia (Ticki)" : "Avg (Ticks)");
+            org.bukkit.scoreboard.Objective avgMsObj = getOrRegisterObjective(scoreboard, "wr_avg_ms", getMsg("auto-msg-174"));
+            org.bukkit.scoreboard.Objective avgSecObj = getOrRegisterObjective(scoreboard, "wr_avg_sec", getMsg("auto-msg-175"));
+            org.bukkit.scoreboard.Objective avgObj = getOrRegisterObjective(scoreboard, "wr_avg", getMsg("auto-msg-176"));
+            org.bukkit.scoreboard.Objective avgMinObj = getOrRegisterObjective(scoreboard, "wr_avg_min", getMsg("auto-msg-177"));
+            org.bukkit.scoreboard.Objective avgTicksObj = getOrRegisterObjective(scoreboard, "wr_avg_ticks", getMsg("auto-msg-178"));
 
             // Total
-            org.bukkit.scoreboard.Objective totalMsObj = getOrRegisterObjective(scoreboard, "wr_total_time_ms", isPl ? "Suma (Milisekundy)" : "Total (Millis)");
-            org.bukkit.scoreboard.Objective totalSecObj = getOrRegisterObjective(scoreboard, "wr_total_time_sec", isPl ? "Suma (Sekundy)" : "Total (Seconds)");
-            org.bukkit.scoreboard.Objective totalMinObj = getOrRegisterObjective(scoreboard, "wr_total_time_min", isPl ? "Suma (Minuty)" : "Total (Minutes)");
-            org.bukkit.scoreboard.Objective totalTicksObj = getOrRegisterObjective(scoreboard, "wr_total_time_ticks", isPl ? "Suma (Ticki)" : "Total (Ticks)");
+            org.bukkit.scoreboard.Objective totalMsObj = getOrRegisterObjective(scoreboard, "wr_total_time_ms", getMsg("auto-msg-179"));
+            org.bukkit.scoreboard.Objective totalSecObj = getOrRegisterObjective(scoreboard, "wr_total_time_sec", getMsg("auto-msg-180"));
+            org.bukkit.scoreboard.Objective totalMinObj = getOrRegisterObjective(scoreboard, "wr_total_time_min", getMsg("auto-msg-181"));
+            org.bukkit.scoreboard.Objective totalTicksObj = getOrRegisterObjective(scoreboard, "wr_total_time_ticks", getMsg("auto-msg-182"));
 
             // --- NEW OBJECTIVES ---
             World w = Bukkit.getWorld(gameWorldName);
             long seedVal = w != null ? w.getSeed() : 0L;
             int seedLower32 = (int) seedVal;
             
-            org.bukkit.scoreboard.Objective seedObj = getOrRegisterObjective(scoreboard, "wr_seed", isPl ? "Ziarno" : "Seed");
+            org.bukkit.scoreboard.Objective seedObj = getOrRegisterObjective(scoreboard, "wr_seed", getMsg("auto-msg-183"));
 
             int activePlayers = w != null ? w.getPlayers().size() : 0;
-            org.bukkit.scoreboard.Objective playersActiveObj = getOrRegisterObjective(scoreboard, "wr_players_active", isPl ? "Aktywni Gracze" : "Active Players");
+            org.bukkit.scoreboard.Objective playersActiveObj = getOrRegisterObjective(scoreboard, "wr_players_active", getMsg("auto-msg-184"));
 
             int resetOnDeathVal = getConfig().getBoolean("reset-on-death", false) ? 1 : 0;
-            org.bukkit.scoreboard.Objective deathResetObj = getOrRegisterObjective(scoreboard, "wr_death_reset", isPl ? "Reset po Smierci" : "Death Reset");
+            org.bukkit.scoreboard.Objective deathResetObj = getOrRegisterObjective(scoreboard, "wr_death_reset", getMsg("auto-msg-185"));
 
             int timerStatusVal = goalReachedPause ? 2 : (timerRunning ? 1 : 0);
-            org.bukkit.scoreboard.Objective timerStatusObj = getOrRegisterObjective(scoreboard, "wr_timer_status", isPl ? "Status Stopera" : "Timer Status");
+            org.bukkit.scoreboard.Objective timerStatusObj = getOrRegisterObjective(scoreboard, "wr_timer_status", getMsg("auto-msg-186"));
 
             int timerModeVal = timerMode != null && timerMode.equalsIgnoreCase("IGT") ? 2 : 1;
-            org.bukkit.scoreboard.Objective timerModeObj = getOrRegisterObjective(scoreboard, "wr_timer_mode", isPl ? "Tryb Stopera" : "Timer Mode");
+            org.bukkit.scoreboard.Objective timerModeObj = getOrRegisterObjective(scoreboard, "wr_timer_mode", getMsg("auto-msg-187"));
 
             int timerScopeVal = timerScope != null && timerScope.equalsIgnoreCase("INDIVIDUAL") ? 2 : 1;
-            org.bukkit.scoreboard.Objective timerScopeObj = getOrRegisterObjective(scoreboard, "wr_timer_scope", isPl ? "Zasieg Stopera" : "Timer Scope");
+            org.bukkit.scoreboard.Objective timerScopeObj = getOrRegisterObjective(scoreboard, "wr_timer_scope", getMsg("auto-msg-188"));
 
             UUID uuid = player.getUniqueId();
             int playerFinishedVal = playersFinished.contains(uuid) ? 1 : 0;
-            org.bukkit.scoreboard.Objective playerFinishedObj = getOrRegisterObjective(scoreboard, "wr_player_finished", isPl ? "Ukonczono" : "Finished");
+            org.bukkit.scoreboard.Objective playerFinishedObj = getOrRegisterObjective(scoreboard, "wr_player_finished", getMsg("auto-msg-189"));
 
             int goalTypeVal = 0;
             if (timerGoalType != null) {
@@ -5330,7 +5094,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     case "ITEM": goalTypeVal = 5; break;
                 }
             }
-            org.bukkit.scoreboard.Objective goalTypeObj = getOrRegisterObjective(scoreboard, "wr_goal_type", isPl ? "Typ Celu" : "Goal Type");
+            org.bukkit.scoreboard.Objective goalTypeObj = getOrRegisterObjective(scoreboard, "wr_goal_type", getMsg("auto-msg-190"));
 
             int difficultyVal = 2;
             Difficulty bukkitDiff = getServerDifficulty();
@@ -5342,12 +5106,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                     case HARD: difficultyVal = 3; break;
                 }
             }
-            org.bukkit.scoreboard.Objective difficultyObj = getOrRegisterObjective(scoreboard, "wr_difficulty", isPl ? "Trudnosc" : "Difficulty");
+            org.bukkit.scoreboard.Objective difficultyObj = getOrRegisterObjective(scoreboard, "wr_difficulty", getMsg("auto-msg-191"));
 
             String filterStruct = getConfig().getString("filter.structure", "");
             String filterBiome = getConfig().getString("filter.biome", "");
             int filterActiveVal = (filterStruct != null && !filterStruct.isEmpty()) || (filterBiome != null && !filterBiome.isEmpty()) ? 1 : 0;
-            org.bukkit.scoreboard.Objective filterActiveObj = getOrRegisterObjective(scoreboard, "wr_filter_active", isPl ? "Filtr Aktywny" : "Filter Active");
+            org.bukkit.scoreboard.Objective filterActiveObj = getOrRegisterObjective(scoreboard, "wr_filter_active", getMsg("auto-msg-192"));
 
             String path = "players." + uuid.toString();
             int attempts = recordsConfig.getInt(path + ".attempts", 0);
@@ -5457,11 +5221,12 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
     private org.bukkit.scoreboard.Objective getOrRegisterObjective(org.bukkit.scoreboard.Scoreboard scoreboard, String name, String displayName) {
         org.bukkit.scoreboard.Objective obj = scoreboard.getObjective(name);
+        Component displayComponent = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection().deserialize(displayName);
         if (obj == null) {
-            obj = scoreboard.registerNewObjective(name, org.bukkit.scoreboard.Criteria.DUMMY, displayName);
+            obj = scoreboard.registerNewObjective(name, org.bukkit.scoreboard.Criteria.DUMMY, displayComponent);
         }
-        if (!obj.getDisplayName().equals(displayName)) {
-            obj.setDisplayName(displayName);
+        if (!obj.displayName().equals(displayComponent)) {
+            obj.displayName(displayComponent);
         }
         return obj;
     }
@@ -5473,13 +5238,22 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
     }
 
     private void updateLeaderboard(String name, UUID uuid, long time, long seed) {
-        List<Map<?, ?>> list = (List<Map<?, ?>>) recordsConfig.getMapList("leaderboard");
-        if (list == null) list = new ArrayList<>();
+        List<Map<?, ?>> rawList = recordsConfig.getMapList("leaderboard");
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (rawList != null) {
+            for (Map<?, ?> m : rawList) {
+                Map<String, Object> entry = new HashMap<>();
+                for (Map.Entry<?, ?> e : m.entrySet()) {
+                    entry.put(e.getKey().toString(), e.getValue());
+                }
+                list.add(entry);
+            }
+        }
 
         Map<String, Object> existingEntry = null;
-        for (Map<?, ?> entry : list) {
+        for (Map<String, Object> entry : list) {
             if (uuid.toString().equals(entry.get("uuid"))) {
-                existingEntry = (Map<String, Object>) entry;
+                existingEntry = entry;
                 break;
             }
         }
@@ -5511,6 +5285,19 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
         recordsConfig.set("leaderboard", list);
     }
 
+    private void sendTitleToPlayer(Player p, String title, String subtitle, int fadeIn, int stay, int fadeOut) {
+        if (title == null) title = "";
+        if (subtitle == null) subtitle = "";
+        Component titleComponent = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection().deserialize(title);
+        Component subtitleComponent = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection().deserialize(subtitle);
+        net.kyori.adventure.title.Title.Times times = net.kyori.adventure.title.Title.Times.times(
+                java.time.Duration.ofMillis(fadeIn * 50L),
+                java.time.Duration.ofMillis(stay * 50L),
+                java.time.Duration.ofMillis(fadeOut * 50L)
+        );
+        p.showTitle(net.kyori.adventure.title.Title.title(titleComponent, subtitleComponent, times));
+    }
+
     public class WorldResetExpansion extends me.clip.placeholderapi.expansion.PlaceholderExpansion {
         @Override
         public @NotNull String getAuthor() {
@@ -5524,7 +5311,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
 
         @Override
         public @NotNull String getVersion() {
-            return Main.this.getDescription().getVersion();
+            return Main.this.getPluginMeta().getVersion();
         }
 
         @Override
@@ -5548,8 +5335,8 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 return formatTime(elapsed, true);
             }
             if (params.equalsIgnoreCase("timer_status")) {
-                if (goalReachedPause) return isPl ? "§6Ukończony" : "§6Finished";
-                return timerRunning ? (isPl ? "§aBiegnie" : "§aRunning") : (isPl ? "§cZatrzymany" : "§cPaused");
+                if (goalReachedPause) return getMsg("auto-msg-193");
+                return timerRunning ? (getMsg("auto-msg-194")) : (getMsg("auto-msg-195"));
             }
             if (params.equalsIgnoreCase("timer_mode")) {
                 return timerMode != null ? timerMode : "RTA";
@@ -5579,14 +5366,14 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 return timerGoalValue != null ? timerGoalValue : "";
             }
             if (params.equalsIgnoreCase("player_finished")) {
-                return playersFinished.contains(uuid) ? (isPl ? "§aUkończono" : "§aFinished") : (isPl ? "§cBiegnie" : "§cRunning");
+                return playersFinished.contains(uuid) ? (getMsg("auto-msg-196")) : (getMsg("auto-msg-197"));
             }
             if (params.equalsIgnoreCase("seed")) {
                 World w = Bukkit.getWorld(gameWorldName);
                 return w != null ? String.valueOf(w.getSeed()) : "0";
             }
             if (params.equalsIgnoreCase("death_reset")) {
-                return getConfig().getBoolean("reset-on-death", false) ? (isPl ? "§cWłączony" : "§cEnabled") : (isPl ? "§aWyłączony" : "§aDisabled");
+                return getConfig().getBoolean("reset-on-death", false) ? (getMsg("auto-msg-198")) : (getMsg("auto-msg-199"));
             }
             if (params.equalsIgnoreCase("world_name")) {
                 return gameWorldName;
@@ -5599,19 +5386,19 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 String filterStruct = getConfig().getString("filter.structure", "");
                 String filterBiome = getConfig().getString("filter.biome", "");
                 boolean active = (filterStruct != null && !filterStruct.isEmpty()) || (filterBiome != null && !filterBiome.isEmpty());
-                return active ? (isPl ? "Tak" : "Yes") : (isPl ? "Nie" : "No");
+                return active ? (getMsg("auto-msg-200")) : (getMsg("auto-msg-201"));
             }
             if (params.equalsIgnoreCase("filter_biome")) {
                 String filterBiome = getConfig().getString("filter.biome", "");
-                return (filterBiome != null && !filterBiome.isEmpty()) ? filterBiome : (isPl ? "Brak" : "None");
+                return (filterBiome != null && !filterBiome.isEmpty()) ? filterBiome : (getMsg("auto-msg-202"));
             }
             if (params.equalsIgnoreCase("filter_structure")) {
                 String filterStruct = getConfig().getString("filter.structure", "");
-                return (filterStruct != null && !filterStruct.isEmpty()) ? filterStruct : (isPl ? "Brak" : "None");
+                return (filterStruct != null && !filterStruct.isEmpty()) ? filterStruct : (getMsg("auto-msg-203"));
             }
             if (params.equalsIgnoreCase("difficulty")) {
                 Difficulty diff = getServerDifficulty();
-                if (diff == null) return isPl ? "Normalny" : "NORMAL";
+                if (diff == null) return getMsg("auto-msg-204");
                 return isPl ? switch(diff) {
                     case PEACEFUL -> "Pokojowy";
                     case EASY -> "Łatwy";
@@ -5621,7 +5408,7 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
             }
             if (params.equalsIgnoreCase("goal")) {
                 if (timerGoalType == null || timerGoalType.equalsIgnoreCase("NONE")) {
-                    return isPl ? "Brak" : "None";
+                    return getMsg("auto-msg-205");
                 }
                 String typeStr = timerGoalType;
                 if (isPl) {
@@ -5817,15 +5604,15 @@ public class Main extends JavaPlugin implements Listener, TabCompleter {
                 return String.valueOf(autoResetTotalSeconds);
             }
             if (params.equalsIgnoreCase("autoreset_status")) {
-                if (!autoResetEnabled) return isPl ? "§cWyłączony" : "§cDisabled";
-                if (autoResetPaused) return isPl ? "§6Wstrzymany" : "§6Paused";
-                return isPl ? "§aAktywny" : "§aRunning";
+                if (!autoResetEnabled) return getMsg("auto-msg-206");
+                if (autoResetPaused) return getMsg("auto-msg-207");
+                return getMsg("auto-msg-208");
             }
             if (params.equalsIgnoreCase("autoreset_loop")) {
-                return autoResetLoop ? (isPl ? "Tak" : "Yes") : (isPl ? "Nie" : "No");
+                return autoResetLoop ? (getMsg("auto-msg-209")) : (getMsg("auto-msg-210"));
             }
             if (params.equalsIgnoreCase("autoreset_enabled")) {
-                return autoResetEnabled ? (isPl ? "Tak" : "Yes") : (isPl ? "Nie" : "No");
+                return autoResetEnabled ? (getMsg("auto-msg-211")) : (getMsg("auto-msg-212"));
             }
 
             // ---- SERVER LEADERBOARDS ----
