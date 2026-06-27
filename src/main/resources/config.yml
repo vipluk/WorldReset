@@ -93,7 +93,7 @@ filter:
   #      Wyższa = większa szansa znalezienia, ale dłuższe szukanie.
   # [EN] Maximum attempts to find an island/land in water/island biomes.
   #      Higher = better chance of finding, but longer search time.
-  attempts: 3
+  attempts: 1
 
 # [PL] Czy wyświetlać komunikaty o resecie na czacie globalnym? (true/false)
 # [EN] Should the plugin broadcast world reset messages in global chat? (true/false)
@@ -199,8 +199,8 @@ give:
   # [EN] Automatically give a boat to players if spawn is on water?
   boat-if-water: true
 
-  # [PL] Czy dawać drewno graczom automatycznie jeśli spawn jest pod ziemią (biom jaskiniowy)?
-  # [EN] Automatically give wood to players if spawn is underground (cave biome)?
+  # [PL] Czy dawać drewno graczom automatycznie jeśli spawn jest pod ziemią?
+  # [EN] Automatically give wood to players if spawn is underground?
   wood-if-underground: true
 
   # [PL] Ilość drewna dawana przy spawnie podziemnym (1-64). 0 = wyłączone.
