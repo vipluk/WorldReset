@@ -61,6 +61,8 @@ When `delay-out` is set, the countdown starts immediately after players enter Li
 
 - `/wr filter` (no args) — shows current structure filter, biome filter, seed mode, and active world seed.
 - `/wr filter clear` — clears both filters AND disables fixed seed.
+- **Smart Biome Validation:** Prevents typos by checking the Minecraft registry before applying a biome filter. If the biome doesn't exist, it displays an error instead of breaking the world generation.
+- **Overworld Structures Filter:** The `/wr filter structure` tab-completion list now automatically hides structures that can never generate in the Overworld (e.g., `END_CITY`, `FORTRESS`, `BASTION_REMNANT`), keeping the list clean and relevant for starting spawns.
 
 ## `/wr templates`
 
@@ -105,12 +107,12 @@ All `enable`/`disable` arguments across every command also accept `on`/`off` and
 Complete rewrite of the biome spawn finding logic:
 
 **How it works:**
-- Uses `locateNearestBiome` to find the biome, then spirals outward checking for dry land with the exact biome at player height.
+- Uses `locateNearestBiome` to find the biome, calculates the geometric center of the biome, and then spirals outward checking for dry land at player height.
 - Spread across server ticks (BukkitRunnable every 2 ticks) — never blocks the main thread.
 - Pre-filters columns by biome at Y=62 to skip irrelevant areas quickly.
-- For ocean biomes: finds islands by detecting land above sea level.
+- For ocean biomes: finds islands by detecting land above sea level and strictly verifying it is surrounded by water from all 4 cardinal directions in a 32-block radius (cutting off attached peninsulas).
 - For river/frozen_river: special border-detection logic finds solid ground at biome edges.
-- Fallback: spawns on water with boat if no land found.
+- Fallback: spawns on water with boat if no land found (and verified).
 
 **Supported biomes (async path):** All oceans (7+5 deep), river, frozen_river, mushroom_fields, mangrove_swamp, swamp, beach, snowy_beach, stony_shore.
 
@@ -136,7 +138,7 @@ give:
   wood-amount: 5
 ```
 
-**Wood trigger:** Given when player spawn Y is more than 3 blocks below the surface (highest block). Works for cave biomes AND underground structures.
+**Wood trigger:** Given when player spawn Y is more than 3 blocks below the highest surface block (regardless of the biome registry). Works robustly for both cave biomes and underground structures.
 
 ## Underground Structure Spawn
 
@@ -149,6 +151,7 @@ Structures with characteristic blocks are now searched in full 3D:
 - **Buried Treasure:** chest
 
 The plugin searches ±16 blocks XZ and full Y range for these blocks, then finds a safe air pocket (2 air blocks + solid floor) within ±3 blocks. Fallback: any air pocket in the structure column, then surface spawn.
+*Note: In Paper 1.21+, the initial structure location search runs synchronously to comply with the engine's strict `StructuresLocateEvent` rules, preventing crash errors during filter usage, and then transitions back to async for safe block searching.*
 
 ## Paper API Multi-Version Compatibility (1.21 - 1.21.4+)
 

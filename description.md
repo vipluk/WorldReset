@@ -1,6 +1,6 @@
 ❤️ **If you enjoy this plugin, please consider leaving a like! It means a lot for me.** ❤️
 
-> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21+ Paper API**. Tested on Paper 1.21–1.21.4+, Purpur 1.21.0–1.21.4+, and Spigot 1.21+. It works across all Minecraft 1.21 versions natively at runtime.
+> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21+ Purpur**. Tested on Purpur 1.21, 1.21.4, 26.1.2. It should work on Bukkit and Paper.
 
 If you want to report a bug or suggest a new plugin, join my [Discord server](https://discord.gg/A7WVnYj3BP).
 
@@ -23,12 +23,11 @@ WorldReset is a plugin designed to manage game worlds dynamically. Instead of ki
 * **📊 Vanilla Scoreboard Integration:** Plug-and-play synchronization with **38 vanilla scoreboard objectives**! Track and display speedrun metrics (attempts, completions, average times, personal bests, server records, timer live seconds/minutes, seed, world name, active players, difficulty, active goal, death reset, etc.) using built-in Minecraft commands, completely out of the box!
 * **🧩 PlaceholderAPI (PAPI) Support:** Integrates with PlaceholderAPI to provide **28 dynamic placeholders** for your tab lists, sidebar plugins, or hologram displays (timer, goals, finished players, current seeds, active filters, difficulty, leaderboards).
 * **🏹 Spawn Shifter:** Never reset for a good seed again! Configure a target **Structure** (e.g., Village) or **Biome** (e.g., Cherry Grove). The plugin scans the registry dynamically to move your spawn directly to your target. Underground structures (Stronghold, Ancient City, Mineshaft, Trial Chambers) spawn you inside the structure!
-* **🏝️ Smart Land Seeker:** No more spawning in the middle of the ocean! After generating a new world (or shifting spawn), the plugin uses an async tick-spread algorithm to find dry land in any biome — ocean islands, river banks, mushroom fields, swamps — without blocking the server. Configurable search attempts.
-* **🎁 Auto Give:** Automatically gives a boat when spawning on water, and wood when spawning underground. Configurable via `/wr give boat <enable|disable>` and `/wr give wood <amount|enable|disable>`.
+* **🏝️ Smart Land Seeker:** No more spawning in the middle of the ocean! After generating a new world (or shifting spawn), the plugin geometrically calculates the biome center and spirals outward to find dry land. It uses a strict 4-way water verification (32-block radius) to ensure ocean islands are actually surrounded by water (cutting off attached peninsulas). Spread across server ticks, it never blocks the main thread.
+* **🎁 Auto Give:** Automatically gives a boat when spawning on actual water biomes, and wood when spawning underground (Y is below surface). Configurable via `/wr give boat <enable|disable>` and `/wr give wood <amount|enable|disable>`.
 * **☁️ Seamless Limbo:** Players are moved to a waiting world ("Limbo") during generation. Configurable countdown delays with on-screen timer and sound effects give players a heads-up before teleports.
 * **⏳ Limbo Countdown Delays:** Set automatic delays (in seconds) for entering and leaving Limbo. Players see a visual countdown with adaptive intervals and sounds, but can keep playing until it finishes. Use `/wr limbo <seconds>` for manual delayed toggle, or `/wr limbo delay <in> <out>` to configure global automatic delays.
 * **🧭 Native Locator Bar:** Toggle Minecraft's built-in multiplayer **Locator Bar** (1.21.6+) directly with `/wr compass enable/disable`. No custom overlays — pure vanilla.
-* **🛠️ Future-Proof Registers:** Dynamically imports all Minecraft biomes and structures at server startup. Fully supports new additions (like Trial Chambers and Pale Garden) as well as custom structures from other datapacks out of the box!
 * **🌍 Multi-Language:** Full support for **English** and **Polish** (changeable via command).
 
 ---
@@ -50,7 +49,7 @@ Main command: `/worldreset` or `/wr`
 | `/wr silent` | Toggles **Silent Mode** (hides global chat messages) ON/OFF. | `worldreset.silent` |
 | `/wr filter` | Shows current active filters and seed status. | `worldreset.filter` |
 | `/wr filter structure <name>` | Sets a target structure (e.g., VILLAGE). Auto-clears biome filter. | `worldreset.filter` |
-| `/wr filter biome <name>` | Sets a target biome (e.g., PLAINS). Auto-clears structure filter. | `worldreset.filter` |
+| `/wr filter biome <group/name> [specific_biome]` | Sets a target biome or group (e.g., OCEANS). Auto-clears structure filter. | `worldreset.filter` |
 | `/wr filter clear` | Instantly clears and disables all biome/structure filters. | `worldreset.filter` |
 | `/wr seed <value>` | Sets a fixed seed for future resets. | `worldreset.seed` |
 | `/wr seed` | Disables fixed seed (enables Random Seed mode). | `worldreset.seed` |
