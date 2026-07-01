@@ -3,6 +3,7 @@ package org.example.worldreset;
 import net.kyori.adventure.text.Component;
 import org.bukkit.*;
 import org.bukkit.advancement.Advancement;
+import org.bukkit.advancement.AdvancementProgress;
 import org.bukkit.block.Biome;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
@@ -59,6 +60,7 @@ public class Main extends JavaPlugin implements Listener {
     private File recordsFile;
 
     private boolean isResetting = false;
+    private boolean isBackupLoading = false;
     private boolean isDelayingReset = false; // true during delay-in countdown before actual reset
     private boolean parallelDelayOutRunning = false; // true when delay-out countdown started parallel with generation
     private boolean isGameReady = false;
@@ -187,7 +189,7 @@ public class Main extends JavaPlugin implements Listener {
             @Override
             public void run() {
                 if (isResetting && !isGameReady) {
-                    String waitMsg = getSubtitle("limbo-waiting", "Scanning world...");
+                    String waitMsg = isBackupLoading ? getSubtitle("limbo-backup-loading", "Loading backup...") : getSubtitle("limbo-waiting", "Scanning world...");
                     if (waitMsg.endsWith("...")) {
                         waitMsg = waitMsg.substring(0, waitMsg.length() - 3) + ".".repeat(tickCount % 4);
                     }
@@ -795,6 +797,7 @@ public class Main extends JavaPlugin implements Listener {
                                 deleteWorldFolder(gameWorldName);
                                 deleteWorldFolder(gameWorldName + "_nether");
                                 deleteWorldFolder(gameWorldName + "_the_end");
+                                resetAllPlayerDataAndProgress();
 
                                 generateGameWorlds();
                             }
@@ -885,6 +888,7 @@ public class Main extends JavaPlugin implements Listener {
                                 deleteWorldFolder(gameWorldName);
                                 deleteWorldFolder(gameWorldName + "_nether");
                                 deleteWorldFolder(gameWorldName + "_the_end");
+                                resetAllPlayerDataAndProgress();
 
                                 generateGameWorldsInternal(hasBiomeFilter);
                             }
@@ -937,6 +941,7 @@ public class Main extends JavaPlugin implements Listener {
                                 deleteWorldFolder(gameWorldName);
                                 deleteWorldFolder(gameWorldName + "_nether");
                                 deleteWorldFolder(gameWorldName + "_the_end");
+                                resetAllPlayerDataAndProgress();
 
                                 generateAutoTriggeredGameWorlds();
                             }
@@ -1067,6 +1072,7 @@ public class Main extends JavaPlugin implements Listener {
                                 deleteWorldFolder(gameWorldName);
                                 deleteWorldFolder(gameWorldName + "_nether");
                                 deleteWorldFolder(gameWorldName + "_the_end");
+                                resetAllPlayerDataAndProgress();
 
                                 generateGameWorldsInternal(hasBiomeFilter);
                             }
@@ -1348,7 +1354,7 @@ public class Main extends JavaPlugin implements Listener {
         if (parallelDelayOutRunning) {
             resetAndStartTimer();
             isResetting = false;
-        } else if (useDelayOut && limboDelayOut > 0) {
+        } else if (useDelayOut && limboDelayOut >0) {
             startGameForAllWithDelay();
             resetAndStartTimer();
             isResetting = false;
@@ -2673,6 +2679,16 @@ public class Main extends JavaPlugin implements Listener {
 
     private void performBackup() {
         broadcastInfo(getMsg("backup-start"));
+
+        // Force save all online players' data to disk before copying
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            try {
+                p.saveData();
+            } catch (Exception e) {
+                getLogger().warning("Failed to save player data for " + p.getName() + " before backup: " + e.getMessage());
+            }
+        }
+
         String timestamp = new SimpleDateFormat("dd-MM-yyyy_HH-mm-ss").format(new Date());
         File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), getConfig().getString("backup.folder", "backups"));
         File currentBackupDir = new File(backupsDir, timestamp);
@@ -2680,6 +2696,14 @@ public class Main extends JavaPlugin implements Listener {
         copyWorldToBackup(gameWorldName, currentBackupDir);
         copyWorldToBackup(gameWorldName + "_nether", currentBackupDir);
         copyWorldToBackup(gameWorldName + "_the_end", currentBackupDir);
+
+        // Copy playerdata, stats, advancements, data from the main world
+        String mainWorldName = Bukkit.getWorlds().isEmpty() ? "world" : Bukkit.getWorlds().getFirst().getName();
+        File mainWorldDir = new File(Bukkit.getWorldContainer(), mainWorldName);
+        copyWorldSubfolderToBackup(new File(mainWorldDir, "playerdata"), new File(currentBackupDir, "playerdata"));
+        copyWorldSubfolderToBackup(new File(mainWorldDir, "stats"), new File(currentBackupDir, "stats"));
+        copyWorldSubfolderToBackup(new File(mainWorldDir, "advancements"), new File(currentBackupDir, "advancements"));
+        copyWorldSubfolderToBackup(new File(mainWorldDir, "data"), new File(currentBackupDir, "data"));
 
         // Save player states from snapshot (captured before limbo teleport)
         if (lastPlayerSnapshot != null) {
@@ -2725,6 +2749,7 @@ public class Main extends JavaPlugin implements Listener {
             playersYml.set(path + ".inventory", Arrays.asList(p.getInventory().getContents()));
             playersYml.set(path + ".armor", Arrays.asList(p.getInventory().getArmorContents()));
             playersYml.set(path + ".offhand", p.getInventory().getItemInOffHand());
+            playersYml.set(path + ".enderchest", Arrays.asList(p.getEnderChest().getContents()));
 
             // Potion effects
             List<Map<String, Object>> effects = new ArrayList<>();
@@ -2777,6 +2802,7 @@ public class Main extends JavaPlugin implements Listener {
                 final List<?> finvList = playersYml.getList(path + ".inventory");
                 final List<?> farmorList = playersYml.getList(path + ".armor");
                 final Object foffhand = playersYml.get(path + ".offhand");
+                final List<?> fenderchestList = playersYml.getList(path + ".enderchest");
                 final List<Map<?, ?>> feffects = playersYml.getMapList(path + ".effects");
 
                 Runnable restoreAction = () -> {
@@ -2812,6 +2838,17 @@ public class Main extends JavaPlugin implements Listener {
                     }
                     if (foffhand instanceof org.bukkit.inventory.ItemStack) {
                         fp.getInventory().setItemInOffHand((org.bukkit.inventory.ItemStack) foffhand);
+                    }
+
+                    // Restore Ender Chest
+                    fp.getEnderChest().clear();
+                    if (fenderchestList != null) {
+                        org.bukkit.inventory.ItemStack[] ecContents = new org.bukkit.inventory.ItemStack[fenderchestList.size()];
+                        for (int i = 0; i < fenderchestList.size(); i++) {
+                            Object item = fenderchestList.get(i);
+                            if (item instanceof org.bukkit.inventory.ItemStack) ecContents[i] = (org.bukkit.inventory.ItemStack) item;
+                        }
+                        fp.getEnderChest().setContents(ecContents);
                     }
 
                     // Restore potion effects
@@ -2917,6 +2954,110 @@ public class Main extends JavaPlugin implements Listener {
             if (!file.delete()) {
                 getLogger().warning("Failed to delete directory: " + file.getAbsolutePath());
             }
+        }
+    }
+
+    private void clearDirectoryContents(File dir) {
+        if (dir.exists() && dir.isDirectory()) {
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    if (f.isDirectory()) {
+                        deleteDirectoryRecursive(f);
+                    } else {
+                        if (!f.delete()) {
+                            getLogger().warning("Failed to delete file: " + f.getAbsolutePath());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void copyWorldSubfolderToBackup(File source, File target) {
+        if (source.exists()) {
+            try {
+                copyDirectory(source.toPath(), target.toPath());
+            } catch (IOException e) {
+                getLogger().warning("Failed to backup folder " + source.getName() + ": " + e.getMessage());
+            }
+        }
+    }
+
+    private void resetAllPlayerDataAndProgress() {
+        String mainWorldName = Bukkit.getWorlds().isEmpty() ? "world" : Bukkit.getWorlds().getFirst().getName();
+        File mainWorldDir = new File(Bukkit.getWorldContainer(), mainWorldName);
+
+        // Clear files on disk (for offline players)
+        clearDirectoryContents(new File(mainWorldDir, "playerdata"));
+        clearDirectoryContents(new File(mainWorldDir, "stats"));
+        clearDirectoryContents(new File(mainWorldDir, "advancements"));
+        clearDirectoryContents(new File(mainWorldDir, "data"));
+
+        // Reset global scoreboard in RAM
+        try {
+            org.bukkit.scoreboard.Scoreboard sb = Bukkit.getScoreboardManager().getMainScoreboard();
+            for (org.bukkit.scoreboard.Objective obj : new HashSet<>(sb.getObjectives())) {
+                obj.unregister();
+            }
+            for (org.bukkit.scoreboard.Team team : new HashSet<>(sb.getTeams())) {
+                team.unregister();
+            }
+        } catch (Exception e) {
+            getLogger().warning("Failed to reset scoreboard objectives: " + e.getMessage());
+        }
+
+        // Reset online players in-memory progress
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            resetPlayerProgressInMemory(p);
+        }
+    }
+
+    private void resetPlayerProgressInMemory(Player p) {
+        // 1. Reset advancements (achievements)
+        try {
+            Iterator<Advancement> it = Bukkit.advancementIterator();
+            while (it.hasNext()) {
+                Advancement adv = it.next();
+                AdvancementProgress progress = p.getAdvancementProgress(adv);
+                for (String criterion : progress.getAwardedCriteria()) {
+                    progress.revokeCriteria(criterion);
+                }
+            }
+        } catch (Exception e) {
+            getLogger().warning("Failed to reset achievements for " + p.getName() + ": " + e.getMessage());
+        }
+
+        // 2. Reset stats
+        try {
+            for (Statistic statistic : Statistic.values()) {
+                if (statistic.getType() == Statistic.Type.UNTYPED) {
+                    try {
+                        p.setStatistic(statistic, 0);
+                    } catch (IllegalArgumentException ignored) {}
+                } else if (statistic.getType() == Statistic.Type.ENTITY) {
+                    for (EntityType type : EntityType.values()) {
+                        try {
+                            p.setStatistic(statistic, type, 0);
+                        } catch (IllegalArgumentException ignored) {}
+                    }
+                } else {
+                    for (Material mat : Material.values()) {
+                        try {
+                            p.setStatistic(statistic, mat, 0);
+                        } catch (IllegalArgumentException ignored) {}
+                    }
+                }
+            }
+        } catch (Exception e) {
+            getLogger().warning("Failed to reset statistics for " + p.getName() + ": " + e.getMessage());
+        }
+
+        // 3. Clear Ender Chest
+        try {
+            p.getEnderChest().clear();
+        } catch (Exception e) {
+            getLogger().warning("Failed to clear Ender Chest for " + p.getName() + ": " + e.getMessage());
         }
     }
     private void manageBackupLimit(File backupsDir) { String limitStr = getConfig().getString("backup.limit", "all"); if(limitStr.equalsIgnoreCase("all")) return; try { int limit = Integer.parseInt(limitStr); File[] backups = backupsDir.listFiles(File::isDirectory); if (backups != null && backups.length > limit) { Arrays.sort(backups, Comparator.comparingLong(File::lastModified)); int toDelete = backups.length - limit; for(int i=0; i<toDelete; i++) deleteDirectoryRecursive(backups[i]); } } catch(Exception ignored) {} }
@@ -4738,7 +4879,9 @@ public class Main extends JavaPlugin implements Listener {
                                 sender.sendMessage((getMsg("loading_backup")) + selectedBackup.getName() + "§e...");
 
                                 isResetting = true;
+                                isBackupLoading = true;
                                 isGameReady = false;
+
                                 sendAllToLimboForReset();
 
                                 new BukkitRunnable() {
@@ -4752,11 +4895,17 @@ public class Main extends JavaPlugin implements Listener {
                                                 deleteWorldFolder(gameWorldName);
                                                 deleteWorldFolder(gameWorldName + "_nether");
                                                 deleteWorldFolder(gameWorldName + "_the_end");
+                                                resetAllPlayerDataAndProgress();
 
                                                 // Full copy of backup (including playerdata, entities, etc.)
                                                 File backupOverworld = new File(selectedBackup, gameWorldName);
                                                 File backupNether = new File(selectedBackup, gameWorldName + "_nether");
                                                 File backupEnd = new File(selectedBackup, gameWorldName + "_the_end");
+                                                
+                                                File backupPlayerData = new File(selectedBackup, "playerdata");
+                                                File backupStats = new File(selectedBackup, "stats");
+                                                File backupAdvancements = new File(selectedBackup, "advancements");
+                                                File backupData = new File(selectedBackup, "data");
 
                                                 getLogger().info("Backup load - copying from: " + selectedBackup.getAbsolutePath());
                                                 getLogger().info("  Overworld exists: " + backupOverworld.exists());
@@ -4778,6 +4927,25 @@ public class Main extends JavaPlugin implements Listener {
                                                         copyDirectory(backupEnd.toPath(), new File(Bukkit.getWorldContainer(), gameWorldName + "_the_end").toPath());
                                                         File uid = new File(Bukkit.getWorldContainer(), gameWorldName + "_the_end/uid.dat");
                                                         if (uid.exists()) uid.delete();
+                                                    }
+
+                                                    String mainWorldName = Bukkit.getWorlds().isEmpty() ? "world" : Bukkit.getWorlds().getFirst().getName();
+                                                    File mainWorldDir = new File(Bukkit.getWorldContainer(), mainWorldName);
+                                                    if (backupPlayerData.exists()) {
+                                                        clearDirectoryContents(new File(mainWorldDir, "playerdata"));
+                                                        copyDirectory(backupPlayerData.toPath(), new File(mainWorldDir, "playerdata").toPath());
+                                                    }
+                                                    if (backupStats.exists()) {
+                                                        clearDirectoryContents(new File(mainWorldDir, "stats"));
+                                                        copyDirectory(backupStats.toPath(), new File(mainWorldDir, "stats").toPath());
+                                                    }
+                                                    if (backupAdvancements.exists()) {
+                                                        clearDirectoryContents(new File(mainWorldDir, "advancements"));
+                                                        copyDirectory(backupAdvancements.toPath(), new File(mainWorldDir, "advancements").toPath());
+                                                    }
+                                                    if (backupData.exists()) {
+                                                        clearDirectoryContents(new File(mainWorldDir, "data"));
+                                                        copyDirectory(backupData.toPath(), new File(mainWorldDir, "data").toPath());
                                                     }
                                                 } catch (IOException e) {
                                                     getLogger().severe("Failed to load backup: " + e.getMessage());
@@ -4804,6 +4972,7 @@ public class Main extends JavaPlugin implements Listener {
                                                         }
                                                     }
                                                 }
+                                                isBackupLoading = false;
                                                 isResetting = false;
                                             }
                                         }.runTaskLater(Main.this, 40L);
