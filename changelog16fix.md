@@ -1,13 +1,13 @@
 # Changelog - WorldReset v1.6fix
 
-WorldReset v1.6fix focuses on ensuring a complete reset of all player data, statistics, achievements, Ender Chests, maps, and scoreboards, while integrating them fully with the backup and restore system.
-
 ### 🐛 Fixed Bugs & Technical Improvements
-* 🏆 **Achievements & Stats Full Reset:** Online players get their achievements and statistics fully reset in RAM upon world reset, while files in `playerdata/`, `stats/`, and `advancements/` are wiped on disk to clean up offline players.
-* 🚪 **Offline Players Inventory & Join Fix:** Solved a critical bug where players logging off in `game_world` before a reset would bypass spawn teleportation and initialization on their next join. Wiping `playerdata/` files on reset forces Spigot to treat them as new players, placing them safely at spawn.
-* 💼 **Ender Chest Clearing:** Ender chest inventories are now completely wiped during resets (both in-memory for online players and on disk inside player data files for offline players).
-* 🗺️ **Vanilla Map & Raid Resets:** Wipes `world/data/` directory contents on reset, clearing written maps (`map_*.dat`), map counters (`idcounts.dat`), and active raids (`raids.dat`). New maps correctly start from ID `0`.
-* 📊 **RAM Scoreboard Cleanse:** Unregisters all teams and objectives from the server's main scoreboard on reset, preventing leftover speedrun objectives or database bloat.
-* 💾 **Integrated Metadata Backups & Ender Chest Hotfix:** Enhanced the backup (`performBackup`) and restore (`/wr backup load`) systems to include `playerdata`, `stats`, `advancements`, and `data` directories. Online players' Ender Chests are now saved in-memory within the player state snapshots (`players.yml`) and restored in RAM upon backup loading, completely eliminating the need to kick players. Additionally, `player.saveData()` is called before backing up to ensure disk sync.
-* 🛡️ **Compilation Error Fix:** Resolved a compilation error by adding the missing import for `org.bukkit.advancement.AdvancementProgress` in `Main.java`.
-* ⏱️ **Translatable Delay-Out Countdown:** Replaced the hardcoded English `(delay-out: Xs)` suffix in `/wr reset [delay-in] [delay-out]` with a dedicated translatable message key `reset-scheduled-with-delayout` in both English and Polish, enabling custom formats like `Reset scheduled in X seconds, exit in Y seconds.`.
+* 🏆 **Achievements & Stats Full Reset:** Online players get stats/achievements cleared in memory; offline players' files in `stats/` and `advancements/` are wiped on disk.
+* 🚪 **Offline Players Join Fix:** Wiping `playerdata/` files on reset forces returning offline players to be treated as new, preventing inventory leaks and spawn location bugs.
+* 💼 **Ender Chest Clearing:** Wipes Ender Chest inventories during resets (both in memory and in offline player data files).
+* 🗺️ **Vanilla Map & Raid Resets:** Wipes `world/data/` contents on reset, starting new map IDs from 0 and clearing active raids.
+* 📊 **RAM Scoreboard Cleanse:** Unregisters all objectives and teams from the server's scoreboard upon reset to prevent RAM bloat.
+* 💾 **Integrated Metadata Backups:** Backups now include `playerdata`, `stats`, `advancements`, and `data` folders.
+* 📦 **Ender Chest Backup & Restore:** Online players' Ender Chests are saved in `players.yml` and restored in RAM upon loading a backup without kicking players.
+* 🛡️ **Compilation Error Fix:** Added missing `AdvancementProgress` import to fix build issues.
+* ⏱️ **Translatable Delay-Out Countdown:** Replaced hardcoded English text in `/wr reset` with the `reset-scheduled-with-delayout` translation key for Polish and English.
+
