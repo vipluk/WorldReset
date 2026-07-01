@@ -2684,13 +2684,11 @@ public class Main extends JavaPlugin implements Listener {
     private void performBackup() {
         broadcastInfo(getMsg("backup-start"));
 
-        // Force save all online players' data to disk before copying
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            try {
-                p.saveData();
-            } catch (Exception e) {
-                getLogger().warning("Failed to save player data for " + p.getName() + " before backup: " + e.getMessage());
-            }
+        // Force save all online players' data, stats, and advancements to disk before copying
+        try {
+            Bukkit.savePlayers();
+        } catch (Exception e) {
+            getLogger().warning("Failed to save player data before backup: " + e.getMessage());
         }
 
         String timestamp = new SimpleDateFormat("dd-MM-yyyy_HH-mm-ss").format(new Date());
