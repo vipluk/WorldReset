@@ -615,6 +615,21 @@ public class Main extends JavaPlugin implements Listener {
         }
     }
 
+    private void setupJoiningPlayer(Player p, Location spawn) {
+        if (p.isDead()) p.spigot().respawn();
+
+        Location centeredSpawn = spawn.clone();
+        centeredSpawn.setX(centeredSpawn.getBlockX() + 0.5);
+        centeredSpawn.setZ(centeredSpawn.getBlockZ() + 0.5);
+
+        p.teleportAsync(centeredSpawn).thenAccept(success -> {
+            if (!p.isOnline()) return;
+            p.setGameMode(GameMode.SURVIVAL);
+            p.setInvulnerable(true);
+            new BukkitRunnable() { @Override public void run() { if (p.isOnline()) p.setInvulnerable(false); } }.runTaskLater(Main.this, 40L);
+        });
+    }
+
     private void setupGamePlayer(Player p, Location spawn) {
         if (p.isDead()) p.spigot().respawn();
 
@@ -3835,7 +3850,7 @@ public class Main extends JavaPlugin implements Listener {
             if (shouldTeleport) {
                 World game = Bukkit.getWorld(gameWorldName);
                 if (game != null) {
-                    setupGamePlayer(p, game.getSpawnLocation());
+                    setupJoiningPlayer(p, game.getSpawnLocation());
                 }
             }
         } else {
