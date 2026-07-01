@@ -35,6 +35,10 @@ import org.bukkit.util.StringUtil;
 import org.bukkit.util.StructureSearchResult;
 import org.jetbrains.annotations.NotNull;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -2865,6 +2869,10 @@ public class Main extends JavaPlugin implements Listener {
                         }
                     }
 
+                    // Restore stats and advancements from backup
+                    applyPlayerStatsFromBackup(fp, new File(backupDir, "stats"));
+                    applyPlayerAdvancementsFromBackup(fp, new File(backupDir, "advancements"));
+
                     // Grant brief invulnerability
                     fp.setInvulnerable(true);
                     new BukkitRunnable() { @Override public void run() { if (fp.isOnline()) fp.setInvulnerable(false); } }.runTaskLater(Main.this, 60L);
@@ -3051,6 +3059,123 @@ public class Main extends JavaPlugin implements Listener {
             return new File(mainWorldDir, "players/advancements");
         }
         return new File(mainWorldDir, "advancements");
+    }
+
+    private void applyPlayerStatsFromBackup(Player p, File backupStatsDir) {
+        File statsFile = new File(backupStatsDir, p.getUniqueId().toString() + ".json");
+        if (!statsFile.exists()) return;
+
+        try (java.io.FileReader reader = new java.io.FileReader(statsFile)) {
+            JsonObject root = new Gson().fromJson(reader, JsonObject.class);
+            if (root == null || !root.has("stats")) return;
+            JsonObject statsObj = root.getAsJsonObject("stats");
+
+            for (Map.Entry<String, JsonElement> categoryEntry : statsObj.entrySet()) {
+                String category = categoryEntry.getKey(); // e.g. "minecraft:custom"
+                if (!categoryEntry.getValue().isJsonObject()) continue;
+                JsonObject categoryObj = categoryEntry.getValue().getAsJsonObject();
+
+                for (Map.Entry<String, JsonElement> statEntry : categoryObj.entrySet()) {
+                    String statKey = statEntry.getKey(); // e.g. "minecraft:jump"
+                    int value = statEntry.getValue().getAsInt();
+
+                    // Strip "minecraft:" prefix
+                    String keyName = statKey.contains(":") ? statKey.split(":")[1] : statKey;
+
+                    try {
+                        switch (category) {
+                            case "minecraft:custom" -> {
+                                try {
+                                    Statistic stat = Statistic.valueOf(keyName.toUpperCase());
+                                    p.setStatistic(stat, value);
+                                } catch (IllegalArgumentException ignored) {}
+                            }
+                            case "minecraft:mined" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.MINE_BLOCK, mat, value);
+                            }
+                            case "minecraft:crafted" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.CRAFT_ITEM, mat, value);
+                            }
+                            case "minecraft:used" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.USE_ITEM, mat, value);
+                            }
+                            case "minecraft:broken" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.BREAK_ITEM, mat, value);
+                            }
+                            case "minecraft:picked_up" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.PICKUP, mat, value);
+                            }
+                            case "minecraft:dropped" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.DROP, mat, value);
+                            }
+                            case "minecraft:killed" -> {
+                                try {
+                                    EntityType entity = EntityType.valueOf(keyName.toUpperCase());
+                                    p.setStatistic(Statistic.KILL_ENTITY, entity, value);
+                                } catch (IllegalArgumentException ignored) {}
+                            }
+                            case "minecraft:killed_by" -> {
+                                try {
+                                    EntityType entity = EntityType.valueOf(keyName.toUpperCase());
+                                    p.setStatistic(Statistic.ENTITY_KILLED_BY, entity, value);
+                                } catch (IllegalArgumentException ignored) {}
+                            }
+                        }
+                    } catch (Exception e) {
+                        // Suppress specific errors during loading
+                    }
+                }
+            }
+        } catch (Exception e) {
+            getLogger().warning("Failed to apply stats from backup for " + p.getName() + ": " + e.getMessage());
+        }
+    }
+
+    private void applyPlayerAdvancementsFromBackup(Player p, File backupAdvDir) {
+        File advFile = new File(backupAdvDir, p.getUniqueId().toString() + ".json");
+        if (!advFile.exists()) return;
+
+        try (java.io.FileReader reader = new java.io.FileReader(advFile)) {
+            JsonObject root = new Gson().fromJson(reader, JsonObject.class);
+            if (root == null) return;
+
+            for (Map.Entry<String, JsonElement> entry : root.entrySet()) {
+                String advKeyStr = entry.getKey(); // e.g. "minecraft:story/mine_stone"
+                if (advKeyStr.equals("DataVersion")) continue;
+                if (!entry.getValue().isJsonObject()) continue;
+                JsonObject advObj = entry.getValue().getAsJsonObject();
+
+                if (!advObj.has("criteria")) continue;
+                JsonObject criteriaObj = advObj.getAsJsonObject("criteria");
+
+                NamespacedKey nsKey = NamespacedKey.fromString(advKeyStr);
+                if (nsKey == null) continue;
+
+                Advancement adv = Bukkit.getAdvancement(nsKey);
+                if (adv == null) continue;
+
+                AdvancementProgress progress = p.getAdvancementProgress(adv);
+
+                // Revoke current progress to start clean
+                for (String awarded : new ArrayList<>(progress.getAwardedCriteria())) {
+                    progress.revokeCriteria(awarded);
+                }
+
+                // Grant criteria from JSON
+                for (Map.Entry<String, JsonElement> critEntry : criteriaObj.entrySet()) {
+                    String criterion = critEntry.getKey();
+                    progress.awardCriteria(criterion);
+                }
+            }
+        } catch (Exception e) {
+            getLogger().warning("Failed to apply advancements from backup for " + p.getName() + ": " + e.getMessage());
+        }
     }
 
     private void resetPlayerProgressInMemory(Player p) {
