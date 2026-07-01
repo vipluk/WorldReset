@@ -34,17 +34,13 @@ jobs:
 
           # Checkout only necessary files and directories from the inprogress branch
           git checkout inprogress -- src/
-          git checkout inprogress -- .github/
           git checkout inprogress -- pom.xml
           git checkout inprogress -- .gitignore
           git checkout inprogress -- LICENSE
-          git checkout inprogress -- README.md
+
+          # Rename description.md to README.md for the main branch
           git checkout inprogress -- description.md
-          git checkout inprogress -- changelog.md
-          git checkout inprogress -- changelog*.md
-          git checkout inprogress -- update*.md
-          git checkout inprogress -- "Optymalizacja Spawnu Wyspy w WorldReset.md"
-          git checkout inprogress -- "Problem spawnu na oceanie.md"
+          mv description.md README.md
 
           # Check if there are changes to commit on main
           if [ -n "$(git status --porcelain)" ]; then
