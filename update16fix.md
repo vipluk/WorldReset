@@ -35,6 +35,10 @@ Z dumą prezentujemy wydanie **1.6fix** dla wtyczki **WorldReset**! Ta wersja el
   * Przed rozpoczęciem backupu wtyczka wymusza zapis danych wszystkich połączonych graczy na dysk (`p.saveData()`), gwarantując poprawny stan plików.
   * Rozszerzono strukturę zapisu stanów graczy w pliku `players.yml` (będącym migawką pamięciową tworzoną przed resetem/wczytaniem kopii) o dane Ender Chestów. Przy wczytaniu backupu wtyczka automatycznie przywraca zawartość Skrzyni Kresu każdego gracza online bezpośrednio w pamięci RAM. Dzięki temu gracze nie muszą być wyrzucani z serwera podczas przywracania kopii. Zapewniono pełną wsteczną kompatybilność.
 
+### 7. Pełna lokalizacja odliczania z opóźnieniem wyjścia (delay-out)
+* **Problem:** Końcówka `(delay-out: Xs)` przy komendzie `/wr reset <in> <out>` była zakodowana na sztywno w języku angielskim.
+* **Naprawiono:** Wprowadzono pełne wsparcie dla tłumaczeń za pomocą dedykowanego klucza językowego `reset-scheduled-with-delayout`. Pozwala to na pełną lokalizację komunikatu w języku polskim (`Reset zaplanowany za X sekund, wyjście za Y sekund.`) oraz angielskim (`Reset scheduled in X seconds, exit in Y seconds.`).
+
 ---
 
 ## 🚀 Jak zaktualizować plugin?

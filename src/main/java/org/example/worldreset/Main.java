@@ -3965,8 +3965,15 @@ public class Main extends JavaPlugin implements Listener {
                                         startReset();
                                     }
                                 });
-                                String msg = getMsg("reset-scheduled").replace("{v1}", String.valueOf(delayIn));
-                                if (delayOut > 0) msg += " §7(delay-out: " + delayOut + "s)";
+                                String msg;
+                                if (delayOut > 0) {
+                                    msg = getMsg("reset-scheduled-with-delayout")
+                                            .replace("{v1}", String.valueOf(delayIn))
+                                            .replace("{v2}", String.valueOf(delayOut));
+                                } else {
+                                    msg = getMsg("reset-scheduled")
+                                            .replace("{v1}", String.valueOf(delayIn));
+                                }
                                 sender.sendMessage(msg);
                             }
                         } catch (NumberFormatException e) {
