@@ -2700,9 +2700,9 @@ public class Main extends JavaPlugin implements Listener {
         // Copy playerdata, stats, advancements, data from the main world
         String mainWorldName = Bukkit.getWorlds().isEmpty() ? "world" : Bukkit.getWorlds().getFirst().getName();
         File mainWorldDir = new File(Bukkit.getWorldContainer(), mainWorldName);
-        copyWorldSubfolderToBackup(new File(mainWorldDir, "playerdata"), new File(currentBackupDir, "playerdata"));
-        copyWorldSubfolderToBackup(new File(mainWorldDir, "stats"), new File(currentBackupDir, "stats"));
-        copyWorldSubfolderToBackup(new File(mainWorldDir, "advancements"), new File(currentBackupDir, "advancements"));
+        copyWorldSubfolderToBackup(getPlayerDataFolder(mainWorldDir), new File(currentBackupDir, "playerdata"));
+        copyWorldSubfolderToBackup(getStatsFolder(mainWorldDir), new File(currentBackupDir, "stats"));
+        copyWorldSubfolderToBackup(getAdvancementsFolder(mainWorldDir), new File(currentBackupDir, "advancements"));
         copyWorldSubfolderToBackup(new File(mainWorldDir, "data"), new File(currentBackupDir, "data"));
 
         // Save player states from snapshot (captured before limbo teleport)
@@ -2989,9 +2989,9 @@ public class Main extends JavaPlugin implements Listener {
         File mainWorldDir = new File(Bukkit.getWorldContainer(), mainWorldName);
 
         // Clear files on disk (for offline players)
-        clearDirectoryContents(new File(mainWorldDir, "playerdata"));
-        clearDirectoryContents(new File(mainWorldDir, "stats"));
-        clearDirectoryContents(new File(mainWorldDir, "advancements"));
+        clearDirectoryContents(getPlayerDataFolder(mainWorldDir));
+        clearDirectoryContents(getStatsFolder(mainWorldDir));
+        clearDirectoryContents(getAdvancementsFolder(mainWorldDir));
         clearDirectoryContents(new File(mainWorldDir, "data"));
 
         // Reset global scoreboard in RAM
@@ -3011,6 +3011,46 @@ public class Main extends JavaPlugin implements Listener {
         for (Player p : Bukkit.getOnlinePlayers()) {
             resetPlayerProgressInMemory(p);
         }
+    }
+
+    private boolean isVersion26OrNewer() {
+        try {
+            String versionStr = Bukkit.getBukkitVersion();
+            String mcVersion = versionStr.split("-")[0];
+            String[] parts = mcVersion.split("\\.");
+            int major = Integer.parseInt(parts[0]);
+            return major >= 26;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean useNewPlayerFolderLayout(File mainWorldDir) {
+        if (new File(mainWorldDir, "players/data").exists()) {
+            return true;
+        }
+        return isVersion26OrNewer();
+    }
+
+    private File getPlayerDataFolder(File mainWorldDir) {
+        if (useNewPlayerFolderLayout(mainWorldDir)) {
+            return new File(mainWorldDir, "players/data");
+        }
+        return new File(mainWorldDir, "playerdata");
+    }
+
+    private File getStatsFolder(File mainWorldDir) {
+        if (useNewPlayerFolderLayout(mainWorldDir)) {
+            return new File(mainWorldDir, "players/stats");
+        }
+        return new File(mainWorldDir, "stats");
+    }
+
+    private File getAdvancementsFolder(File mainWorldDir) {
+        if (useNewPlayerFolderLayout(mainWorldDir)) {
+            return new File(mainWorldDir, "players/advancements");
+        }
+        return new File(mainWorldDir, "advancements");
     }
 
     private void resetPlayerProgressInMemory(Player p) {
@@ -4939,16 +4979,19 @@ public class Main extends JavaPlugin implements Listener {
                                                     String mainWorldName = Bukkit.getWorlds().isEmpty() ? "world" : Bukkit.getWorlds().getFirst().getName();
                                                     File mainWorldDir = new File(Bukkit.getWorldContainer(), mainWorldName);
                                                     if (backupPlayerData.exists()) {
-                                                        clearDirectoryContents(new File(mainWorldDir, "playerdata"));
-                                                        copyDirectory(backupPlayerData.toPath(), new File(mainWorldDir, "playerdata").toPath());
+                                                        File targetFolder = getPlayerDataFolder(mainWorldDir);
+                                                        clearDirectoryContents(targetFolder);
+                                                        copyDirectory(backupPlayerData.toPath(), targetFolder.toPath());
                                                     }
                                                     if (backupStats.exists()) {
-                                                        clearDirectoryContents(new File(mainWorldDir, "stats"));
-                                                        copyDirectory(backupStats.toPath(), new File(mainWorldDir, "stats").toPath());
+                                                        File targetFolder = getStatsFolder(mainWorldDir);
+                                                        clearDirectoryContents(targetFolder);
+                                                        copyDirectory(backupStats.toPath(), targetFolder.toPath());
                                                     }
                                                     if (backupAdvancements.exists()) {
-                                                        clearDirectoryContents(new File(mainWorldDir, "advancements"));
-                                                        copyDirectory(backupAdvancements.toPath(), new File(mainWorldDir, "advancements").toPath());
+                                                        File targetFolder = getAdvancementsFolder(mainWorldDir);
+                                                        clearDirectoryContents(targetFolder);
+                                                        copyDirectory(backupAdvancements.toPath(), targetFolder.toPath());
                                                     }
                                                     if (backupData.exists()) {
                                                         clearDirectoryContents(new File(mainWorldDir, "data"));
