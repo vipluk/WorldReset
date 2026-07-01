@@ -29,8 +29,8 @@ jobs:
           git reset --hard origin/main
 
           # Remove existing tracked files we want to replace, to ensure deleted files in inprogress are also deleted on main
-          git rm -rf src/ .github/ .idea/ .kiro/ 2>/dev/null || true
-          git rm -f pom.xml .gitignore LICENSE README.md description.md changelog.md changelog*.md update*.md "Optymalizacja Spawnu Wyspy w WorldReset.md" "Problem spawnu na oceanie.md" 2>/dev/null || true
+          rm -rf src/ .github/ .idea/ .kiro/ 2>/dev/null || true
+          rm -f pom.xml .gitignore LICENSE README.md description.md changelog.md changelog*.md update*.md "Optymalizacja Spawnu Wyspy w WorldReset.md" "Problem spawnu na oceanie.md" 2>/dev/null || true
 
           # Checkout only necessary files and directories from the inprogress branch
           git checkout inprogress -- src/
@@ -42,9 +42,9 @@ jobs:
           git checkout inprogress -- description.md
           mv description.md README.md
 
-          # Check if there are changes to commit on main
-          if [ -n "$(git status --porcelain)" ]; then
-            git add -A
+          # Stage all changes and check if there are any staged changes to commit
+          git add -A
+          if ! git diff --quiet --cached; then
             git commit -m "chore: sync clean code and docs from inprogress [skip ci]"
             git push origin main
           else
