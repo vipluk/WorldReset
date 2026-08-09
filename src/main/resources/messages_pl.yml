@@ -213,6 +213,9 @@ wr_scoreboard: "&e/wr scoreboard &8- &7Przełącz kasowanie scoreboardu przy res
 scoreboard_status: "&7Kasowanie scoreboardu przy resecie: {status}"
 scoreboard_enabled: "&aWłączono &7kasowanie scoreboardu przy resecie."
 scoreboard_disabled: "&cWyłączono &7kasowanie scoreboardu przy resecie."
+scoreboard_reset_player: "&aPomyślnie wyczyszczono permanentne statystyki i rekordy dla gracza &f{player}&a."
+scoreboard_reset_all: "&aPomyślnie wyczyszczono permanentne statystyki i rekordy dla &fWSZYSTKICH &agraczy."
+scoreboard_reset_offline: "&cGracz &f{player} &cnie jest online lub nie posiada żadnych statystyk."
 
 # ===========================================================================
 # World Templates
@@ -286,6 +289,7 @@ wr_reload_reload_config: "  &e/wr reload &8- &7Przeładuj config"
 # Speedrun Statistics
 # ===========================================================================
 attempts_1: "Proby"
+deaths: "Smierci"
 completions: "Ukonczenia"
 win_ratio: "Procent Wygranych (%)"
 top_rank: "Pozycja"

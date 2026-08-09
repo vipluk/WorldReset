@@ -4,87 +4,214 @@ version: 1.7
 main: org.example.worldreset.Main
 api-version: 1.21
 author: vipluk
-description: Bardzo zaawansowany system resetu świata. Pozdrawiam!
+description: Very advanced world reset system.
 
 commands:
   worldreset:
-    description: Główna komenda
+    description: Main command
     aliases: [wr]
     usage: /wr <reset|limbo|seed|language|silent|death|filter|timer|templates|autoreset|backup|scoreboard|reload>
     permission: worldreset.admin
 
 permissions:
-  worldreset.admin:
-    description: Podstawowy dostęp do komend pluginu
+  # ==========================================
+  # BACKUP & ADMIN
+  # ==========================================
+  worldreset.backup.list:
+    description: Allows to view backup list and status
+    default: op
+  worldreset.backup.create:
+    description: Allows to create backups and toggle the system
+    default: op
+  worldreset.backup.admin:
+    description: Allows to load, clear backups and change limit
+    default: op
+  worldreset.backup.*:
+    description: Full access to the backup module
+    children:
+      worldreset.backup.list: true
+      worldreset.backup.create: true
+      worldreset.backup.admin: true
+
+  worldreset.config.reload:
+    description: Allows to reload configuration
     default: op
 
-  worldreset.reset:
-    description: Pozwala resetować świat
+  worldreset.admin:
+    description: Backwards compatibility for old admin (reload + backups)
     default: op
+    children:
+      worldreset.backup.*: true
+      worldreset.config.reload: true
+
+  # ==========================================
+  # LIMBO
+  # ==========================================
+  worldreset.limbo.self:
+    description: Allows joining/leaving Limbo for yourself
+    default: op
+  worldreset.limbo.others:
+    description: Allows sending a specific player to Limbo
+    default: op
+  worldreset.limbo.all:
+    description: Allows sending all players and changing delays
+    default: op
+  worldreset.limbo.*:
+    description: Full access to Limbo
+    children:
+      worldreset.limbo.self: true
+      worldreset.limbo.others: true
+      worldreset.limbo.all: true
 
   worldreset.limbo:
-    description: Pozwala wchodzić/wychodzić z Limbo
+    description: Backwards compatibility for Limbo
     default: op
+    children:
+      worldreset.limbo.*: true
 
-  worldreset.seed:
-    description: Pozwala zmieniać seed
+  # ==========================================
+  # TIMER
+  # ==========================================
+  worldreset.timer.use:
+    description: Allows controlling the stopwatch (start, pause, reset, toggle)
     default: op
-
-  worldreset.language:
-    description: Pozwala zmieniać język
+  worldreset.timer.config:
+    description: Allows configuring timer modes (mode, scope, goal)
     default: op
-
-  worldreset.silent:
-    description: Pozwala wyciszać komunikaty
-    default: op
-
-  worldreset.death:
-    description: Pozwala przełączać reset na śmierć
-    default: op
-
-  worldreset.filter:
-    description: Pozwala zarządzać filtrami struktur i biomów
-    default: op
-
-  worldreset.give:
-    description: Pozwala zarządzać automatycznym dawaniem przedmiotów (łódka/drewno)
-    default: op
+  worldreset.timer.*:
+    description: Full access to the timer
+    children:
+      worldreset.timer.use: true
+      worldreset.timer.config: true
 
   worldreset.timer:
-    description: Pozwala zarządzać timerem speedrunowym (start/pause/reset/mode/scope/goal)
+    description: Backwards compatibility for timer
     default: op
+    children:
+      worldreset.timer.*: true
 
-  worldreset.compass:
-    description: Pozwala zarządzać kompasem (radarem graczy)
+  # ==========================================
+  # AUTORESET
+  # ==========================================
+  worldreset.autoreset.use:
+    description: Allows toggling and pausing the autoreset
     default: op
-
-  worldreset.templates:
-    description: Pozwala przełączać szablony światów
+  worldreset.autoreset.config:
+    description: Allows changing autoreset interval and loop
     default: op
+  worldreset.autoreset.*:
+    description: Full access to the autoreset module
+    children:
+      worldreset.autoreset.use: true
+      worldreset.autoreset.config: true
 
   worldreset.autoreset:
-    description: Pozwala zarządzać czasem autoresetów
+    description: Backwards compatibility for autoreset
     default: op
+    children:
+      worldreset.autoreset.*: true
 
+  # ==========================================
+  # SEED
+  # ==========================================
+  worldreset.seed.use:
+    description: Allows toggling fixed seed and copying
+    default: op
+  worldreset.seed.config:
+    description: Allows setting fixed seed value or clearing it
+    default: op
+  worldreset.seed.*:
+    description: Full access to the seed system
+    children:
+      worldreset.seed.use: true
+      worldreset.seed.config: true
+
+  worldreset.seed:
+    description: Backwards compatibility for seed
+    default: op
+    children:
+      worldreset.seed.*: true
+
+  # ==========================================
+  # FILTER
+  # ==========================================
+  worldreset.filter.use:
+    description: Allows toggling and checking filter status
+    default: op
+  worldreset.filter.config:
+    description: Allows setting target structure, biome and clearing
+    default: op
+  worldreset.filter.*:
+    description: Full access to filter management
+    children:
+      worldreset.filter.use: true
+      worldreset.filter.config: true
+
+  worldreset.filter:
+    description: Backwards compatibility for filter
+    default: op
+    children:
+      worldreset.filter.*: true
+
+  # ==========================================
+  # OTHER (NOT SPLIT)
+  # ==========================================
+  worldreset.reset:
+    description: Allows resetting the world
+    default: op
+  worldreset.language:
+    description: Allows changing the language
+    default: op
+  worldreset.silent:
+    description: Allows silencing broadcasts
+    default: op
+  worldreset.death:
+    description: Allows toggling reset on death
+    default: op
+  worldreset.give:
+    description: Allows managing auto-give items
+    default: op
+  worldreset.compass:
+    description: Allows managing the locator compass
+    default: op
+  worldreset.templates:
+    description: Allows toggling world templates
+    default: op
+  worldreset.scoreboard.*:
+    description: Allows full control over scoreboard management and resets
+    default: op
+    children:
+      worldreset.scoreboard.use: true
+      worldreset.scoreboard.admin: true
   worldreset.scoreboard:
-    description: Pozwala zarządzać czyszczeniem scoreboardów
+    description: Backward compatibility parent node for scoreboard
     default: op
-
+    children:
+      worldreset.scoreboard.*: true
+  worldreset.scoreboard.use:
+    description: Allows toggling scoreboard clearing on reset
+    default: op
+  worldreset.scoreboard.admin:
+    description: Allows resetting permanent player stats
+    default: op
+  # ==========================================
+  # WILDCARD
+  # ==========================================
   worldreset.*:
-    description: Pełna kontrola nad pluginem
+    description: Full control over the plugin
     default: op
     children:
       worldreset.admin: true
-      worldreset.silent: true
       worldreset.reset: true
-      worldreset.limbo: true
-      worldreset.seed: true
+      worldreset.limbo.*: true
+      worldreset.seed.*: true
       worldreset.language: true
+      worldreset.silent: true
       worldreset.death: true
-      worldreset.filter: true
+      worldreset.filter.*: true
       worldreset.give: true
-      worldreset.timer: true
+      worldreset.timer.*: true
       worldreset.compass: true
       worldreset.templates: true
-      worldreset.autoreset: true
-      worldreset.scoreboard: true
+      worldreset.autoreset.*: true
+      worldreset.scoreboard.*: true

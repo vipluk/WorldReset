@@ -3900,10 +3900,18 @@ public class Main extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent e) {
-        if (!getConfig().getBoolean("reset-on-death", false)) return;
-        if (isResetting) return;
         if (e.getEntity().getWorld().getName().equals(limboWorldName)) return;
         if (!e.getEntity().getWorld().getName().contains(gameWorldName)) return;
+
+        Player dead = e.getEntity();
+        String path = "players." + dead.getUniqueId();
+        int deaths = recordsConfig.getInt(path + ".deaths", 0);
+        recordsConfig.set(path + ".deaths", deaths + 1);
+        saveRecordsFile();
+        syncScoreboard(dead);
+
+        if (!getConfig().getBoolean("reset-on-death", false)) return;
+        if (isResetting) return;
 
         // Reset boat flag on death — player gets new boat after next reset if water spawn
         boatGivenPlayers.remove(e.getEntity().getUniqueId());
@@ -3912,17 +3920,16 @@ public class Main extends JavaPlugin implements Listener {
         // The dying player's inventory is in getDrops(), other players are alive
         lastPlayerSnapshot = capturePlayerStates();
         // Override the dead player's data with pre-death state
-        Player dead = e.getEntity();
-        String path = dead.getUniqueId().toString();
+        String snapshotPath = dead.getUniqueId().toString();
         if (lastPlayerSnapshot != null) {
-            lastPlayerSnapshot.set(path + ".health", Math.max(dead.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue() / 2, 1)); // Half health on restore
+            lastPlayerSnapshot.set(snapshotPath + ".health", Math.max(dead.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue() / 2, 1)); // Half health on restore
             // Reconstruct inventory from drops
             org.bukkit.inventory.ItemStack[] inv = new org.bukkit.inventory.ItemStack[41];
             int i = 0;
             for (org.bukkit.inventory.ItemStack item : e.getDrops()) {
                 if (i < inv.length) inv[i++] = item;
             }
-            lastPlayerSnapshot.set(path + ".inventory", Arrays.asList(inv));
+            lastPlayerSnapshot.set(snapshotPath + ".inventory", Arrays.asList(inv));
         }
 
         String playerName = dead.getName();
@@ -4167,7 +4174,6 @@ public class Main extends JavaPlugin implements Listener {
                     return true;
                 }
                 case "limbo" -> {
-                    if (hasPerm(sender, "worldreset.limbo")) return noPerm(sender, "worldreset.limbo");
                     if (isResetting) {
                         sender.sendMessage(getMsg("already-resetting"));
                         return true;
@@ -4175,6 +4181,7 @@ public class Main extends JavaPlugin implements Listener {
 
                     // /wr limbo delay <in> <out>
                     if (args.length >= 2 && args[1].equalsIgnoreCase("delay")) {
+                        if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
                         if (args.length < 4) {
                             sender.sendMessage((getMsg("current_delays_in")) + limboDelayIn + "s §7| §f" + (getMsg("out")) + limboDelayOut + "s");
                             sender.sendMessage(getMsg("usage_wr_limbo_delay"));
@@ -4196,6 +4203,7 @@ public class Main extends JavaPlugin implements Listener {
                     int manualDelay = 0;
 
                     if (args.length == 1) {
+                        if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
                         // /wr limbo — all players
                         targets.addAll(Bukkit.getOnlinePlayers());
                     } else if (args.length >= 2) {
@@ -4209,10 +4217,13 @@ public class Main extends JavaPlugin implements Listener {
                             if (args.length >= 3) {
                                 String arg2 = args[2];
                                 if (arg2.equalsIgnoreCase("me") || arg2.equalsIgnoreCase("m") || arg2.equalsIgnoreCase("ja") || arg2.equalsIgnoreCase("j")) {
+                                    if (hasPerm(sender, "worldreset.limbo.self")) return noPerm(sender, "worldreset.limbo.self");
                                     if (sender instanceof Player p) targets.add(p);
                                 } else if (arg2.equalsIgnoreCase("all")) {
+                                    if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
                                     targets.addAll(Bukkit.getOnlinePlayers());
                                 } else {
+                                    if (hasPerm(sender, "worldreset.limbo.others")) return noPerm(sender, "worldreset.limbo.others");
                                     Player target = Bukkit.getPlayerExact(arg2);
                                     if (target != null) {
                                         targets.add(target);
@@ -4223,15 +4234,19 @@ public class Main extends JavaPlugin implements Listener {
                                 }
                             } else {
                                 // No target specified with delay — all players
+                                if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
                                 targets.addAll(Bukkit.getOnlinePlayers());
                             }
                         } catch (NumberFormatException e) {
                             // It's a player name or "me"
                             if (arg1.equalsIgnoreCase("me") || arg1.equalsIgnoreCase("m") || arg1.equalsIgnoreCase("ja") || arg1.equalsIgnoreCase("j")) {
+                                if (hasPerm(sender, "worldreset.limbo.self")) return noPerm(sender, "worldreset.limbo.self");
                                 if (sender instanceof Player p) targets.add(p);
                             } else if (arg1.equalsIgnoreCase("all")) {
+                                if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
                                 targets.addAll(Bukkit.getOnlinePlayers());
                             } else {
+                                if (hasPerm(sender, "worldreset.limbo.others")) return noPerm(sender, "worldreset.limbo.others");
                                 Player target = Bukkit.getPlayerExact(arg1);
                                 if (target != null) {
                                     targets.add(target);
@@ -4268,7 +4283,16 @@ public class Main extends JavaPlugin implements Listener {
                     return true;
                 }
                 case "seed" -> {
-                    if (hasPerm(sender, "worldreset.seed")) return noPerm(sender, "worldreset.seed");
+                    if (args.length >= 2) {
+                        String sub = args[1].toLowerCase();
+                        if (sub.equals("clear") || (!isEnableAlias(sub) && !isDisableAlias(sub) && !sub.equals("status") && !sub.equals("copy"))) {
+                            if (hasPerm(sender, "worldreset.seed.config")) return noPerm(sender, "worldreset.seed.config");
+                        } else {
+                            if (hasPerm(sender, "worldreset.seed.use")) return noPerm(sender, "worldreset.seed.use");
+                        }
+                    } else {
+                        if (hasPerm(sender, "worldreset.seed.use")) return noPerm(sender, "worldreset.seed.use");
+                    }
 
                     if (args.length == 1) {
                         // Toggle
@@ -4438,7 +4462,16 @@ public class Main extends JavaPlugin implements Listener {
                     return true;
                 }
                 case "filter" -> {
-                    if (hasPerm(sender, "worldreset.filter")) return noPerm(sender, "worldreset.filter");
+                    if (args.length >= 2) {
+                        String sub = args[1].toLowerCase();
+                        if (sub.equals("clear") || sub.equals("structure") || sub.equals("biome") || sub.equals("attempts")) {
+                            if (hasPerm(sender, "worldreset.filter.config")) return noPerm(sender, "worldreset.filter.config");
+                        } else {
+                            if (hasPerm(sender, "worldreset.filter.use")) return noPerm(sender, "worldreset.filter.use");
+                        }
+                    } else {
+                        if (hasPerm(sender, "worldreset.filter.use")) return noPerm(sender, "worldreset.filter.use");
+                    }
 
                     if (args.length == 1) {
                         // Toggle filter enabled state
@@ -4605,13 +4638,16 @@ public class Main extends JavaPlugin implements Listener {
                     return true;
                 }
                 case "timer" -> {
-                    if (hasPerm(sender, "worldreset.timer")) return noPerm(sender, "worldreset.timer");
                     if (args.length < 2) {
                         sender.sendMessage(getMsg("usage_wr_timer_startpauseresetenabledisablemodescopegoal"));
                         return true;
                     }
-
                     String sub = args[1].toLowerCase();
+                    if (sub.equals("mode") || sub.equals("scope") || sub.equals("goal")) {
+                        if (hasPerm(sender, "worldreset.timer.config")) return noPerm(sender, "worldreset.timer.config");
+                    } else {
+                        if (hasPerm(sender, "worldreset.timer.use")) return noPerm(sender, "worldreset.timer.use");
+                    }
 
                     if (sub.equals("start")) {
                         if (!timerEnabled) {
@@ -4766,7 +4802,54 @@ public class Main extends JavaPlugin implements Listener {
                     }
                 }
                 case "scoreboard" -> {
-                    if (hasPerm(sender, "worldreset.scoreboard")) return noPerm(sender, "worldreset.scoreboard");
+                    if (args.length >= 2 && args[1].equalsIgnoreCase("reset")) {
+                        if (hasPerm(sender, "worldreset.scoreboard.admin")) return noPerm(sender, "worldreset.scoreboard.admin");
+                        
+                        if (args.length >= 3) {
+                            String targetName = args[2];
+                            UUID targetUUID = null;
+                            
+                            Player targetPlayer = Bukkit.getPlayer(targetName);
+                            if (targetPlayer != null) {
+                                targetUUID = targetPlayer.getUniqueId();
+                            } else {
+                                if (recordsConfig.contains("players")) {
+                                    for (String key : recordsConfig.getConfigurationSection("players").getKeys(false)) {
+                                        if (targetName.equalsIgnoreCase(recordsConfig.getString("players." + key + ".name"))) {
+                                            targetUUID = UUID.fromString(key);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (targetUUID == null) {
+                                sender.sendMessage(getMsg("scoreboard_reset_offline").replace("{player}", targetName));
+                                return true;
+                            }
+                            
+                            recordsConfig.set("players." + targetUUID, null);
+                            saveRecordsFile(); // Save to file immediately
+                            
+                            org.bukkit.scoreboard.Scoreboard sb = Bukkit.getScoreboardManager().getMainScoreboard();
+                            sb.resetScores(targetName);
+                            
+                            sender.sendMessage(getMsg("scoreboard_reset_player").replace("{player}", targetName));
+                        } else {
+                            recordsConfig.set("players", null);
+                            saveRecordsFile(); // Save to file immediately
+                            
+                            org.bukkit.scoreboard.Scoreboard sb = Bukkit.getScoreboardManager().getMainScoreboard();
+                            for (String entry : sb.getEntries()) {
+                                sb.resetScores(entry);
+                            }
+                            
+                            sender.sendMessage(getMsg("scoreboard_reset_all"));
+                        }
+                        return true;
+                    }
+
+                    if (hasPerm(sender, "worldreset.scoreboard.use")) return noPerm(sender, "worldreset.scoreboard.use");
 
                     if (args.length == 2 && args[1].equalsIgnoreCase("status")) {
                         sender.sendMessage(getMsg("scoreboard_status").replace("{status}", clearScoreboardOnReset ? "§aON" : "§cOFF"));
@@ -4875,7 +4958,16 @@ public class Main extends JavaPlugin implements Listener {
                     return true;
                 }
                 case "autoreset" -> {
-                    if (hasPerm(sender, "worldreset.autoreset")) return noPerm(sender, "worldreset.autoreset");
+                    if (args.length >= 2) {
+                        String sub = args[1].toLowerCase();
+                        if (sub.equals("time") || sub.equals("loop")) {
+                            if (hasPerm(sender, "worldreset.autoreset.config")) return noPerm(sender, "worldreset.autoreset.config");
+                        } else {
+                            if (hasPerm(sender, "worldreset.autoreset.use")) return noPerm(sender, "worldreset.autoreset.use");
+                        }
+                    } else {
+                        if (hasPerm(sender, "worldreset.autoreset.use")) return noPerm(sender, "worldreset.autoreset.use");
+                    }
 
                     if (args.length < 2) {
                         // Toggle autoreset
@@ -4995,10 +5087,10 @@ public class Main extends JavaPlugin implements Listener {
                     return true;
                 }
                 case "backup" -> {
-                    if (hasPerm(sender, "worldreset.admin")) return noPerm(sender, "worldreset.admin");
 
                     // /wr backup — toggle
                     if (args.length == 1) {
+                        if (hasPerm(sender, "worldreset.backup.create")) return noPerm(sender, "worldreset.backup.create");
                         boolean current = getConfig().getBoolean("backup.enabled", true);
                         boolean newVal = !current;
                         getConfig().set("backup.enabled", newVal);
@@ -5011,16 +5103,19 @@ public class Main extends JavaPlugin implements Listener {
 
                     switch (sub) {
                         case "enable", "on", "true" -> {
+                            if (hasPerm(sender, "worldreset.backup.create")) return noPerm(sender, "worldreset.backup.create");
                             getConfig().set("backup.enabled", true);
                             saveConfig();
                             sender.sendMessage(getMsg("backups_enabled_1"));
                         }
                         case "disable", "off", "false" -> {
+                            if (hasPerm(sender, "worldreset.backup.create")) return noPerm(sender, "worldreset.backup.create");
                             getConfig().set("backup.enabled", false);
                             saveConfig();
                             sender.sendMessage(getMsg("backups_disabled_1"));
                         }
                         case "status" -> {
+                            if (hasPerm(sender, "worldreset.backup.list")) return noPerm(sender, "worldreset.backup.list");
                             boolean enabled = getConfig().getBoolean("backup.enabled", true);
                             String limitStr = getConfig().getString("backup.limit", "all");
                             String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
@@ -5042,6 +5137,7 @@ public class Main extends JavaPlugin implements Listener {
                             sender.sendMessage((getMsg("folder_1")) + folder);
                         }
                         case "list" -> {
+                            if (hasPerm(sender, "worldreset.backup.list")) return noPerm(sender, "worldreset.backup.list");
                             String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
                             File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
                             if (!backupsDir.exists() || backupsDir.listFiles(File::isDirectory) == null) {
@@ -5075,6 +5171,7 @@ public class Main extends JavaPlugin implements Listener {
                             }
                         }
                         case "load" -> {
+                            if (hasPerm(sender, "worldreset.backup.admin")) return noPerm(sender, "worldreset.backup.admin");
                             if (args.length < 3) {
                                 sender.sendMessage(getMsg("usage_wr_backup_load"));
                                 return true;
@@ -5204,6 +5301,7 @@ public class Main extends JavaPlugin implements Listener {
                             }
                         }
                         case "clear" -> {
+                            if (hasPerm(sender, "worldreset.backup.admin")) return noPerm(sender, "worldreset.backup.admin");
                             String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
                             File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
                             File[] dirs = backupsDir.exists() ? backupsDir.listFiles(File::isDirectory) : null;
@@ -5239,6 +5337,7 @@ public class Main extends JavaPlugin implements Listener {
                             }
                         }
                         case "limit" -> {
+                            if (hasPerm(sender, "worldreset.backup.admin")) return noPerm(sender, "worldreset.backup.admin");
                             if (args.length < 3) {
                                 String limitStr = getConfig().getString("backup.limit", "all");
                                 sender.sendMessage((getMsg("current_backup_limit")) + limitStr);
@@ -5625,6 +5724,7 @@ public class Main extends JavaPlugin implements Listener {
             org.bukkit.scoreboard.Scoreboard scoreboard = Bukkit.getScoreboardManager().getMainScoreboard();
             
             org.bukkit.scoreboard.Objective attemptsObj = getOrRegisterObjective(scoreboard, "wr_attempts", getMsg("attempts_1"));
+            org.bukkit.scoreboard.Objective deathsObj = getOrRegisterObjective(scoreboard, "wr_deaths", getMsg("deaths"));
             org.bukkit.scoreboard.Objective completionsObj = getOrRegisterObjective(scoreboard, "wr_completions", getMsg("completions"));
             org.bukkit.scoreboard.Objective winRatioObj = getOrRegisterObjective(scoreboard, "wr_win_ratio", getMsg("win_ratio"));
             org.bukkit.scoreboard.Objective topRankObj = getOrRegisterObjective(scoreboard, "wr_top_rank", getMsg("top_rank"));
@@ -5718,6 +5818,7 @@ public class Main extends JavaPlugin implements Listener {
 
             String path = "players." + uuid.toString();
             int attempts = recordsConfig.getInt(path + ".attempts", 0);
+            int deaths = recordsConfig.getInt(path + ".deaths", 0);
             int completions = recordsConfig.getInt(path + ".completions", 0);
             int winRatio = attempts > 0 ? (completions * 100) / attempts : 0;
             
@@ -5774,6 +5875,7 @@ public class Main extends JavaPlugin implements Listener {
 
             String name = player.getName();
             attemptsObj.getScore(name).setScore(attempts);
+            deathsObj.getScore(name).setScore(deaths);
             completionsObj.getScore(name).setScore(completions);
             winRatioObj.getScore(name).setScore(winRatio);
             topRankObj.getScore(name).setScore(topRank);
@@ -6052,6 +6154,9 @@ public class Main extends JavaPlugin implements Listener {
             }
             if (params.equalsIgnoreCase("attempts")) {
                 return String.valueOf(recordsConfig.getInt("players." + uuid.toString() + ".attempts", 0));
+            }
+            if (params.equalsIgnoreCase("deaths")) {
+                return String.valueOf(recordsConfig.getInt("players." + uuid.toString() + ".deaths", 0));
             }
             if (params.equalsIgnoreCase("completions")) {
                 return String.valueOf(recordsConfig.getInt("players." + uuid.toString() + ".completions", 0));

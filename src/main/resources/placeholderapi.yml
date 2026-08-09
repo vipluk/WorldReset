@@ -124,6 +124,9 @@ placeholders:
   %worldreset_attempts%:
     description_en: "Total number of speedrun attempts (runs started) by the player."
     description_pl: "Łączna liczba rozpoczętych biegów (prób) gracza."
+  %worldreset_deaths%:
+    description_en: "Total number of deaths by the player."
+    description_pl: "Łączna liczba śmierci gracza."
   %worldreset_completions%:
     description_en: "Total number of successful runs completed by the player."
     description_pl: "Łączna liczba pomyślnie ukończonych biegów gracza."

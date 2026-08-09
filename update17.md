@@ -22,3 +22,14 @@ Wydanie **1.7** dla wtyczki **WorldReset** wprowadza nową kontrolę nad cyklem 
 ### 3. Poprawki dokumentacji
 * Plik `description.md` został uaktualniony do wersji 1.7. 
 * Dodano brakujące wpisy do spisu poleceń, dotyczące funkcji Auto Give (`/wr give boat`, `/wr give wood`), które nie posiadały własnej reprezentacji w tabeli `Commands and Permissions`.
+
+### 4. Rewolucja Uprawnień (Granular Permissions)
+* Zrezygnowano z globalnych, nadrzędnych uprawnień dla modułów (np. `worldreset.limbo`) na rzecz bardzo precyzyjnych sub-uprawnień (np. `worldreset.limbo.self`, `worldreset.timer.config`).
+* Wdrożono całkowicie angielski i udoskonalony plik `plugin.yml`.
+* Zachowano **wsteczną kompatybilność**: dawne uprawnienia `worldreset.modul` działają teraz jako "parent nodes", które dziedziczą z uprawnień typu gwiazdka (wildcards: `worldreset.modul.*`), z których dziedziczą uprawnienia właściwe. Dzięki temu administratorzy aktualizujący wtyczkę z dnia na dzień nie odnotują problemów z dostępem.
+
+### 5. Statystyka Śmierci i Reset Punktacji
+* Wprowadzono nową, trwałą statystykę gracza w pliku `records.yml`: `deaths`, która zlicza zgony.
+* Zaktualizowano natywny moduł Minecraft Scoreboard, wprowadzając nowy objective `wr_deaths`, który jest odświeżany m.in. przy wystąpieniu zdarzenia `PlayerDeathEvent`.
+* Zintegrowano nową statystykę w `PlaceholderAPI` (`%worldreset_deaths%`) poprzez implementację wewnętrzną we własnej podklasie `WorldResetExpansion`.
+* Dodano komendę administracyjną `/wr scoreboard reset [gracz]`, służącą do wyzerowania permanentnych statystyk i rekordów życiowych dla konkretnego gracza lub wszystkich ujętych w pliku `records.yml`, połączoną z natywnym kasowaniem tablic serwerowych. Zabezpieczono komendę nowym uprawnieniem `worldreset.scoreboard.admin`.

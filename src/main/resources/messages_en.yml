@@ -213,6 +213,9 @@ wr_scoreboard: "&e/wr scoreboard &8- &7Toggle scoreboard clearing on reset."
 scoreboard_status: "&7Scoreboard clearing on reset: {status}"
 scoreboard_enabled: "&aEnabled &7scoreboard clearing on reset."
 scoreboard_disabled: "&cDisabled &7scoreboard clearing on reset."
+scoreboard_reset_player: "&aSuccessfully cleared permanent records and scoreboard stats for player &f{player}&a."
+scoreboard_reset_all: "&aSuccessfully cleared permanent records and scoreboard stats for &fALL &aplayers."
+scoreboard_reset_offline: "&cPlayer &f{player} &cis not online or has no records."
 
 # ===========================================================================
 # World Templates
@@ -286,6 +289,7 @@ wr_reload_reload_config: "  &e/wr reload &8- &7Reload config"
 # Speedrun Statistics
 # ===========================================================================
 attempts_1: "Attempts"
+deaths: "Deaths"
 completions: "Completions"
 win_ratio: "Win Ratio (%)"
 top_rank: "Top Rank"
