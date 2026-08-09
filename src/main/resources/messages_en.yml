@@ -25,6 +25,7 @@ death-reset-triggered: "&cPlayer &4{player} &cdied! Resetting world..."
 cmd-unknown: "&cUnknown command: &e{v1}&c. Use &e/wr help &cfor full list."
 player-not-found: "&cPlayer not found: &e{v1}"
 reset-scheduled: "&eReset scheduled in &c{v1}s&e..."
+reset-scheduled-with-delayout: "&eReset scheduled in &c{v1}s&e, exit in &c{v2}s&e."
 invalid-number-range: "&cInvalid number! Use 1-{v1}"
 searching_for_safe_spawn: "&7Searching for safe spawn..."
 configuration_and_languages_reloaded: "&aConfiguration and languages reloaded!"
@@ -204,6 +205,14 @@ fixed_seed_disabled_next: "&7Fixed seed disabled. Next reset will use a random s
 # ===========================================================================
 locator_bar_enabled: "&aLocator bar enabled!"
 locator_bar_disabled: "&cLocator bar disabled."
+
+# ===========================================================================
+# Scoreboard
+# ===========================================================================
+wr_scoreboard: "&e/wr scoreboard &8- &7Toggle scoreboard clearing on reset."
+scoreboard_status: "&7Scoreboard clearing on reset: {status}"
+scoreboard_enabled: "&aEnabled &7scoreboard clearing on reset."
+scoreboard_disabled: "&cDisabled &7scoreboard clearing on reset."
 
 # ===========================================================================
 # World Templates

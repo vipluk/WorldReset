@@ -35,6 +35,10 @@ import org.bukkit.util.StringUtil;
 import org.bukkit.util.StructureSearchResult;
 import org.jetbrains.annotations.NotNull;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -87,6 +91,7 @@ public class Main extends JavaPlugin implements Listener {
 
     // --- ZMIENNE KOMPASU (RADARU) ---
     private boolean compassEnabled;
+    private boolean clearScoreboardOnReset;
 
     // --- ZMIENNE AUTORESETU ---
     private boolean autoResetEnabled;
@@ -238,6 +243,7 @@ public class Main extends JavaPlugin implements Listener {
         }
 
         compassEnabled = getConfig().getBoolean("compass.enabled", true);
+        clearScoreboardOnReset = getConfig().getBoolean("scoreboard.clear-on-reset", false);
 
         // AutoReset
         autoResetEnabled = getConfig().getBoolean("autoreset.enabled", false);
@@ -609,6 +615,21 @@ public class Main extends JavaPlugin implements Listener {
                 p.sendMessage(getMsg("limbo-join"));
             }
         }
+    }
+
+    private void setupJoiningPlayer(Player p, Location spawn) {
+        if (p.isDead()) p.spigot().respawn();
+
+        Location centeredSpawn = spawn.clone();
+        centeredSpawn.setX(centeredSpawn.getBlockX() + 0.5);
+        centeredSpawn.setZ(centeredSpawn.getBlockZ() + 0.5);
+
+        p.teleportAsync(centeredSpawn).thenAccept(success -> {
+            if (!p.isOnline()) return;
+            p.setGameMode(GameMode.SURVIVAL);
+            p.setInvulnerable(true);
+            new BukkitRunnable() { @Override public void run() { if (p.isOnline()) p.setInvulnerable(false); } }.runTaskLater(Main.this, 40L);
+        });
     }
 
     private void setupGamePlayer(Player p, Location spawn) {
@@ -2680,13 +2701,11 @@ public class Main extends JavaPlugin implements Listener {
     private void performBackup() {
         broadcastInfo(getMsg("backup-start"));
 
-        // Force save all online players' data to disk before copying
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            try {
-                p.saveData();
-            } catch (Exception e) {
-                getLogger().warning("Failed to save player data for " + p.getName() + " before backup: " + e.getMessage());
-            }
+        // Force save all online players' data, stats, and advancements to disk before copying
+        try {
+            Bukkit.savePlayers();
+        } catch (Exception e) {
+            getLogger().warning("Failed to save player data before backup: " + e.getMessage());
         }
 
         String timestamp = new SimpleDateFormat("dd-MM-yyyy_HH-mm-ss").format(new Date());
@@ -2700,9 +2719,9 @@ public class Main extends JavaPlugin implements Listener {
         // Copy playerdata, stats, advancements, data from the main world
         String mainWorldName = Bukkit.getWorlds().isEmpty() ? "world" : Bukkit.getWorlds().getFirst().getName();
         File mainWorldDir = new File(Bukkit.getWorldContainer(), mainWorldName);
-        copyWorldSubfolderToBackup(new File(mainWorldDir, "playerdata"), new File(currentBackupDir, "playerdata"));
-        copyWorldSubfolderToBackup(new File(mainWorldDir, "stats"), new File(currentBackupDir, "stats"));
-        copyWorldSubfolderToBackup(new File(mainWorldDir, "advancements"), new File(currentBackupDir, "advancements"));
+        copyWorldSubfolderToBackup(getPlayerDataFolder(mainWorldDir), new File(currentBackupDir, "playerdata"));
+        copyWorldSubfolderToBackup(getStatsFolder(mainWorldDir), new File(currentBackupDir, "stats"));
+        copyWorldSubfolderToBackup(getAdvancementsFolder(mainWorldDir), new File(currentBackupDir, "advancements"));
         copyWorldSubfolderToBackup(new File(mainWorldDir, "data"), new File(currentBackupDir, "data"));
 
         // Save player states from snapshot (captured before limbo teleport)
@@ -2865,6 +2884,10 @@ public class Main extends JavaPlugin implements Listener {
                         }
                     }
 
+                    // Restore stats and advancements from backup
+                    applyPlayerStatsFromBackup(fp, new File(backupDir, "stats"));
+                    applyPlayerAdvancementsFromBackup(fp, new File(backupDir, "advancements"));
+
                     // Grant brief invulnerability
                     fp.setInvulnerable(true);
                     new BukkitRunnable() { @Override public void run() { if (fp.isOnline()) fp.setInvulnerable(false); } }.runTaskLater(Main.this, 60L);
@@ -2989,27 +3012,186 @@ public class Main extends JavaPlugin implements Listener {
         File mainWorldDir = new File(Bukkit.getWorldContainer(), mainWorldName);
 
         // Clear files on disk (for offline players)
-        clearDirectoryContents(new File(mainWorldDir, "playerdata"));
-        clearDirectoryContents(new File(mainWorldDir, "stats"));
-        clearDirectoryContents(new File(mainWorldDir, "advancements"));
+        clearDirectoryContents(getPlayerDataFolder(mainWorldDir));
+        clearDirectoryContents(getStatsFolder(mainWorldDir));
+        clearDirectoryContents(getAdvancementsFolder(mainWorldDir));
         clearDirectoryContents(new File(mainWorldDir, "data"));
 
-        // Reset global scoreboard in RAM
-        try {
-            org.bukkit.scoreboard.Scoreboard sb = Bukkit.getScoreboardManager().getMainScoreboard();
-            for (org.bukkit.scoreboard.Objective obj : new HashSet<>(sb.getObjectives())) {
-                obj.unregister();
+        // Reset global scoreboard in RAM (only if enabled in config)
+        if (clearScoreboardOnReset) {
+            try {
+                org.bukkit.scoreboard.Scoreboard sb = Bukkit.getScoreboardManager().getMainScoreboard();
+                for (org.bukkit.scoreboard.Objective obj : new HashSet<>(sb.getObjectives())) {
+                    obj.unregister();
+                }
+                for (org.bukkit.scoreboard.Team team : new HashSet<>(sb.getTeams())) {
+                    team.unregister();
+                }
+            } catch (Exception e) {
+                getLogger().warning("Failed to reset scoreboard objectives: " + e.getMessage());
             }
-            for (org.bukkit.scoreboard.Team team : new HashSet<>(sb.getTeams())) {
-                team.unregister();
-            }
-        } catch (Exception e) {
-            getLogger().warning("Failed to reset scoreboard objectives: " + e.getMessage());
         }
 
         // Reset online players in-memory progress
         for (Player p : Bukkit.getOnlinePlayers()) {
             resetPlayerProgressInMemory(p);
+        }
+    }
+
+    private boolean isVersion26OrNewer() {
+        try {
+            String versionStr = Bukkit.getBukkitVersion();
+            String mcVersion = versionStr.split("-")[0];
+            String[] parts = mcVersion.split("\\.");
+            int major = Integer.parseInt(parts[0]);
+            return major >= 26;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean useNewPlayerFolderLayout(File mainWorldDir) {
+        if (new File(mainWorldDir, "players/data").exists()) {
+            return true;
+        }
+        return isVersion26OrNewer();
+    }
+
+    private File getPlayerDataFolder(File mainWorldDir) {
+        if (useNewPlayerFolderLayout(mainWorldDir)) {
+            return new File(mainWorldDir, "players/data");
+        }
+        return new File(mainWorldDir, "playerdata");
+    }
+
+    private File getStatsFolder(File mainWorldDir) {
+        if (useNewPlayerFolderLayout(mainWorldDir)) {
+            return new File(mainWorldDir, "players/stats");
+        }
+        return new File(mainWorldDir, "stats");
+    }
+
+    private File getAdvancementsFolder(File mainWorldDir) {
+        if (useNewPlayerFolderLayout(mainWorldDir)) {
+            return new File(mainWorldDir, "players/advancements");
+        }
+        return new File(mainWorldDir, "advancements");
+    }
+
+    private void applyPlayerStatsFromBackup(Player p, File backupStatsDir) {
+        File statsFile = new File(backupStatsDir, p.getUniqueId().toString() + ".json");
+        if (!statsFile.exists()) return;
+
+        try (java.io.FileReader reader = new java.io.FileReader(statsFile)) {
+            JsonObject root = new Gson().fromJson(reader, JsonObject.class);
+            if (root == null || !root.has("stats")) return;
+            JsonObject statsObj = root.getAsJsonObject("stats");
+
+            for (Map.Entry<String, JsonElement> categoryEntry : statsObj.entrySet()) {
+                String category = categoryEntry.getKey(); // e.g. "minecraft:custom"
+                if (!categoryEntry.getValue().isJsonObject()) continue;
+                JsonObject categoryObj = categoryEntry.getValue().getAsJsonObject();
+
+                for (Map.Entry<String, JsonElement> statEntry : categoryObj.entrySet()) {
+                    String statKey = statEntry.getKey(); // e.g. "minecraft:jump"
+                    int value = statEntry.getValue().getAsInt();
+
+                    // Strip "minecraft:" prefix
+                    String keyName = statKey.contains(":") ? statKey.split(":")[1] : statKey;
+
+                    try {
+                        switch (category) {
+                            case "minecraft:custom" -> {
+                                try {
+                                    Statistic stat = Statistic.valueOf(keyName.toUpperCase());
+                                    p.setStatistic(stat, value);
+                                } catch (IllegalArgumentException ignored) {}
+                            }
+                            case "minecraft:mined" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.MINE_BLOCK, mat, value);
+                            }
+                            case "minecraft:crafted" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.CRAFT_ITEM, mat, value);
+                            }
+                            case "minecraft:used" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.USE_ITEM, mat, value);
+                            }
+                            case "minecraft:broken" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.BREAK_ITEM, mat, value);
+                            }
+                            case "minecraft:picked_up" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.PICKUP, mat, value);
+                            }
+                            case "minecraft:dropped" -> {
+                                Material mat = Material.matchMaterial(keyName.toUpperCase());
+                                if (mat != null) p.setStatistic(Statistic.DROP, mat, value);
+                            }
+                            case "minecraft:killed" -> {
+                                try {
+                                    EntityType entity = EntityType.valueOf(keyName.toUpperCase());
+                                    p.setStatistic(Statistic.KILL_ENTITY, entity, value);
+                                } catch (IllegalArgumentException ignored) {}
+                            }
+                            case "minecraft:killed_by" -> {
+                                try {
+                                    EntityType entity = EntityType.valueOf(keyName.toUpperCase());
+                                    p.setStatistic(Statistic.ENTITY_KILLED_BY, entity, value);
+                                } catch (IllegalArgumentException ignored) {}
+                            }
+                        }
+                    } catch (Exception e) {
+                        // Suppress specific errors during loading
+                    }
+                }
+            }
+        } catch (Exception e) {
+            getLogger().warning("Failed to apply stats from backup for " + p.getName() + ": " + e.getMessage());
+        }
+    }
+
+    private void applyPlayerAdvancementsFromBackup(Player p, File backupAdvDir) {
+        File advFile = new File(backupAdvDir, p.getUniqueId().toString() + ".json");
+        if (!advFile.exists()) return;
+
+        try (java.io.FileReader reader = new java.io.FileReader(advFile)) {
+            JsonObject root = new Gson().fromJson(reader, JsonObject.class);
+            if (root == null) return;
+
+            for (Map.Entry<String, JsonElement> entry : root.entrySet()) {
+                String advKeyStr = entry.getKey(); // e.g. "minecraft:story/mine_stone"
+                if (advKeyStr.equals("DataVersion")) continue;
+                if (!entry.getValue().isJsonObject()) continue;
+                JsonObject advObj = entry.getValue().getAsJsonObject();
+
+                if (!advObj.has("criteria")) continue;
+                JsonObject criteriaObj = advObj.getAsJsonObject("criteria");
+
+                NamespacedKey nsKey = NamespacedKey.fromString(advKeyStr);
+                if (nsKey == null) continue;
+
+                Advancement adv = Bukkit.getAdvancement(nsKey);
+                if (adv == null) continue;
+
+                AdvancementProgress progress = p.getAdvancementProgress(adv);
+
+                // Revoke current progress to start clean
+                for (String awarded : new ArrayList<>(progress.getAwardedCriteria())) {
+                    progress.revokeCriteria(awarded);
+                }
+
+                // Grant criteria from JSON
+                for (Map.Entry<String, JsonElement> critEntry : criteriaObj.entrySet()) {
+                    String criterion = critEntry.getKey();
+                    progress.awardCriteria(criterion);
+                }
+            }
+        } catch (Exception e) {
+            getLogger().warning("Failed to apply advancements from backup for " + p.getName() + ": " + e.getMessage());
         }
     }
 
@@ -3672,7 +3854,7 @@ public class Main extends JavaPlugin implements Listener {
             if (shouldTeleport) {
                 World game = Bukkit.getWorld(gameWorldName);
                 if (game != null) {
-                    setupGamePlayer(p, game.getSpawnLocation());
+                    setupJoiningPlayer(p, game.getSpawnLocation());
                 }
             }
         } else {
@@ -3965,8 +4147,15 @@ public class Main extends JavaPlugin implements Listener {
                                         startReset();
                                     }
                                 });
-                                String msg = getMsg("reset-scheduled").replace("{v1}", String.valueOf(delayIn));
-                                if (delayOut > 0) msg += " §7(delay-out: " + delayOut + "s)";
+                                String msg;
+                                if (delayOut > 0) {
+                                    msg = getMsg("reset-scheduled-with-delayout")
+                                            .replace("{v1}", String.valueOf(delayIn))
+                                            .replace("{v2}", String.valueOf(delayOut));
+                                } else {
+                                    msg = getMsg("reset-scheduled")
+                                            .replace("{v1}", String.valueOf(delayIn));
+                                }
                                 sender.sendMessage(msg);
                             }
                         } catch (NumberFormatException e) {
@@ -4576,6 +4765,35 @@ public class Main extends JavaPlugin implements Listener {
                         return true;
                     }
                 }
+                case "scoreboard" -> {
+                    if (hasPerm(sender, "worldreset.scoreboard")) return noPerm(sender, "worldreset.scoreboard");
+
+                    if (args.length == 2 && args[1].equalsIgnoreCase("status")) {
+                        sender.sendMessage(getMsg("scoreboard_status").replace("{status}", clearScoreboardOnReset ? "§aON" : "§cOFF"));
+                        return true;
+                    }
+
+                    boolean newState;
+                    if (args.length < 2) {
+                        newState = !clearScoreboardOnReset;
+                    } else {
+                        String sub = args[1].toLowerCase();
+                        if (isEnableAlias(sub)) {
+                            newState = true;
+                        } else if (isDisableAlias(sub)) {
+                            newState = false;
+                        } else {
+                            sender.sendMessage(getMsg("cmd-unknown").replace("{v1}", String.valueOf(sub)));
+                            return true;
+                        }
+                    }
+
+                    clearScoreboardOnReset = newState;
+                    getConfig().set("scoreboard.clear-on-reset", newState);
+                    saveConfig();
+                    sender.sendMessage(newState ? getMsg("scoreboard_enabled") : getMsg("scoreboard_disabled"));
+                    return true;
+                }
                 case "compass" -> {
                     if (hasPerm(sender, "worldreset.compass")) return noPerm(sender, "worldreset.compass");
 
@@ -4932,16 +5150,19 @@ public class Main extends JavaPlugin implements Listener {
                                                     String mainWorldName = Bukkit.getWorlds().isEmpty() ? "world" : Bukkit.getWorlds().getFirst().getName();
                                                     File mainWorldDir = new File(Bukkit.getWorldContainer(), mainWorldName);
                                                     if (backupPlayerData.exists()) {
-                                                        clearDirectoryContents(new File(mainWorldDir, "playerdata"));
-                                                        copyDirectory(backupPlayerData.toPath(), new File(mainWorldDir, "playerdata").toPath());
+                                                        File targetFolder = getPlayerDataFolder(mainWorldDir);
+                                                        clearDirectoryContents(targetFolder);
+                                                        copyDirectory(backupPlayerData.toPath(), targetFolder.toPath());
                                                     }
                                                     if (backupStats.exists()) {
-                                                        clearDirectoryContents(new File(mainWorldDir, "stats"));
-                                                        copyDirectory(backupStats.toPath(), new File(mainWorldDir, "stats").toPath());
+                                                        File targetFolder = getStatsFolder(mainWorldDir);
+                                                        clearDirectoryContents(targetFolder);
+                                                        copyDirectory(backupStats.toPath(), targetFolder.toPath());
                                                     }
                                                     if (backupAdvancements.exists()) {
-                                                        clearDirectoryContents(new File(mainWorldDir, "advancements"));
-                                                        copyDirectory(backupAdvancements.toPath(), new File(mainWorldDir, "advancements").toPath());
+                                                        File targetFolder = getAdvancementsFolder(mainWorldDir);
+                                                        clearDirectoryContents(targetFolder);
+                                                        copyDirectory(backupAdvancements.toPath(), targetFolder.toPath());
                                                     }
                                                     if (backupData.exists()) {
                                                         clearDirectoryContents(new File(mainWorldDir, "data"));
@@ -5110,6 +5331,7 @@ public class Main extends JavaPlugin implements Listener {
         sender.sendMessage(getMsg("wr_templates_action_world"));
         sender.sendMessage(getMsg("wr_compass_enabledisable_locator"));
         sender.sendMessage(getMsg("wr_give_boatwood_auto"));
+        sender.sendMessage(getMsg("wr_scoreboard"));
         sender.sendMessage("");
         sender.sendMessage(getMsg("system"));
         sender.sendMessage(getMsg("wr_backup_action_backup"));
@@ -5131,6 +5353,9 @@ public class Main extends JavaPlugin implements Listener {
             case "death" -> isPl
                     ? "§e/wr death §8- §7Przełącz reset po śmierci.\n§7  Gdy włączony, śmierć gracza resetuje świat."
                     : "§e/wr death §8- §7Toggle Reset-on-Death mode.\n§7  When enabled, any player death resets the world.";
+            case "scoreboard" -> isPl
+                    ? "§e/wr scoreboard §6[§etrue/false/on/off§6] §8- §7Zarządzanie kasowaniem scoreboardu przy resecie.\n§e/wr scoreboard status §8- §7Sprawdź aktualny stan."
+                    : "§e/wr scoreboard §6[§etrue/false/on/off§6] §8- §7Manage scoreboard clearing on reset.\n§e/wr scoreboard status §8- §7Check current status.";
             case "timer" -> isPl
                     ? "§e/wr timer §6<§estart§6|§epause§6|§ereset§6> §8- §7Steruj stoperem\n§e/wr timer §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz system\n§e/wr timer mode §6<§eRTA§6|§eIGT§6> §8- §7Tryb liczenia\n§e/wr timer scope §6<§eGLOBAL§6|§eINDIVIDUAL§6> §8- §7Zasięg\n§e/wr timer goal §6<§etyp§6> §6<§ewartość§6> §8- §7Ustaw cel"
                     : "§e/wr timer §6<§estart§6|§epause§6|§ereset§6> §8- §7Control stopwatch\n§e/wr timer §6<§eenable§6|§edisable§6> §8- §7Turn system on/off\n§e/wr timer mode §6<§eRTA§6|§eIGT§6> §8- §7Set counting mode\n§e/wr timer scope §6<§eGLOBAL§6|§eINDIVIDUAL§6> §8- §7Set scope\n§e/wr timer goal §6<§etype§6> §6<§evalue§6> §8- §7Set goal trigger";
@@ -5172,7 +5397,7 @@ public class Main extends JavaPlugin implements Listener {
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, String[] args) {
         if (args.length == 1) {
-            return StringUtil.copyPartialMatches(args[0], Arrays.asList("reset", "limbo", "seed", "language", "silent", "death", "filter", "timer", "compass", "templates", "autoreset", "backup", "give", "reload", "help"), new ArrayList<>());
+            return StringUtil.copyPartialMatches(args[0], Arrays.asList("reset", "limbo", "seed", "language", "silent", "death", "filter", "timer", "compass", "scoreboard", "templates", "autoreset", "backup", "give", "reload", "help"), new ArrayList<>());
         }
         if (args.length == 2) {
             if (args[0].equalsIgnoreCase("filter")) {
@@ -5181,6 +5406,7 @@ public class Main extends JavaPlugin implements Listener {
             if (args[0].equalsIgnoreCase("language")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("en", "pl"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("timer")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "pause", "reset", "enable", "disable", "mode", "scope", "goal"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("compass")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("scoreboard")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("true", "false", "on", "off", "status"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("templates")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "folder", "status"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("autoreset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "stop", "disable", "status", "loop", "visible", "time"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("backup")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "status", "list", "load", "clear", "limit"), new ArrayList<>());
@@ -5192,7 +5418,7 @@ public class Main extends JavaPlugin implements Listener {
             if (args[0].equalsIgnoreCase("reset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("3", "5", "10", "15", "30"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("seed")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "clear", "copy", "status"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("give")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("boat", "wood"), new ArrayList<>());
-            if (args[0].equalsIgnoreCase("help") || args[0].equals("?")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("reset", "limbo", "death", "timer", "autoreset", "filter", "seed", "give", "templates", "compass", "backup", "language", "silent", "reload"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("help") || args[0].equals("?")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("reset", "limbo", "death", "timer", "autoreset", "filter", "seed", "give", "templates", "compass", "scoreboard", "backup", "language", "silent", "reload"), new ArrayList<>());
         }
         if (args.length == 3) {
             if (args[0].equalsIgnoreCase("give")) {

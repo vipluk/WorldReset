@@ -1,4 +1,4 @@
-# === WorldReset v1.6fix Configuration ===
+# === WorldReset v1.7 Configuration ===
 
 # [PL] Wybierz język wiadomości w grze.
 # [EN] Select in-game language.
@@ -11,6 +11,12 @@ language: en # en, pl
 #      IMPORTANT: This MUST NOT be "world" (default server world)!
 #      Use something like "game_world", "speedrun", "manhunt".
 game-world-name: "game_world"
+
+# --- Scoreboard ---
+scoreboard:
+  # [PL] Czy kasować (resetować) wszystkie scoreboardy (cele, tabele wyników) podczas resetu świata?
+  # [EN] Should scoreboards (objectives, scores) be cleared (reset) during a world reset?
+  clear-on-reset: false
 
 # --- Reset na Śmierć / Death Reset ---
 # [PL] Czy resetować świat automatycznie, gdy ktoś umrze w świecie gry?

@@ -53,6 +53,8 @@ Main command: `/worldreset` or `/wr`
 | `/wr filter clear` | Instantly clears and disables all biome/structure filters. | `worldreset.filter` |
 | `/wr seed <value>` | Sets a fixed seed for future resets. | `worldreset.seed` |
 | `/wr seed` | Disables fixed seed (enables Random Seed mode). | `worldreset.seed` |
+| `/wr give boat <enable/disable>` | Automatically gives a boat when spawning on water. | `worldreset.give` |
+| `/wr give wood <amount/enable/disable>` | Automatically gives wood when spawning underground. | `worldreset.give` |
 | `/wr templates <enable/disable>` | Toggles whether custom maps should load from the templates folder. | `worldreset.templates` |
 | `/wr autoreset <start/stop/disable/loop/time>` | Controls and schedules automated periodic world resets. | `worldreset.autoreset` |
 | `/wr autoreset status` | Shows current autoreset state, time, loop, visibility. | `worldreset.autoreset` |
@@ -61,6 +63,7 @@ Main command: `/worldreset` or `/wr`
 | `/wr timer <mode/scope/goal>` | Configures timer settings (RTA/IGT, Global/Individual, end triggers). | `worldreset.timer` |
 | `/wr compass` | Toggles the native Minecraft **Locator Bar** ON/OFF (toggle when no argument given). | `worldreset.compass` |
 | `/wr compass <enable/disable>` | Explicitly enables or disables the native Locator Bar. | `worldreset.compass` |
+| `/wr scoreboard [true/false/on/off/status]` | Manages scoreboard clearing on reset (toggle when no argument). | `worldreset.scoreboard` |
 | `/wr language <en/pl>` | Changes the plugin language (English / Polish). | `worldreset.language` |
 | `/wr backup <enable/disable/status/limit>` | Manage world backups (toggle, view status, set retention limit). | `worldreset.admin` |
 | `/wr backup list [page]` | List all backups with sizes (paginated). | `worldreset.admin` |
