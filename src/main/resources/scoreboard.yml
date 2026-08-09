@@ -20,6 +20,10 @@ scoreboard_objectives:
     display_name: "Top Rank"
     description_en: "Player's leaderboard position (1 to 10 on the server, or 0 if unranked)."
     description_pl: "Pozycja gracza w rankingu serwera (1 do 10, lub 0 jeśli poza Top 10)."
+  wr_deaths:
+    display_name: "Deaths"
+    description_en: "Total number of deaths by the player."
+    description_pl: "Łączna liczba śmierci gracza."
 
   # --- Personal Bests / Rekordy Osobiste (PB) ---
   wr_pb_sec:
