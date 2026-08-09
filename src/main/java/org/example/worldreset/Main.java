@@ -91,6 +91,7 @@ public class Main extends JavaPlugin implements Listener {
 
     // --- ZMIENNE KOMPASU (RADARU) ---
     private boolean compassEnabled;
+    private boolean clearScoreboardOnReset;
 
     // --- ZMIENNE AUTORESETU ---
     private boolean autoResetEnabled;
@@ -242,6 +243,7 @@ public class Main extends JavaPlugin implements Listener {
         }
 
         compassEnabled = getConfig().getBoolean("compass.enabled", true);
+        clearScoreboardOnReset = getConfig().getBoolean("scoreboard.clear-on-reset", false);
 
         // AutoReset
         autoResetEnabled = getConfig().getBoolean("autoreset.enabled", false);
@@ -3015,17 +3017,19 @@ public class Main extends JavaPlugin implements Listener {
         clearDirectoryContents(getAdvancementsFolder(mainWorldDir));
         clearDirectoryContents(new File(mainWorldDir, "data"));
 
-        // Reset global scoreboard in RAM
-        try {
-            org.bukkit.scoreboard.Scoreboard sb = Bukkit.getScoreboardManager().getMainScoreboard();
-            for (org.bukkit.scoreboard.Objective obj : new HashSet<>(sb.getObjectives())) {
-                obj.unregister();
+        // Reset global scoreboard in RAM (only if enabled in config)
+        if (clearScoreboardOnReset) {
+            try {
+                org.bukkit.scoreboard.Scoreboard sb = Bukkit.getScoreboardManager().getMainScoreboard();
+                for (org.bukkit.scoreboard.Objective obj : new HashSet<>(sb.getObjectives())) {
+                    obj.unregister();
+                }
+                for (org.bukkit.scoreboard.Team team : new HashSet<>(sb.getTeams())) {
+                    team.unregister();
+                }
+            } catch (Exception e) {
+                getLogger().warning("Failed to reset scoreboard objectives: " + e.getMessage());
             }
-            for (org.bukkit.scoreboard.Team team : new HashSet<>(sb.getTeams())) {
-                team.unregister();
-            }
-        } catch (Exception e) {
-            getLogger().warning("Failed to reset scoreboard objectives: " + e.getMessage());
         }
 
         // Reset online players in-memory progress
@@ -4761,6 +4765,35 @@ public class Main extends JavaPlugin implements Listener {
                         return true;
                     }
                 }
+                case "scoreboard" -> {
+                    if (hasPerm(sender, "worldreset.scoreboard")) return noPerm(sender, "worldreset.scoreboard");
+
+                    if (args.length == 2 && args[1].equalsIgnoreCase("status")) {
+                        sender.sendMessage(getMsg("scoreboard_status").replace("{status}", clearScoreboardOnReset ? "§aON" : "§cOFF"));
+                        return true;
+                    }
+
+                    boolean newState;
+                    if (args.length < 2) {
+                        newState = !clearScoreboardOnReset;
+                    } else {
+                        String sub = args[1].toLowerCase();
+                        if (isEnableAlias(sub)) {
+                            newState = true;
+                        } else if (isDisableAlias(sub)) {
+                            newState = false;
+                        } else {
+                            sender.sendMessage(getMsg("cmd-unknown").replace("{v1}", String.valueOf(sub)));
+                            return true;
+                        }
+                    }
+
+                    clearScoreboardOnReset = newState;
+                    getConfig().set("scoreboard.clear-on-reset", newState);
+                    saveConfig();
+                    sender.sendMessage(newState ? getMsg("scoreboard_enabled") : getMsg("scoreboard_disabled"));
+                    return true;
+                }
                 case "compass" -> {
                     if (hasPerm(sender, "worldreset.compass")) return noPerm(sender, "worldreset.compass");
 
@@ -5298,6 +5331,7 @@ public class Main extends JavaPlugin implements Listener {
         sender.sendMessage(getMsg("wr_templates_action_world"));
         sender.sendMessage(getMsg("wr_compass_enabledisable_locator"));
         sender.sendMessage(getMsg("wr_give_boatwood_auto"));
+        sender.sendMessage(getMsg("wr_scoreboard"));
         sender.sendMessage("");
         sender.sendMessage(getMsg("system"));
         sender.sendMessage(getMsg("wr_backup_action_backup"));
@@ -5319,6 +5353,9 @@ public class Main extends JavaPlugin implements Listener {
             case "death" -> isPl
                     ? "§e/wr death §8- §7Przełącz reset po śmierci.\n§7  Gdy włączony, śmierć gracza resetuje świat."
                     : "§e/wr death §8- §7Toggle Reset-on-Death mode.\n§7  When enabled, any player death resets the world.";
+            case "scoreboard" -> isPl
+                    ? "§e/wr scoreboard §6[§etrue/false/on/off§6] §8- §7Zarządzanie kasowaniem scoreboardu przy resecie.\n§e/wr scoreboard status §8- §7Sprawdź aktualny stan."
+                    : "§e/wr scoreboard §6[§etrue/false/on/off§6] §8- §7Manage scoreboard clearing on reset.\n§e/wr scoreboard status §8- §7Check current status.";
             case "timer" -> isPl
                     ? "§e/wr timer §6<§estart§6|§epause§6|§ereset§6> §8- §7Steruj stoperem\n§e/wr timer §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz system\n§e/wr timer mode §6<§eRTA§6|§eIGT§6> §8- §7Tryb liczenia\n§e/wr timer scope §6<§eGLOBAL§6|§eINDIVIDUAL§6> §8- §7Zasięg\n§e/wr timer goal §6<§etyp§6> §6<§ewartość§6> §8- §7Ustaw cel"
                     : "§e/wr timer §6<§estart§6|§epause§6|§ereset§6> §8- §7Control stopwatch\n§e/wr timer §6<§eenable§6|§edisable§6> §8- §7Turn system on/off\n§e/wr timer mode §6<§eRTA§6|§eIGT§6> §8- §7Set counting mode\n§e/wr timer scope §6<§eGLOBAL§6|§eINDIVIDUAL§6> §8- §7Set scope\n§e/wr timer goal §6<§etype§6> §6<§evalue§6> §8- §7Set goal trigger";
@@ -5360,7 +5397,7 @@ public class Main extends JavaPlugin implements Listener {
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, String[] args) {
         if (args.length == 1) {
-            return StringUtil.copyPartialMatches(args[0], Arrays.asList("reset", "limbo", "seed", "language", "silent", "death", "filter", "timer", "compass", "templates", "autoreset", "backup", "give", "reload", "help"), new ArrayList<>());
+            return StringUtil.copyPartialMatches(args[0], Arrays.asList("reset", "limbo", "seed", "language", "silent", "death", "filter", "timer", "compass", "scoreboard", "templates", "autoreset", "backup", "give", "reload", "help"), new ArrayList<>());
         }
         if (args.length == 2) {
             if (args[0].equalsIgnoreCase("filter")) {
@@ -5369,6 +5406,7 @@ public class Main extends JavaPlugin implements Listener {
             if (args[0].equalsIgnoreCase("language")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("en", "pl"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("timer")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "pause", "reset", "enable", "disable", "mode", "scope", "goal"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("compass")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("scoreboard")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("true", "false", "on", "off", "status"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("templates")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "folder", "status"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("autoreset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "stop", "disable", "status", "loop", "visible", "time"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("backup")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "status", "list", "load", "clear", "limit"), new ArrayList<>());
@@ -5380,7 +5418,7 @@ public class Main extends JavaPlugin implements Listener {
             if (args[0].equalsIgnoreCase("reset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("3", "5", "10", "15", "30"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("seed")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "clear", "copy", "status"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("give")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("boat", "wood"), new ArrayList<>());
-            if (args[0].equalsIgnoreCase("help") || args[0].equals("?")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("reset", "limbo", "death", "timer", "autoreset", "filter", "seed", "give", "templates", "compass", "backup", "language", "silent", "reload"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("help") || args[0].equals("?")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("reset", "limbo", "death", "timer", "autoreset", "filter", "seed", "give", "templates", "compass", "scoreboard", "backup", "language", "silent", "reload"), new ArrayList<>());
         }
         if (args.length == 3) {
             if (args[0].equalsIgnoreCase("give")) {

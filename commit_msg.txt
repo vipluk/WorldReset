@@ -1,0 +1,9 @@
+Wdrożenie wersji 1.7 - Zarządzanie cyklem życia Scoreboardu i optymalizacja komend
+
+- Zmodyfikowano klasę Main.java, implementując flagę 'clearScoreboardOnReset'. Logika usuwająca obiekty 'Objective' oraz 'Team' z obiektu Main Scoreboard została objęta instrukcją warunkową, zapobiegając w ten sposób utracie statystyk z poprzednich rund po wykonaniu resetu świata.
+- Zaimplementowano kompleksową obsługę nowej komendy '/wr scoreboard [true/false/on/off/status]' w metodzie onCommand. Zintegrowano ją ze standardowymi mechanizmami autouzupełniania (onTabComplete) i ekranem pomocy (sendFullHelp, getHelpForCommand).
+- Zarejestrowano nowe uprawnienie 'worldreset.scoreboard' w strukturze plugin.yml oraz podpięto pod główne drzewo worldreset.*.
+- Rozbudowano system I18n dodając klucze: wr_scoreboard, scoreboard_status, scoreboard_enabled, scoreboard_disabled w plikach properties messages_pl.yml oraz messages_en.yml.
+- Dokonano refaktoryzacji metody hasPerm w obszarze przełącznika, korygując przekroczenie limitu przyjmowanych parametrów formalnych przez tę funkcję.
+- Przebudowano konfigurację główną, podbijając wersję API w pom.xml oraz plugin.yml na 1.7. W config.yml dodano nową sekcję z domyślnym parametrem zachowawczym (false).
+- Uzupełniono luki w dokumentacji technicznej: rozszerzono tabele w description.md o brakujące polecenia z rodziny /wr give, a także zainicjowano pliki historii: update17.md (dla programistów) oraz changelog17.md (dla użytkowników docelowych).

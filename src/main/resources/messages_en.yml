@@ -207,6 +207,14 @@ locator_bar_enabled: "&aLocator bar enabled!"
 locator_bar_disabled: "&cLocator bar disabled."
 
 # ===========================================================================
+# Scoreboard
+# ===========================================================================
+wr_scoreboard: "&e/wr scoreboard &8- &7Toggle scoreboard clearing on reset."
+scoreboard_status: "&7Scoreboard clearing on reset: {status}"
+scoreboard_enabled: "&aEnabled &7scoreboard clearing on reset."
+scoreboard_disabled: "&cDisabled &7scoreboard clearing on reset."
+
+# ===========================================================================
 # World Templates
 # ===========================================================================
 templates_enabled: "&aTemplates enabled."

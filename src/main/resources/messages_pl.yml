@@ -207,6 +207,14 @@ locator_bar_enabled: "&aLocator bar włączony!"
 locator_bar_disabled: "&cLocator bar wyłączony."
 
 # ===========================================================================
+# Scoreboard
+# ===========================================================================
+wr_scoreboard: "&e/wr scoreboard &8- &7Przełącz kasowanie scoreboardu przy resecie."
+scoreboard_status: "&7Kasowanie scoreboardu przy resecie: {status}"
+scoreboard_enabled: "&aWłączono &7kasowanie scoreboardu przy resecie."
+scoreboard_disabled: "&cWyłączono &7kasowanie scoreboardu przy resecie."
+
+# ===========================================================================
 # World Templates
 # ===========================================================================
 templates_enabled: "&aSzablony włączone."
