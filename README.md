@@ -43,7 +43,7 @@ Main command: `/worldreset` or `/wr`
 | `/wr limbo` | Toggles Limbo mode for all players. Moves everyone to Limbo or back to game. Also skips active countdowns. | `worldreset.limbo.all` |
 | `/wr limbo me` | Same but only for yourself. Aliases: `m`, `ja`, `j`. | `worldreset.limbo.self` |
 | `/wr limbo <player>` | Toggle Limbo for a specific player. Also accepts `all`. | `worldreset.limbo.others` |
-| `/wr limbo <seconds> [player]` | Toggle with countdown. Target defaults to all if omitted. | `.others` or `.all` |
+| `/wr limbo <seconds> [player]` | Toggle with countdown. Target defaults to all if omitted. | `worldreset.limbo.others` or `worldreset.limbo.all` |
 | `/wr limbo delay <in> <out>` | Sets global automatic delays (seconds) for death-reset enter/leave Limbo. | `worldreset.limbo.all` |
 | `/wr death` | Toggles **Reset on Death** mode (Hardcore) ON/OFF. | `worldreset.death` |
 | `/wr silent` | Toggles **Silent Mode** (hides global chat messages) ON/OFF. | `worldreset.silent` |
