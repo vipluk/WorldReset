@@ -101,6 +101,8 @@ public class Main extends JavaPlugin implements Listener {
     private long autoResetTotalSeconds;
     private long autoResetRemainingSeconds;
     private BukkitTask autoResetTask;
+    private int deathLimit = 1;
+    private int currentRunDeaths = 0;
 
     // --- ZMIENNE DELAY LIMBO ---
     private int limboDelayIn;  // sekundy opóźnienia wejścia do limbo (automatyczne)
@@ -250,6 +252,7 @@ public class Main extends JavaPlugin implements Listener {
         autoResetVisible = getConfig().getBoolean("autoreset.visible", true);
         autoResetLoop = getConfig().getBoolean("autoreset.loop", true);
         autoResetPaused = getConfig().getBoolean("autoreset.paused", true);
+        deathLimit = getConfig().getInt("death-limit", 1);
         autoResetTotalSeconds = parseTimeToSeconds(getConfig().getString("autoreset.time", "1h"));
         if (autoResetRemainingSeconds <= 0) {
             autoResetRemainingSeconds = autoResetTotalSeconds;
@@ -793,6 +796,7 @@ public class Main extends JavaPlugin implements Listener {
         saveConfig();
 
         isResetting = true;
+        currentRunDeaths = 0;
         isGameReady = false;
 
         lastPlayerSnapshot = capturePlayerStates();
@@ -938,6 +942,7 @@ public class Main extends JavaPlugin implements Listener {
         saveConfig();
 
         isResetting = true;
+        currentRunDeaths = 0;
         isDelayingReset = limboDelayIn > 0;
         isGameReady = false;
 
@@ -2410,6 +2415,7 @@ public class Main extends JavaPlugin implements Listener {
             setupGamePlayer(p, spawn);
         }
         incrementAttempts();
+        syncAllScoreboards();
     }
 
     private void startGameForAllWithDelay() {
@@ -2440,6 +2446,7 @@ public class Main extends JavaPlugin implements Listener {
                     setupGamePlayer(p, finalSpawn);
                 }
                 incrementAttempts();
+                syncAllScoreboards();
             });
         } else {
             broadcastInfo(getMsg("game-started"));
@@ -2447,6 +2454,7 @@ public class Main extends JavaPlugin implements Listener {
                 setupGamePlayer(p, spawn);
             }
             incrementAttempts();
+            syncAllScoreboards();
         }
     }
 
@@ -3022,10 +3030,9 @@ public class Main extends JavaPlugin implements Listener {
             try {
                 org.bukkit.scoreboard.Scoreboard sb = Bukkit.getScoreboardManager().getMainScoreboard();
                 for (org.bukkit.scoreboard.Objective obj : new HashSet<>(sb.getObjectives())) {
-                    obj.unregister();
-                }
-                for (org.bukkit.scoreboard.Team team : new HashSet<>(sb.getTeams())) {
-                    team.unregister();
+                    if (obj.getName().startsWith("wr_")) {
+                        obj.unregister();
+                    }
                 }
             } catch (Exception e) {
                 getLogger().warning("Failed to reset scoreboard objectives: " + e.getMessage());
@@ -3785,16 +3792,21 @@ public class Main extends JavaPlugin implements Listener {
             org.bukkit.scoreboard.Objective arSecObj = getOrRegisterObjective(sb, "wr_autoreset_sec", "AutoReset (Sec)");
             org.bukkit.scoreboard.Objective arMinObj = getOrRegisterObjective(sb, "wr_autoreset_min", "AutoReset (Min)");
             org.bukkit.scoreboard.Objective arStatusObj = getOrRegisterObjective(sb, "wr_autoreset_status", "AutoReset Status");
+            org.bukkit.scoreboard.Objective runDeathsObj = getOrRegisterObjective(sb, "wr_run_deaths", getMsg("run_deaths"));
+            org.bukkit.scoreboard.Objective livesLeftObj = getOrRegisterObjective(sb, "wr_lives_left", getMsg("lives_left"));
 
             int secVal = !autoResetEnabled ? 0 : (int) autoResetRemainingSeconds;
             int minVal = !autoResetEnabled ? 0 : (int) (autoResetRemainingSeconds / 60);
             // Status: 0 = disabled, 1 = running, 2 = paused
             int statusVal = !autoResetEnabled ? 0 : (autoResetPaused ? 2 : 1);
+            int livesLeftVal = deathLimit > 0 ? Math.max(0, deathLimit - currentRunDeaths) : 0;
 
             for (Player p : Bukkit.getOnlinePlayers()) {
                 arSecObj.getScore(p.getName()).setScore(secVal);
                 arMinObj.getScore(p.getName()).setScore(minVal);
                 arStatusObj.getScore(p.getName()).setScore(statusVal);
+                runDeathsObj.getScore(p.getName()).setScore(currentRunDeaths);
+                livesLeftObj.getScore(p.getName()).setScore(livesLeftVal);
             }
         } catch (Exception ignored) {}
     }
@@ -3863,6 +3875,8 @@ public class Main extends JavaPlugin implements Listener {
             setupLimboPlayer(p);
         }
 
+        p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
+
         syncAllScoreboards();
 
         // Give boat if water spawn is active and player respawns in/above water
@@ -3910,7 +3924,18 @@ public class Main extends JavaPlugin implements Listener {
         saveRecordsFile();
         syncScoreboard(dead);
 
-        if (!getConfig().getBoolean("reset-on-death", false)) return;
+        if (deathLimit > 0) {
+            currentRunDeaths++;
+            syncAutoResetScoreboard();
+            if (currentRunDeaths >= deathLimit) {
+                if (!isResetting) {
+                    broadcastInfo(getMsg("autoreset_death_limit_reached").replace("{count}", String.valueOf(deathLimit)));
+                    startAutoTriggeredReset();
+                }
+            }
+        }
+
+        if (!getConfig().getBoolean("deathLimit", false)) return;
         if (isResetting) return;
 
         // Reset boat flag on death — player gets new boat after next reset if water spawn
@@ -4276,10 +4301,39 @@ public class Main extends JavaPlugin implements Listener {
                 }
                 case "death" -> {
                     if (hasPerm(sender, "worldreset.death")) return noPerm(sender, "worldreset.death");
-                    boolean n = !getConfig().getBoolean("reset-on-death");
-                    getConfig().set("reset-on-death", n);
+                    if (args.length >= 2) {
+                        String sub = args[1].toLowerCase();
+                        if (isEnableAlias(sub)) {
+                            deathLimit = 1;
+                        } else if (isDisableAlias(sub)) {
+                            deathLimit = 0;
+                        } else {
+                            try {
+                                int limit = Integer.parseInt(sub);
+                                deathLimit = Math.max(0, limit);
+                            } catch (NumberFormatException e) {
+                                sender.sendMessage(getMsg("usage_wr_death"));
+                                return true;
+                            }
+                        }
+                    } else {
+                        if (deathLimit > 0) {
+                            deathLimit = 0;
+                        } else {
+                            deathLimit = 1;
+                        }
+                    }
+                    getConfig().set("death-limit", deathLimit);
                     saveConfig();
-                    sender.sendMessage(getMsg(n ? "death-reset-on" : "death-reset-off"));
+                    if (deathLimit == 0) {
+                        sender.sendMessage(getMsg("death-mode-disabled"));
+                    } else if (deathLimit == 1) {
+                        sender.sendMessage(getMsg("death-mode-enabled"));
+                    } else {
+                        sender.sendMessage(getMsg("death_limit_set").replace("{count}", String.valueOf(deathLimit)));
+                    }
+                    syncAutoResetScoreboard();
+                    syncAllScoreboards();
                     return true;
                 }
                 case "seed" -> {
@@ -4874,6 +4928,7 @@ public class Main extends JavaPlugin implements Listener {
                     clearScoreboardOnReset = newState;
                     getConfig().set("scoreboard.clear-on-reset", newState);
                     saveConfig();
+                    
                     sender.sendMessage(newState ? getMsg("scoreboard_enabled") : getMsg("scoreboard_disabled"));
                     return true;
                 }
@@ -5450,11 +5505,11 @@ public class Main extends JavaPlugin implements Listener {
                     ? "§e/wr limbo §8- §7Przenieś wszystkich do/z Limbo\n§e/wr limbo me §8- §7Przenieś tylko siebie\n§e/wr limbo §6<§egracz§6> §8- §7Przenieś wybranego gracza\n§e/wr limbo §6<§esekundy§6> §6[§egracz§6] §8- §7Z odliczaniem (domyślnie wszyscy)\n§e/wr limbo delay §6<§ein§6> §6<§eout§6> §8- §7Ustaw automatyczne opóźnienia"
                     : "§e/wr limbo §8- §7Toggle all players to/from Limbo\n§e/wr limbo me §8- §7Toggle only yourself\n§e/wr limbo §6<§eplayer§6> §8- §7Toggle specific player\n§e/wr limbo §6<§eseconds§6> §6[§eplayer§6] §8- §7With countdown (default: all)\n§e/wr limbo delay §6<§ein§6> §6<§eout§6> §8- §7Set automatic delays";
             case "death" -> isPl
-                    ? "§e/wr death §8- §7Przełącz reset po śmierci.\n§7  Gdy włączony, śmierć gracza resetuje świat."
-                    : "§e/wr death §8- §7Toggle Reset-on-Death mode.\n§7  When enabled, any player death resets the world.";
+                    ? "§e/wr death §6[§eon/off§6] §8- §7Przełącz reset po śmierci.\n§e/wr death §6<§elimit§6> §8- §7Ustaw dokładny limit żyć."
+                    : "§e/wr death §6[§eon/off§6] §8- §7Toggle Reset-on-Death mode.\n§e/wr death §6<§elimit§6> §8- §7Set specific deaths limit.";
             case "scoreboard" -> isPl
-                    ? "§e/wr scoreboard §6[§etrue/false/on/off§6] §8- §7Zarządzanie kasowaniem scoreboardu przy resecie.\n§e/wr scoreboard status §8- §7Sprawdź aktualny stan."
-                    : "§e/wr scoreboard §6[§etrue/false/on/off§6] §8- §7Manage scoreboard clearing on reset.\n§e/wr scoreboard status §8- §7Check current status.";
+                    ? "§e/wr scoreboard §6[§eon/off§6] §8- §7Czyść cele wr_ przy resecie.\n§e/wr scoreboard status §8- §7Sprawdź stan czyszczenia."
+                    : "§e/wr scoreboard §6[§eon/off§6] §8- §7Clear wr_ objectives on reset.\n§e/wr scoreboard status §8- §7Check clear status.";
             case "timer" -> isPl
                     ? "§e/wr timer §6<§estart§6|§epause§6|§ereset§6> §8- §7Steruj stoperem\n§e/wr timer §6<§eenable§6|§edisable§6> §8- §7Włącz/wyłącz system\n§e/wr timer mode §6<§eRTA§6|§eIGT§6> §8- §7Tryb liczenia\n§e/wr timer scope §6<§eGLOBAL§6|§eINDIVIDUAL§6> §8- §7Zasięg\n§e/wr timer goal §6<§etyp§6> §6<§ewartość§6> §8- §7Ustaw cel"
                     : "§e/wr timer §6<§estart§6|§epause§6|§ereset§6> §8- §7Control stopwatch\n§e/wr timer §6<§eenable§6|§edisable§6> §8- §7Turn system on/off\n§e/wr timer mode §6<§eRTA§6|§eIGT§6> §8- §7Set counting mode\n§e/wr timer scope §6<§eGLOBAL§6|§eINDIVIDUAL§6> §8- §7Set scope\n§e/wr timer goal §6<§etype§6> §6<§evalue§6> §8- §7Set goal trigger";
@@ -5499,13 +5554,16 @@ public class Main extends JavaPlugin implements Listener {
             return StringUtil.copyPartialMatches(args[0], Arrays.asList("reset", "limbo", "seed", "language", "silent", "death", "filter", "timer", "compass", "scoreboard", "templates", "autoreset", "backup", "give", "reload", "help"), new ArrayList<>());
         }
         if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("death")) {
+                return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "1", "3", "5"), new ArrayList<>());
+            }
             if (args[0].equalsIgnoreCase("filter")) {
                 return StringUtil.copyPartialMatches(args[1], Arrays.asList("structure", "biome", "attempts", "enable", "disable", "status", "clear"), new ArrayList<>());
             }
             if (args[0].equalsIgnoreCase("language")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("en", "pl"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("timer")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "pause", "reset", "enable", "disable", "mode", "scope", "goal"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("compass")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable"), new ArrayList<>());
-            if (args[0].equalsIgnoreCase("scoreboard")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("true", "false", "on", "off", "status"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("scoreboard")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "status", "reset"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("templates")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "folder", "status"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("autoreset")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("start", "stop", "disable", "status", "loop", "visible", "time"), new ArrayList<>());
             if (args[0].equalsIgnoreCase("backup")) return StringUtil.copyPartialMatches(args[1], Arrays.asList("enable", "disable", "status", "list", "load", "clear", "limit"), new ArrayList<>());
@@ -5570,6 +5628,11 @@ public class Main extends JavaPlugin implements Listener {
             }
             if (args[0].equalsIgnoreCase("limbo") && args[1].equalsIgnoreCase("delay")) {
                 return StringUtil.copyPartialMatches(args[2], Arrays.asList("0", "3", "5", "10", "15"), new ArrayList<>());
+            }
+            if (args[0].equalsIgnoreCase("scoreboard") && args[1].equalsIgnoreCase("reset")) {
+                List<String> suggestions = new ArrayList<>();
+                for (Player p : Bukkit.getOnlinePlayers()) suggestions.add(p.getName());
+                return StringUtil.copyPartialMatches(args[2], suggestions, new ArrayList<>());
             }
             if (args[0].equalsIgnoreCase("limbo")) {
                 try {
@@ -5771,8 +5834,11 @@ public class Main extends JavaPlugin implements Listener {
             int activePlayers = w != null ? w.getPlayers().size() : 0;
             org.bukkit.scoreboard.Objective playersActiveObj = getOrRegisterObjective(scoreboard, "wr_players_active", getMsg("active_players"));
 
-            int resetOnDeathVal = getConfig().getBoolean("reset-on-death", false) ? 1 : 0;
+            int resetOnDeathVal = deathLimit == 1 ? 1 : 0;
             org.bukkit.scoreboard.Objective deathResetObj = getOrRegisterObjective(scoreboard, "wr_death_reset", getMsg("death_reset"));
+            
+            org.bukkit.scoreboard.Objective runDeathsObj = getOrRegisterObjective(scoreboard, "wr_run_deaths", getMsg("run_deaths"));
+            org.bukkit.scoreboard.Objective livesLeftObj = getOrRegisterObjective(scoreboard, "wr_lives_left", getMsg("lives_left"));
 
             int timerStatusVal = goalReachedPause ? 2 : (timerRunning ? 1 : 0);
             org.bukkit.scoreboard.Objective timerStatusObj = getOrRegisterObjective(scoreboard, "wr_timer_status", getMsg("timer_status"));
@@ -5918,6 +5984,10 @@ public class Main extends JavaPlugin implements Listener {
             goalTypeObj.getScore(name).setScore(goalTypeVal);
             difficultyObj.getScore(name).setScore(difficultyVal);
             filterActiveObj.getScore(name).setScore(filterActiveVal);
+            
+            runDeathsObj.getScore(name).setScore(currentRunDeaths);
+            int livesLeftVal = deathLimit > 0 ? Math.max(0, deathLimit - currentRunDeaths) : 0;
+            livesLeftObj.getScore(name).setScore(livesLeftVal);
 
         } catch (Exception e) {
             getLogger().warning("Failed to sync player scoreboard: " + e.getMessage());
@@ -6157,6 +6227,12 @@ public class Main extends JavaPlugin implements Listener {
             }
             if (params.equalsIgnoreCase("deaths")) {
                 return String.valueOf(recordsConfig.getInt("players." + uuid.toString() + ".deaths", 0));
+            }
+            if (params.equalsIgnoreCase("run_deaths")) {
+                return String.valueOf(currentRunDeaths);
+            }
+            if (params.equalsIgnoreCase("lives_left")) {
+                return String.valueOf(deathLimit > 0 ? Math.max(0, deathLimit - currentRunDeaths) : 0);
             }
             if (params.equalsIgnoreCase("completions")) {
                 return String.valueOf(recordsConfig.getInt("players." + uuid.toString() + ".completions", 0));
