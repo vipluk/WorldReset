@@ -127,6 +127,12 @@ placeholders:
   %worldreset_deaths%:
     description_en: "Total number of deaths by the player."
     description_pl: "Łączna liczba śmierci gracza."
+  %worldreset_run_deaths%:
+    description_en: "Total deaths during the current run (autoreset limit)."
+    description_pl: "Liczba zgonów podczas obecnego biegu (limit autoresetu)."
+  %worldreset_lives_left%:
+    description_en: "Lives left before the world is autoresetted."
+    description_pl: "Pozostała liczba żyć, zanim świat ulegnie autoresetowi."
   %worldreset_completions%:
     description_en: "Total number of successful runs completed by the player."
     description_pl: "Łączna liczba pomyślnie ukończonych biegów gracza."

@@ -13,6 +13,7 @@ Wydanie **1.7** dla wtyczki **WorldReset** wprowadza nową kontrolę nad cyklem 
   * W klasie `Main.java` owinięto logikę usuwającą cele instrukcją warunkową opartą o buforowaną flagę `clearScoreboardOnReset`.
   * Utworzono nową komendę `/wr scoreboard <true/false/on/off/status>`, obsługiwaną przez standardową heurystykę `isEnableAlias()` i `isDisableAlias()`. 
   * W przypadku wywołania komendy bez argumentów, flaga ulega natychmiastowej negacji (toggle) i natychmiastowemu zapisowi na dysk `saveConfig()`.
+  * **Nowość:** Komenda dodatkowo iteruje po wszystkich połączonych graczach. Wyłączenie scoreboardu od razu "chowa" go przed graczami ustawiając `player.setScoreboard(Bukkit.getScoreboardManager().getNewScoreboard())`, a włączenie przywraca główną tablicę `getMainScoreboard()`. Zabezpiecza to przed zacinaniem się elementów interfejsu (sidebar, belowname). Dołączanie nowych graczy (PlayerJoinEvent) również otrzymało ten warunek zabezpieczający.
   * Integracja z backupami została zachowana: jeśli scoreboard nie ulega wyczyszczeniu, mechanizm backupu po prostu zapisze jego obecny stan, a przy załadowaniu kopii zostanie on bezpiecznie nadpisany na stan z punktu wykonania backupu (zgodnie z systemem `players.yml` i natywnym zachowaniem serwera).
 
 ### 2. Kompatybilność komend i uprawnienia
@@ -28,8 +29,9 @@ Wydanie **1.7** dla wtyczki **WorldReset** wprowadza nową kontrolę nad cyklem 
 * Wdrożono całkowicie angielski i udoskonalony plik `plugin.yml`.
 * Zachowano **wsteczną kompatybilność**: dawne uprawnienia `worldreset.modul` działają teraz jako "parent nodes", które dziedziczą z uprawnień typu gwiazdka (wildcards: `worldreset.modul.*`), z których dziedziczą uprawnienia właściwe. Dzięki temu administratorzy aktualizujący wtyczkę z dnia na dzień nie odnotują problemów z dostępem.
 
-### 5. Statystyka Śmierci i Reset Punktacji
-* Wprowadzono nową, trwałą statystykę gracza w pliku `records.yml`: `deaths`, która zlicza zgony.
-* Zaktualizowano natywny moduł Minecraft Scoreboard, wprowadzając nowy objective `wr_deaths`, który jest odświeżany m.in. przy wystąpieniu zdarzenia `PlayerDeathEvent`.
-* Zintegrowano nową statystykę w `PlaceholderAPI` (`%worldreset_deaths%`) poprzez implementację wewnętrzną we własnej podklasie `WorldResetExpansion`.
+### 5. Statystyka Śmierci, Reset Punktacji i Shared Lives (Limit Zgonów)
+* Wprowadzono nową, trwałą statystykę gracza w pliku `records.yml`: `deaths`, która zlicza zgony od początku istnienia serwera.
+* Dodano mechanikę **Shared Lives (Limit zgonów dla autoresetu)**. Dodano komendę `/wr autoreset after <limit>`. Po osiągnięciu łącznego limitu śmierci dla bieżącego podejścia (run), świat jest natychmiast resetowany bez pytania. Domyślny limit w configu to `1`.
+* Zaktualizowano natywny moduł Minecraft Scoreboard, wprowadzając nowy objective `wr_deaths`, `wr_run_deaths` i `wr_lives_left`, które odświeżają się na bieżąco.
+* Zintegrowano nowe statystyki w `PlaceholderAPI` (`%worldreset_deaths%`, `%worldreset_run_deaths%`, `%worldreset_lives_left%`).
 * Dodano komendę administracyjną `/wr scoreboard reset [gracz]`, służącą do wyzerowania permanentnych statystyk i rekordów życiowych dla konkretnego gracza lub wszystkich ujętych w pliku `records.yml`, połączoną z natywnym kasowaniem tablic serwerowych. Zabezpieczono komendę nowym uprawnieniem `worldreset.scoreboard.admin`.

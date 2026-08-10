@@ -24,6 +24,14 @@ scoreboard_objectives:
     display_name: "Deaths"
     description_en: "Total number of deaths by the player."
     description_pl: "Łączna liczba śmierci gracza."
+  wr_run_deaths:
+    display_name: "Run Deaths"
+    description_en: "Total deaths during the current run (autoreset limit)."
+    description_pl: "Liczba zgonów podczas obecnego biegu (limit autoresetu)."
+  wr_lives_left:
+    display_name: "Lives Left"
+    description_en: "Lives left before the world is autoresetted."
+    description_pl: "Pozostała liczba żyć, zanim świat ulegnie autoresetowi."
 
   # --- Personal Bests / Rekordy Osobiste (PB) ---
   wr_pb_sec:

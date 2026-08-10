@@ -12,16 +12,18 @@ language: en # en, pl
 #      Use something like "game_world", "speedrun", "manhunt".
 game-world-name: "game_world"
 
+# --- Limit Smierci / Death Limit ---
+# [PL] Limit zgonow graczy wyzwalajacy automatyczny reset serwera.
+#      0 = wylaczone, 1 = klasyczny hardcore (reset przy pierwszej smierci), >1 = pula wspolnych zyc.
+# [EN] Number of player deaths that will trigger an automatic world reset.
+#      0 = disabled, 1 = classic hardcore (reset on first death), >1 = shared lives pool.
+death-limit: 1
+
 # --- Scoreboard ---
 scoreboard:
-  # [PL] Czy kasować (resetować) wszystkie scoreboardy (cele, tabele wyników) podczas resetu świata?
-  # [EN] Should scoreboards (objectives, scores) be cleared (reset) during a world reset?
+  # [PL] Czy kasować statystyki i cele pluginu (tylko te zaczynające się od wr_) podczas resetu świata?
+  # [EN] Should plugin's scoreboards (objectives starting with wr_) be cleared during a world reset?
   clear-on-reset: false
-
-# --- Reset na Śmierć / Death Reset ---
-# [PL] Czy resetować świat automatycznie, gdy ktoś umrze w świecie gry?
-# [EN] Should the world reset automatically when a player dies in the game world?
-reset-on-death: true
 
 # --- Backup ---
 backup:
@@ -160,6 +162,7 @@ compass:
 
 # --- AUTORESET (Zaplanowane automatyczne resety) ---
 autoreset:
+
   # [PL] Czy czasomierz zaplanowanych resetów ma być włączony?
   # [EN] Enable the scheduled automated reset timer?
   enabled: false
