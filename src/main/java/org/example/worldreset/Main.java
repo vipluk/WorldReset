@@ -1,6 +1,8 @@
 package org.example.worldreset;
 
 import net.kyori.adventure.text.Component;
+import dev.faststats.bukkit.BukkitContext;
+import dev.faststats.Metrics;
 import org.bukkit.*;
 import org.bukkit.advancement.Advancement;
 import org.bukkit.advancement.AdvancementProgress;
@@ -56,6 +58,10 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 public class Main extends JavaPlugin implements Listener {
+
+    private final BukkitContext fastStatsContext = new BukkitContext.Factory(this, "77f1c93e67dcb0f9222df2278006c23b")
+            .metrics(Metrics.Factory::create)
+            .create();
 
     private String gameWorldName;
     private final String limboWorldName = "limbo";
@@ -184,6 +190,10 @@ public class Main extends JavaPlugin implements Listener {
 
         getLogger().info("WorldReset v" + getPluginMeta().getVersion() + " enabled.");
 
+        if (fastStatsContext != null) {
+            fastStatsContext.ready();
+        }
+
         // Start autoreset timer if enabled and not paused
         if (autoResetEnabled && !autoResetPaused) {
             autoResetRemainingSeconds = autoResetTotalSeconds;
@@ -219,6 +229,9 @@ public class Main extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (fastStatsContext != null) {
+            fastStatsContext.shutdown();
+        }
         stopAutoResetTimer();
     }
 
