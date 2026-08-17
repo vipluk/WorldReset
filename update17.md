@@ -1,37 +1,34 @@
 # WorldReset v1.7 - Dziennik Aktualizacji (Dla dewelopera)
 
-Wydanie **1.7** dla wtyczki **WorldReset** wprowadza nową kontrolę nad cyklem życia tablic wyników (scoreboard) podczas resetowania świata, zachowując przy tym wsteczną kompatybilność i standardy zachowania wtyczki.
+Wydanie **1.7** dla wtyczki **WorldReset** stanowi oficjalne, stabilne wydanie produkcyjne, które pomyślnie przeszło fazę testów beta oraz wprowadza integrację z nowoczesnym systemem telemetrycznym **FastStats.dev**.
 
 ---
 
-## 🛠️ Zmiany Architektoniczne i Logiczne
+## 🛠️ Zmiany Techniczne i Architektoniczne
 
-### 1. Toggle czyszczenia Scoreboardu
-* **Problem / Założenie:** W dotychczasowych wersjach plugin automatycznie i bezwzględnie czyścił wszystkie instancje `Objective` oraz `Team` w głównym scoreboardzie serwera. Dla specyficznych trybów gry użytkownicy oczekiwali utrzymania swoich statystyk pomiędzy grami.
-* **Wdrożenie:** 
-  * W `config.yml` dodano sekcję `scoreboard` z opcją `clear-on-reset` domyślnie ustawioną na `false` (wcześniejsze, ciche zachowanie odpowiadało `true`).
-  * W klasie `Main.java` owinięto logikę usuwającą cele instrukcją warunkową opartą o buforowaną flagę `clearScoreboardOnReset`.
-  * Utworzono nową komendę `/wr scoreboard <true/false/on/off/status>`, obsługiwaną przez standardową heurystykę `isEnableAlias()` i `isDisableAlias()`. 
-  * W przypadku wywołania komendy bez argumentów, flaga ulega natychmiastowej negacji (toggle) i natychmiastowemu zapisowi na dysk `saveConfig()`.
-  * **Nowość:** Komenda dodatkowo iteruje po wszystkich połączonych graczach. Wyłączenie scoreboardu od razu "chowa" go przed graczami ustawiając `player.setScoreboard(Bukkit.getScoreboardManager().getNewScoreboard())`, a włączenie przywraca główną tablicę `getMainScoreboard()`. Zabezpiecza to przed zacinaniem się elementów interfejsu (sidebar, belowname). Dołączanie nowych graczy (PlayerJoinEvent) również otrzymało ten warunek zabezpieczający.
-  * Integracja z backupami została zachowana: jeśli scoreboard nie ulega wyczyszczeniu, mechanizm backupu po prostu zapisze jego obecny stan, a przy załadowaniu kopii zostanie on bezpiecznie nadpisany na stan z punktu wykonania backupu (zgodnie z systemem `players.yml` i natywnym zachowaniem serwera).
+### 1. Zakończenie fazy Beta i stabilizacja wydania
+* Po udanych testach wersji `1.7beta` (obejmujących m.in. granularny system uprawnień, trwałą statystykę śmierci graczy `records.yml`, mechanizm Shared Lives oraz zarządzanie cyklem życia scoreboardu `/wr scoreboard`) i braku zgłoszeń błędów ze strony użytkowników, wydanie zostało promowane do oficjalnej wersji stabilnej **1.7**.
+* Ujednolicono metadane wersji w `pom.xml`, `plugin.yml`, `config.yml` oraz dokumentacji projektu.
 
-### 2. Kompatybilność komend i uprawnienia
-* Zarejestrowano nową uprawnienie: `worldreset.scoreboard` (przypisane do grupy `worldreset.*` / `op` jako domyślny status).
-* Dodano klucze lokalizacyjne: `wr_scoreboard`, `scoreboard_status`, `scoreboard_enabled`, `scoreboard_disabled` do `messages_en.yml` oraz `messages_pl.yml`.
-
-### 3. Poprawki dokumentacji
-* Plik `description.md` został uaktualniony do wersji 1.7. 
-* Dodano brakujące wpisy do spisu poleceń, dotyczące funkcji Auto Give (`/wr give boat`, `/wr give wood`), które nie posiadały własnej reprezentacji w tabeli `Commands and Permissions`.
-
-### 4. Rewolucja Uprawnień (Granular Permissions)
-* Zrezygnowano z globalnych, nadrzędnych uprawnień dla modułów (np. `worldreset.limbo`) na rzecz bardzo precyzyjnych sub-uprawnień (np. `worldreset.limbo.self`, `worldreset.timer.config`).
-* Wdrożono całkowicie angielski i udoskonalony plik `plugin.yml`.
-* Zachowano **wsteczną kompatybilność**: dawne uprawnienia `worldreset.modul` działają teraz jako "parent nodes", które dziedziczą z uprawnień typu gwiazdka (wildcards: `worldreset.modul.*`), z których dziedziczą uprawnienia właściwe. Dzięki temu administratorzy aktualizujący wtyczkę z dnia na dzień nie odnotują problemów z dostępem.
-
-### 5. Statystyka Śmierci, Reset Punktacji i Shared Lives (Limit Zgonów)
-* Wprowadzono nową, trwałą statystykę gracza w pliku `records.yml`: `deaths`, która zlicza zgony od początku istnienia serwera.
-* Dodano mechanikę **Shared Lives (Limit zgonów dla autoresetu)**. Dodano komendę `/wr autoreset after <limit>`. Po osiągnięciu łącznego limitu śmierci dla bieżącego podejścia (run), świat jest natychmiast resetowany bez pytania. Domyślny limit w configu to `1`.
-* Zaktualizowano natywny moduł Minecraft Scoreboard, wprowadzając nowy objective `wr_deaths`, `wr_run_deaths` i `wr_lives_left`, które odświeżają się na bieżąco.
-* Zintegrowano nowe statystyki w `PlaceholderAPI` (`%worldreset_deaths%`, `%worldreset_run_deaths%`, `%worldreset_lives_left%`).
-* Dodano komendę administracyjną `/wr scoreboard reset [gracz]`, służącą do wyzerowania permanentnych statystyk i rekordów życiowych dla konkretnego gracza lub wszystkich ujętych w pliku `records.yml`, połączoną z natywnym kasowaniem tablic serwerowych. Zabezpieczono komendę nowym uprawnieniem `worldreset.scoreboard.admin`.
+### 2. Integracja z platformą FastStats.dev
+* **Zależności i Repozytorium Maven (`pom.xml`):**
+  * Dodano dedykowane repozytorium wydawnicze FastStats: `https://repo.faststats.dev/releases`.
+  * Wdrożono zależność: `dev.faststats.metrics:bukkit` w wersji `0.29.4` ze zakresem `compile`.
+* **Shading i Relokacja Pakietów (`maven-shade-plugin`):**
+  * Skonfigurowano sekcję `<relocations>` w wtyczce `maven-shade-plugin`, dokonując relokacji przestrzeni nazw:
+    ```xml
+    <relocation>
+        <pattern>dev.faststats</pattern>
+        <shadedPattern>org.example.worldreset.faststats</shadedPattern>
+    </relocation>
+    ```
+  * Zapobiega to konfliktom klas (`NoSuchMethodError` / kolizje wersji) w środowiskach wielowtyczkowych na serwerach Paper/Spigot.
+* **Cykl życia telemetrii (`Main.java`):**
+  * W klasie głównej zainicjalizowano pole kontekstu metryk:
+    ```java
+    private final BukkitContext fastStatsContext = new BukkitContext.Factory(this, "77f1c93e67dcb0f9222df2278006c23b")
+            .metrics(Metrics.Factory::create)
+            .create();
+    ```
+  * W metodzie `onEnable()` dodano wywołanie `fastStatsContext.ready();` rozpoczynające asynchroniczne wysyłanie metryk po pełnym załadowaniu wtyczki.
+  * W metodzie `onDisable()` dodano procedurę `fastStatsContext.shutdown();`, gwarantującą poprawne i czyste zamknięcie puli wątków telemetrii przy wyłączaniu bądź przeładowaniu serwera.
