@@ -1,6 +1,6 @@
 name: WorldReset
 website: https://modrinth.com/project/worldreset
-version: 1.7
+version: 1.8
 main: org.example.worldreset.Main
 api-version: 1.21
 author: vipluk
@@ -153,16 +153,28 @@ permissions:
       worldreset.filter.*: true
 
   # ==========================================
-  # OTHER (NOT SPLIT)
+  # OTHER & BASIC
   # ==========================================
+  worldreset.help:
+    description: Allows viewing the help menu
+    default: true
+  worldreset.start:
+    description: Allows starting the game when in Limbo
+    default: op
   worldreset.reset:
     description: Allows resetting the world
     default: op
   worldreset.language:
-    description: Allows changing the language
+    description: Allows changing personal language
+    default: true
+  worldreset.language.all:
+    description: Allows changing global server language
     default: op
   worldreset.silent:
-    description: Allows silencing broadcasts
+    description: Allows toggling personal silent mode
+    default: true
+  worldreset.silent.all:
+    description: Allows toggling global server broadcasts
     default: op
   worldreset.death:
     description: Allows toggling reset on death
@@ -201,11 +213,14 @@ permissions:
     default: op
     children:
       worldreset.admin: true
+      worldreset.start: true
       worldreset.reset: true
       worldreset.limbo.*: true
       worldreset.seed.*: true
       worldreset.language: true
+      worldreset.language.all: true
       worldreset.silent: true
+      worldreset.silent.all: true
       worldreset.death: true
       worldreset.filter.*: true
       worldreset.give: true

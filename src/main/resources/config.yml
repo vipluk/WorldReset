@@ -1,4 +1,4 @@
-# === WorldReset v1.7 Configuration ===
+# === WorldReset v1.8 Configuration ===
 
 # [PL] Wybierz język wiadomości w grze.
 # [EN] Select in-game language.
@@ -183,8 +183,16 @@ autoreset:
   # [EN] Is the countdown paused?
   paused: true
 
-# --- LIMBO DELAY (Opóźnienia teleportacji) ---
+# --- LIMBO (Poczekalnia i opóźnienia) ---
 limbo:
+  # [PL] Czy nowi gracze dołączający podczas trwającej gry mają trafiać do Limbo (zamiast do gry)?
+  # [EN] Should new players joining an ongoing game be sent to Limbo (instead of the game)?
+  new-players-to-limbo: false
+
+  # [PL] Czy po uruchomieniu/restarcie serwera gracze mają zaczynać w Limbo (poczekalni)?
+  # [EN] Should the server start in Limbo mode after boot/restart?
+  start-in-limbo: false
+
   # [PL] Opóźnienie (w sekundach) przed automatycznym teleportem do Limbo (np. przy resecie).
   #      Gracze zobaczą odliczanie na ekranie ale mogą dalej grać.
   #      0 = natychmiastowy teleport (bez odliczania).

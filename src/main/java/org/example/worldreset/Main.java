@@ -16,13 +16,13 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
-import org.bukkit.event.entity.EntityPortalEnterEvent;
 import org.bukkit.event.entity.EntityPortalEvent;
 import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
@@ -94,8 +94,7 @@ public class Main extends JavaPlugin implements Listener {
     private final Map<UUID, Long> playerElapsedTimes = new HashMap<>();
     private final Map<UUID, Integer> playerElapsedTicks = new HashMap<>();
     private final Set<UUID> playersFinished = new HashSet<>();
-
-    private final Set<UUID> playersDeathLocked = new HashSet<>(); // locking players after death so limbo doesn't work on them
+    private final Set<UUID> playersDeathLocked = new HashSet<>(); // Blokada graczy na ekranie smierci (zabezpieczenie przed limbo)
 
     // --- ZMIENNE KOMPASU (RADARU) ---
     private boolean compassEnabled;
@@ -115,6 +114,9 @@ public class Main extends JavaPlugin implements Listener {
     // --- ZMIENNE DELAY LIMBO ---
     private int limboDelayIn;  // sekundy opóźnienia wejścia do limbo (automatyczne)
     private int limboDelayOut; // sekundy opóźnienia wyjścia z limbo (automatyczne)
+    private boolean limboNewPlayersToLimbo = false;
+    private boolean limboStartInLimbo = false;
+    private boolean isWaitingStartupInLimbo = false;
     private int tempCustomDelayOut = -1;
     private final Map<UUID, BukkitTask> activeCountdowns = new HashMap<>();
     private final Map<UUID, Map<String, Object>> limboSavedStates = new HashMap<>(); // Player states saved when entering limbo
@@ -122,6 +124,15 @@ public class Main extends JavaPlugin implements Listener {
     private boolean waterSpawnActive = false; // True if current spawn is on water
     private boolean skipFindSafeSpawn = false; // True if ocean island spawn already found correct location
     private FileConfiguration lastPlayerSnapshot; // Saved before reset, used in backup
+
+    // User preferences (language & silent)
+    private final Map<UUID, String> playerLanguages = new HashMap<>();
+    private final Map<UUID, Boolean> playerSilent = new HashMap<>();
+    private FileConfiguration userDataConfig;
+    private File userDataFile;
+    private FileConfiguration messagesEnConfig;
+    private FileConfiguration messagesPlConfig;
+    private final ThreadLocal<CommandSender> currentSender = new ThreadLocal<>();
 
     // Structure list (Overworld only)
     private final List<String> STRUCTURE_NAMES = new ArrayList<>();
@@ -140,6 +151,7 @@ public class Main extends JavaPlugin implements Listener {
         saveResource("placeholderapi.yml", true);
         saveResource("scoreboard.yml", true);
         loadLanguage();
+        loadUserData();
         createTemplateFolders();
         loadRecordsFile();
         initDynamicNames();
@@ -182,7 +194,12 @@ public class Main extends JavaPlugin implements Listener {
         if (Bukkit.getWorld(gameWorldName) == null) {
             loadGameWorlds();
         }
-        isGameReady = true;
+        if (limboStartInLimbo) {
+            isGameReady = false;
+            isWaitingStartupInLimbo = true;
+        } else {
+            isGameReady = true;
+        }
         applyLocatorBarGamerule();
 
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
@@ -196,27 +213,33 @@ public class Main extends JavaPlugin implements Listener {
             fastStatsContext.ready();
         }
 
+        // bStats Metrics
+        int bStatsPluginId = 33834;
+        new org.bstats.bukkit.Metrics(this, bStatsPluginId);
+
         // Start autoreset timer if enabled and not paused
         if (autoResetEnabled && !autoResetPaused) {
             autoResetRemainingSeconds = autoResetTotalSeconds;
             startAutoResetTimer();
         }
 
-        // Global Limbo Waiting Task (runs continuously to show waiting screen if no other countdown is active)
+        // Global Limbo Waiting Task (runs continuously during reset/backup scan)
         new BukkitRunnable() {
             int tickCount = 0;
             @Override
             public void run() {
                 if (isResetting && !isGameReady) {
-                    String waitMsg = isBackupLoading ? getSubtitle("limbo-backup-loading", "Loading backup...") : getSubtitle("limbo-waiting", "Scanning world...");
-                    if (waitMsg.endsWith("...")) {
-                        waitMsg = waitMsg.substring(0, waitMsg.length() - 3) + ".".repeat(tickCount % 4);
-                    }
                     tickCount++;
                     for (Player p : Bukkit.getOnlinePlayers()) {
                         if (p.getWorld().getName().equals(limboWorldName)) {
                             // Only show if the player isn't currently seeing an active entrance/exit countdown
                             if (!activeCountdowns.containsKey(p.getUniqueId())) {
+                                String waitMsg = isBackupLoading
+                                        ? getSubtitle(p, "limbo-backup-loading", "Loading backup...")
+                                        : getSubtitle(p, "limbo-waiting", "Scanning world...");
+                                if (waitMsg.endsWith("...")) {
+                                    waitMsg = waitMsg.substring(0, waitMsg.length() - 3) + ".".repeat(tickCount % 4);
+                                }
                                 sendTitleToPlayer(p, "§e⏳", "§7" + waitMsg, 0, 30, 10);
                             }
                         }
@@ -225,12 +248,27 @@ public class Main extends JavaPlugin implements Listener {
             }
         }.runTaskTimer(this, 20L, 10L);
 
+        // Periodic chat reminder when server starts in Limbo waiting mode (every 60 seconds)
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (isWaitingStartupInLimbo) {
+                    for (Player p : Bukkit.getOnlinePlayers()) {
+                        if (p.getWorld().getName().equals(limboWorldName)) {
+                            p.sendMessage(getMsg(p, "limbo_waiting_startup_chat"));
+                        }
+                    }
+                }
+            }
+        }.runTaskTimer(this, 1200L, 1200L);
+
         // Initialize autoreset scoreboard values (0 if disabled)
         Bukkit.getScheduler().runTaskLater(this, this::syncAutoResetScoreboard, 5L);
     }
 
     @Override
     public void onDisable() {
+        saveUserData();
         if (fastStatsContext != null) {
             fastStatsContext.shutdown();
         }
@@ -273,9 +311,11 @@ public class Main extends JavaPlugin implements Listener {
             autoResetRemainingSeconds = autoResetTotalSeconds;
         }
 
-        // Limbo delay
+        // Limbo delay & features
         limboDelayIn = getConfig().getInt("limbo.delay-in", 0);
         limboDelayOut = getConfig().getInt("limbo.delay-out", 0);
+        limboNewPlayersToLimbo = getConfig().getBoolean("limbo.new-players-to-limbo", false);
+        limboStartInLimbo = getConfig().getBoolean("limbo.start-in-limbo", false);
     }
 
     // --- HELPER METHODS ---
@@ -289,9 +329,46 @@ public class Main extends JavaPlugin implements Listener {
         return templatesFolder;
     }
 
+    private void broadcastKey(String key) {
+        broadcastKey(key, Collections.emptyMap());
+    }
+
+    private void broadcastKey(String key, String placeholder, String replacement) {
+        broadcastKey(key, Collections.singletonMap(placeholder, replacement));
+    }
+
+    private void broadcastKey(String key, Map<String, String> replacements) {
+        String consoleMsg = getMsg(key);
+        for (Map.Entry<String, String> e : replacements.entrySet()) {
+            consoleMsg = consoleMsg.replace(e.getKey(), e.getValue());
+        }
+        Bukkit.getConsoleSender().sendMessage(consoleMsg);
+
+        boolean globalEnabled = getConfig().getBoolean("broadcast-messages", true);
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            boolean isSilent = playerSilent.containsKey(p.getUniqueId())
+                    ? playerSilent.get(p.getUniqueId())
+                    : !globalEnabled;
+            if (!isSilent) {
+                String playerMsg = getMsg(p, key);
+                for (Map.Entry<String, String> e : replacements.entrySet()) {
+                    playerMsg = playerMsg.replace(e.getKey(), e.getValue());
+                }
+                p.sendMessage(playerMsg);
+            }
+        }
+    }
+
     private void broadcastInfo(String message) {
-        if (getConfig().getBoolean("broadcast-messages", true)) {
-            Bukkit.broadcast(Component.text(message));
+        Bukkit.getConsoleSender().sendMessage(message);
+        boolean globalEnabled = getConfig().getBoolean("broadcast-messages", true);
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            boolean isSilent = playerSilent.containsKey(p.getUniqueId())
+                    ? playerSilent.get(p.getUniqueId())
+                    : !globalEnabled;
+            if (!isSilent) {
+                p.sendMessage(message);
+            }
         }
     }
 
@@ -338,20 +415,148 @@ public class Main extends JavaPlugin implements Listener {
         }
     }
 
+    private void loadUserData() {
+        userDataFile = new File(getDataFolder(), "userdata.yml");
+        if (!userDataFile.exists()) {
+            try {
+                if (userDataFile.getParentFile() != null) userDataFile.getParentFile().mkdirs();
+                userDataFile.createNewFile();
+            } catch (Exception e) {
+                logErrorToFile("Error creating userdata.yml", e);
+            }
+        }
+        userDataConfig = YamlConfiguration.loadConfiguration(userDataFile);
+        if (userDataConfig.isConfigurationSection("players")) {
+            for (String key : userDataConfig.getConfigurationSection("players").getKeys(false)) {
+                try {
+                    UUID uuid = UUID.fromString(key);
+                    if (userDataConfig.contains("players." + key + ".language")) {
+                        playerLanguages.put(uuid, userDataConfig.getString("players." + key + ".language"));
+                    }
+                    if (userDataConfig.contains("players." + key + ".silent")) {
+                        playerSilent.put(uuid, userDataConfig.getBoolean("players." + key + ".silent"));
+                    }
+                } catch (IllegalArgumentException ignored) {}
+            }
+        }
+    }
+
+    private void saveUserData() {
+        if (userDataConfig == null || userDataFile == null) return;
+        for (Map.Entry<UUID, String> entry : playerLanguages.entrySet()) {
+            userDataConfig.set("players." + entry.getKey() + ".language", entry.getValue());
+        }
+        for (Map.Entry<UUID, Boolean> entry : playerSilent.entrySet()) {
+            userDataConfig.set("players." + entry.getKey() + ".silent", entry.getValue());
+        }
+        try {
+            userDataConfig.save(userDataFile);
+        } catch (Exception e) {
+            logErrorToFile("Error saving userdata.yml", e);
+        }
+    }
+
     private void loadLanguage() {
         String lang = getConfig().getString("language", "en");
         File langFile = new File(getDataFolder(), "messages_" + lang + ".yml");
         if (!langFile.exists()) langFile = new File(getDataFolder(), "messages_en.yml");
         langConfig = YamlConfiguration.loadConfiguration(langFile);
+
+        File enFile = new File(getDataFolder(), "messages_en.yml");
+        messagesEnConfig = enFile.exists() ? YamlConfiguration.loadConfiguration(enFile) : langConfig;
+
+        File plFile = new File(getDataFolder(), "messages_pl.yml");
+        messagesPlConfig = plFile.exists() ? YamlConfiguration.loadConfiguration(plFile) : langConfig;
+    }
+
+    private boolean isSenderPl(CommandSender sender) {
+        if (sender instanceof Player p) {
+            String pref = playerLanguages.get(p.getUniqueId());
+            if ("pl".equalsIgnoreCase(pref)) return true;
+            if ("en".equalsIgnoreCase(pref)) return false;
+        }
+        return getConfig().getString("language", "en").equalsIgnoreCase("pl");
+    }
+
+    private String getStatusLabel(CommandSender s, boolean enabled) {
+        return getMsgRaw(s, enabled ? "status_enabled" : "status_disabled");
+    }
+
+    private String getStatusLabelUpper(CommandSender s, boolean enabled) {
+        return getMsgRaw(s, enabled ? "status_enabled_upper" : "status_disabled_upper");
+    }
+
+    private String getMsg(CommandSender sender, String key) {
+        FileConfiguration cfg = langConfig;
+        if (sender instanceof Player p) {
+            String pref = playerLanguages.get(p.getUniqueId());
+            if ("pl".equalsIgnoreCase(pref)) {
+                cfg = messagesPlConfig != null ? messagesPlConfig : langConfig;
+            } else if ("en".equalsIgnoreCase(pref)) {
+                cfg = messagesEnConfig != null ? messagesEnConfig : langConfig;
+            }
+        }
+        String prefix = cfg.getString("prefix", langConfig.getString("prefix", ""));
+        String msg = cfg.getString(key, langConfig.getString(key, key));
+        return (prefix + msg).replace("&", "§");
     }
 
     private String getMsg(String key) {
+        CommandSender sender = currentSender.get();
+        if (sender != null) {
+            return getMsg(sender, key);
+        }
         String prefix = langConfig.getString("prefix", "");
         String msg = langConfig.getString(key, key);
         return (prefix + msg).replace("&", "§");
     }
 
+    private String getMsgRaw(CommandSender sender, String key) {
+        FileConfiguration cfg = langConfig;
+        if (sender instanceof Player p) {
+            String pref = playerLanguages.get(p.getUniqueId());
+            if ("pl".equalsIgnoreCase(pref)) {
+                cfg = messagesPlConfig != null ? messagesPlConfig : langConfig;
+            } else if ("en".equalsIgnoreCase(pref)) {
+                cfg = messagesEnConfig != null ? messagesEnConfig : langConfig;
+            }
+        }
+        String msg = cfg.getString(key, langConfig.getString(key, key));
+        return msg.replace("&", "§");
+    }
+
+    private String getMsgRaw(OfflinePlayer player, String key) {
+        FileConfiguration cfg = langConfig;
+        if (player != null) {
+            String pref = playerLanguages.get(player.getUniqueId());
+            if ("pl".equalsIgnoreCase(pref)) {
+                cfg = messagesPlConfig != null ? messagesPlConfig : langConfig;
+            } else if ("en".equalsIgnoreCase(pref)) {
+                cfg = messagesEnConfig != null ? messagesEnConfig : langConfig;
+            }
+        }
+        String msg = cfg.getString(key, langConfig.getString(key, key));
+        return msg.replace("&", "§");
+    }
+
+    private String getSubtitle(CommandSender sender, String key, String fallback) {
+        FileConfiguration cfg = langConfig;
+        if (sender instanceof Player p) {
+            String pref = playerLanguages.get(p.getUniqueId());
+            if ("pl".equalsIgnoreCase(pref)) {
+                cfg = messagesPlConfig != null ? messagesPlConfig : langConfig;
+            } else if ("en".equalsIgnoreCase(pref)) {
+                cfg = messagesEnConfig != null ? messagesEnConfig : langConfig;
+            }
+        }
+        return cfg.getString(key, langConfig.getString(key, fallback)).replace("&", "§");
+    }
+
     private String getSubtitle(String key, String fallback) {
+        CommandSender sender = currentSender.get();
+        if (sender != null) {
+            return getSubtitle(sender, key, fallback);
+        }
         return langConfig.getString(key, fallback).replace("&", "§");
     }
 
@@ -469,6 +674,7 @@ public class Main extends JavaPlugin implements Listener {
     private void sendAllToLimboForReset() {
         stopTimer();
         limboSavedStates.clear(); // Reset clears saved states — world is being regenerated
+        playersDeathLocked.clear();
 
         // Save all game worlds to disk before backup (preserves player modifications)
         saveGameWorlds();
@@ -581,11 +787,11 @@ public class Main extends JavaPlugin implements Listener {
     }
 
     private void toggleLimboForPlayer(Player p, CommandSender sender, int delay) {
-        // check if player is dead
-        if (playersDeathLocked.contains(p.getUniqueId())) {
+        if (p.isDead() || playersDeathLocked.contains(p.getUniqueId())) {
             sender.sendMessage(getMsg("player-dead"));
             return;
         }
+
         // Skip active countdown
         if (activeCountdowns.containsKey(p.getUniqueId())) {
             skipCountdown(p);
@@ -596,46 +802,45 @@ public class Main extends JavaPlugin implements Listener {
             // Leave limbo
             if (limboSavedStates.containsKey(p.getUniqueId())) {
                 if (delay > 0) {
-                    String subtitle = getSubtitle("limbo-countdown-out", "Teleport to Game...");
-                    startCountdown(p, delay, subtitle, () -> {
-                        if (p.isOnline()) { restoreLimboState(p); p.sendMessage(getMsg("limbo-leave")); }
+                    startCountdown(p, delay, "limbo-countdown-out", () -> {
+                        if (p.isOnline()) { restoreLimboState(p); p.sendMessage(getMsg(p, "limbo-leave")); }
                     });
                 } else {
                     restoreLimboState(p);
-                    p.sendMessage(getMsg("limbo-leave"));
+                    p.sendMessage(getMsg(p, "limbo-leave"));
                 }
-            } else if (isGameReady) {
+            } else if (isGameReady || isWaitingStartupInLimbo) {
+                isWaitingStartupInLimbo = false;
+                isGameReady = true;
                 World game = Bukkit.getWorld(gameWorldName);
                 if (game != null) {
                     if (delay > 0) {
-                        String subtitle = getSubtitle("limbo-countdown-out", "Teleport to Game...");
                         Location spawn = game.getSpawnLocation();
-                        startCountdown(p, delay, subtitle, () -> {
-                            if (p.isOnline()) { setupGamePlayer(p, spawn); p.sendMessage(getMsg("game-started")); }
+                        startCountdown(p, delay, "limbo-countdown-out", () -> {
+                            if (p.isOnline()) { setupGamePlayer(p, spawn); p.sendMessage(getMsg(p, "game-started")); }
                         });
                     } else {
                         setupGamePlayer(p, game.getSpawnLocation());
-                        p.sendMessage(getMsg("game-started"));
+                        p.sendMessage(getMsg(p, "game-started"));
                     }
                 }
             }
         } else {
             // Enter limbo
             if (delay > 0) {
-                String subtitle = getSubtitle("limbo-countdown-in", "Teleport to Limbo...");
-                startCountdown(p, delay, subtitle, () -> {
+                startCountdown(p, delay, "limbo-countdown-in", () -> {
                     if (p.isOnline()) {
                         saveLimboState(p);
                         p.teleport(getLimboSpawn());
                         setupLimboPlayer(p);
-                        p.sendMessage(getMsg("limbo-join"));
+                        p.sendMessage(getMsg(p, "limbo-join"));
                     }
                 });
             } else {
                 saveLimboState(p);
                 p.teleport(getLimboSpawn());
                 setupLimboPlayer(p);
-                p.sendMessage(getMsg("limbo-join"));
+                p.sendMessage(getMsg(p, "limbo-join"));
             }
         }
     }
@@ -741,12 +946,12 @@ public class Main extends JavaPlugin implements Listener {
 
                 if (displayAt.contains(remaining)) {
                     String color = remaining <= 3 ? "§c§l" : (remaining <= 5 ? "§6§l" : "§e§l");
-                    String displaySubtitle = subtitleMsg;
-                    if (displaySubtitle.endsWith("...")) {
-                        displaySubtitle = displaySubtitle.substring(0, displaySubtitle.length() - 3) + ".".repeat((100 - remaining) % 4);
-                    }
                     for (Player p : players) {
                         if (p.isOnline()) {
+                            String displaySubtitle = getSubtitle(p, subtitleMsg, subtitleMsg);
+                            if (displaySubtitle.endsWith("...")) {
+                                displaySubtitle = displaySubtitle.substring(0, displaySubtitle.length() - 3) + ".".repeat((100 - remaining) % 4);
+                            }
                             sendTitleToPlayer(p, color + remaining, "§7" + displaySubtitle, 0, 25, 5);
                             if (remaining <= 5) {
                                 p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, remaining <= 3 ? 1.5f : 1.0f);
@@ -820,7 +1025,7 @@ public class Main extends JavaPlugin implements Listener {
         isGameReady = false;
 
         lastPlayerSnapshot = capturePlayerStates();
-        broadcastInfo(getMsg("reset-started"));
+        broadcastKey("reset-started");
         sendAllToLimboForReset();
 
         // Step 1: Unload worlds after 20 ticks (allowing players to leave)
@@ -873,7 +1078,7 @@ public class Main extends JavaPlugin implements Listener {
         isGameReady = false;
 
         lastPlayerSnapshot = capturePlayerStates();
-        broadcastInfo(getMsg("reset-started"));
+        broadcastKey("reset-started");
         sendAllToLimboForReset();
 
         boolean hasBiomeFilter = getConfig().getBoolean("filter.enabled", true)
@@ -890,12 +1095,10 @@ public class Main extends JavaPlugin implements Listener {
                     parallelDelayOutRunning = true;
                     List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
                     if (!players.isEmpty()) {
-                        String subtitle = getSubtitle("limbo-countdown-out", "Game starts...");
-                        startCountdown(players, customDelayOut, subtitle, () -> {
+                        startCountdown(players, customDelayOut, "limbo-countdown-out", () -> {
                             if (isGameReady) {
                                 doTeleportAllToGame();
                             } else {
-                                String waitMsg = getSubtitle("limbo-waiting", "Scanning world...");
                                 new BukkitRunnable() {
                                     @Override
                                     public void run() {
@@ -905,6 +1108,7 @@ public class Main extends JavaPlugin implements Listener {
                                             doTeleportAllToGame();
                                         } else {
                                             for (Player p : Bukkit.getOnlinePlayers()) {
+                                                String waitMsg = getSubtitle(p, "limbo-waiting", "Scanning world...");
                                                 sendTitleToPlayer(p, "§e⏳", "§7" + waitMsg, 0, 30, 10);
                                             }
                                         }
@@ -1029,12 +1233,10 @@ public class Main extends JavaPlugin implements Listener {
                     return;
                 }
 
-                String subtitle = getSubtitle("limbo-countdown-out", "Game starts...");
-                startCountdown(players, limboDelayOut, subtitle, () -> {
+                startCountdown(players, limboDelayOut, "limbo-countdown-out", () -> {
                     if (isGameReady) {
                         doTeleportAllToGame();
                     } else {
-                        String waitMsg = getSubtitle("limbo-waiting", "Scanning world...");
                         new BukkitRunnable() {
                             @Override
                             public void run() {
@@ -1044,6 +1246,7 @@ public class Main extends JavaPlugin implements Listener {
                                     doTeleportAllToGame();
                                 } else {
                                     for (Player p : Bukkit.getOnlinePlayers()) {
+                                        String waitMsg = getSubtitle(p, "limbo-waiting", "Scanning world...");
                                         sendTitleToPlayer(p, "§e⏳", "§7" + waitMsg, 0, 30, 10);
                                     }
                                 }
@@ -1061,7 +1264,7 @@ public class Main extends JavaPlugin implements Listener {
         if (game == null) return;
         Location spawn = game.getSpawnLocation();
 
-        broadcastInfo(getMsg("game-started"));
+        broadcastKey("game-started");
         for (Player p : Bukkit.getOnlinePlayers()) {
             setupGamePlayer(p, spawn);
         }
@@ -1137,14 +1340,16 @@ public class Main extends JavaPlugin implements Listener {
         if (!skipFindSafeSpawn) {
             startAsyncSafeSpawnSearch(w, () -> {
                 preGenerateSpawnChunks(w, w.getSpawnLocation());
-                broadcastInfo(getMsg("generation-complete"));
+                broadcastKey("generation-complete");
                 isGameReady = true;
+                isWaitingStartupInLimbo = false;
                 finalizeGameStart(useDelayOut);
             });
         } else {
             preGenerateSpawnChunks(w, w.getSpawnLocation());
-            broadcastInfo(getMsg("generation-complete"));
+            broadcastKey("generation-complete");
             isGameReady = true;
+            isWaitingStartupInLimbo = false;
             finalizeGameStart(useDelayOut);
         }
     }
@@ -2430,7 +2635,7 @@ public class Main extends JavaPlugin implements Listener {
         }
         Location spawn = game.getSpawnLocation();
 
-        broadcastInfo(getMsg("game-started"));
+        broadcastKey("game-started");
         for (Player p : Bukkit.getOnlinePlayers()) {
             setupGamePlayer(p, spawn);
         }
@@ -2458,10 +2663,9 @@ public class Main extends JavaPlugin implements Listener {
         tempCustomDelayOut = -1; // reset
 
         if (!playersInLimbo.isEmpty()) {
-            String subtitle = getSubtitle("limbo-countdown-out", "Game starts...");
             Location finalSpawn = spawn;
-            startCountdown(playersInLimbo, delay, subtitle, () -> {
-                broadcastInfo(getMsg("game-started"));
+            startCountdown(playersInLimbo, delay, "limbo-countdown-out", () -> {
+                broadcastKey("game-started");
                 for (Player p : Bukkit.getOnlinePlayers()) {
                     setupGamePlayer(p, finalSpawn);
                 }
@@ -2469,7 +2673,7 @@ public class Main extends JavaPlugin implements Listener {
                 syncAllScoreboards();
             });
         } else {
-            broadcastInfo(getMsg("game-started"));
+            broadcastKey("game-started");
             for (Player p : Bukkit.getOnlinePlayers()) {
                 setupGamePlayer(p, spawn);
             }
@@ -2727,7 +2931,7 @@ public class Main extends JavaPlugin implements Listener {
     }
 
     private void performBackup() {
-        broadcastInfo(getMsg("backup-start"));
+        broadcastKey("backup-start");
 
         // Force save all online players' data, stats, and advancements to disk before copying
         try {
@@ -3397,7 +3601,7 @@ public class Main extends JavaPlugin implements Listener {
         }
 
         startTimerTask();
-        broadcastInfo(getMsg("timer-started"));
+        broadcastKey("timer-started");
         syncAllScoreboards();
     }
 
@@ -3415,7 +3619,7 @@ public class Main extends JavaPlugin implements Listener {
                 timerTask = null;
             }
             if (!silent) {
-                broadcastInfo(getMsg("timer-paused"));
+                broadcastKey("timer-paused");
             }
             syncAllScoreboards();
         }
@@ -3443,7 +3647,7 @@ public class Main extends JavaPlugin implements Listener {
 
         if (!timerRunning) {
             timerRunning = true;
-            broadcastInfo(getMsg("timer-started"));
+            broadcastKey("timer-started");
         }
         startTimerTask();
         syncAllScoreboards();
@@ -3531,7 +3735,7 @@ public class Main extends JavaPlugin implements Listener {
                         if (playersFinished.contains(p.getUniqueId())) {
                             long finalTime = playerElapsedTimes.getOrDefault(p.getUniqueId(), 0L);
                             if (timerMode.equals("IGT")) finalTime = playerElapsedTicks.getOrDefault(p.getUniqueId(), 0) * 50L;
-                            sendActionBar(p, getMsg("timer-finished-action").replace("{time}", formatTime(finalTime, true)));
+                            sendActionBar(p, getMsg(p, "timer-finished-action").replace("{time}", formatTime(finalTime, true)));
                         } else {
                             if (timerMode.equals("IGT")) {
                                 int ticks = playerElapsedTicks.getOrDefault(p.getUniqueId(), 0) + 1;
@@ -3589,15 +3793,23 @@ public class Main extends JavaPlugin implements Listener {
             }
             finalTime = timerMode.equals("IGT") ? globalElapsedTicks * 50L : globalElapsedTime;
             String timeStr = formatTime(finalTime, true);
-            broadcastInfo(getMsg("timer-win-global").replace("{player}", winner.getName()).replace("{time}", timeStr));
-            updateActionBarGlobal(getMsg("timer-finished-action").replace("{time}", timeStr));
+            Map<String, String> winRep = new HashMap<>();
+            winRep.put("{player}", winner.getName());
+            winRep.put("{time}", timeStr);
+            broadcastKey("timer-win-global", winRep);
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                sendActionBar(p, getMsg(p, "timer-finished-action").replace("{time}", timeStr));
+            }
         } else {
             if (!playersFinished.contains(winner.getUniqueId())) {
                 playersFinished.add(winner.getUniqueId());
                 finalTime = timerMode.equals("IGT") ? playerElapsedTicks.getOrDefault(winner.getUniqueId(), 0) * 50L : playerElapsedTimes.getOrDefault(winner.getUniqueId(), 0L);
                 String timeStr = formatTime(finalTime, true);
-                broadcastInfo(getMsg("timer-win-individual").replace("{player}", winner.getName()).replace("{time}", timeStr));
-                sendActionBar(winner, getMsg("timer-finished-action").replace("{time}", timeStr));
+                Map<String, String> winRep = new HashMap<>();
+                winRep.put("{player}", winner.getName());
+                winRep.put("{time}", timeStr);
+                broadcastKey("timer-win-individual", winRep);
+                sendActionBar(winner, getMsg(winner, "timer-finished-action").replace("{time}", timeStr));
             }
         }
 
@@ -3765,9 +3977,9 @@ public class Main extends JavaPlugin implements Listener {
                 if (autoResetRemainingSeconds <= 5 && autoResetRemainingSeconds > 0) {
                     int remaining = (int) autoResetRemainingSeconds;
                     String color = remaining <= 3 ? "§c§l" : "§6§l";
-                    String subtitle = getSubtitle("autoreset-countdown", "World Reset...");
                     for (Player p : Bukkit.getOnlinePlayers()) {
                         if (!p.getWorld().getName().equals(limboWorldName)) {
+                            String subtitle = getSubtitle(p, "autoreset-countdown", "World Reset...");
                             sendTitleToPlayer(p, color + remaining, "§7" + subtitle, 0, 25, 5);
                             p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, remaining <= 3 ? 1.5f : 1.0f);
                         }
@@ -3777,7 +3989,7 @@ public class Main extends JavaPlugin implements Listener {
                 if (autoResetRemainingSeconds <= 0) {
                     this.cancel();
                     autoResetTask = null;
-                    broadcastInfo(getMsg("autoreset-triggered"));
+                    broadcastKey("autoreset-triggered");
                     startAutoResetReset();
 
                     // Po resecie restartujemy autoreset jeśli loop
@@ -3885,15 +4097,25 @@ public class Main extends JavaPlugin implements Listener {
             String wName = p.getWorld().getName();
             boolean shouldTeleport = !p.hasPlayedBefore() || wName.equals("world");
             if (shouldTeleport) {
-                World game = Bukkit.getWorld(gameWorldName);
-                if (game != null) {
-                    setupJoiningPlayer(p, game.getSpawnLocation());
+                if (limboNewPlayersToLimbo) {
+                    Location loc = getLimboSpawn();
+                    p.teleport(loc);
+                    setupLimboPlayer(p);
+                    p.sendMessage(getMsg(p, "limbo_new_player_notice"));
+                } else {
+                    World game = Bukkit.getWorld(gameWorldName);
+                    if (game != null) {
+                        setupJoiningPlayer(p, game.getSpawnLocation());
+                    }
                 }
             }
         } else {
             Location loc = getLimboSpawn();
             p.teleport(loc);
             setupLimboPlayer(p);
+            if (isWaitingStartupInLimbo) {
+                sendTitleToPlayer(p, "§e⏳", "§7" + getSubtitle(p, "limbo_waiting_startup", "Waiting for game start..."), 10, 70, 20);
+            }
         }
 
         p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
@@ -3921,14 +4143,10 @@ public class Main extends JavaPlugin implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
         java.util.UUID uuid = e.getPlayer().getUniqueId();
-        playerStartTimes.remove(uuid);
-        playerElapsedTimes.remove(uuid);
-        playerElapsedTicks.remove(uuid);
-        playersFinished.remove(uuid);
         org.bukkit.scheduler.BukkitTask task = activeCountdowns.remove(uuid);
         if (task != null) task.cancel();
-        limboSavedStates.remove(uuid);
         boatGivenPlayers.remove(uuid);
+        playersDeathLocked.remove(uuid);
 
         Bukkit.getScheduler().runTaskLater(this, this::syncAllScoreboards, 1L);
     }
@@ -3952,7 +4170,7 @@ public class Main extends JavaPlugin implements Listener {
             syncAutoResetScoreboard();
             if (currentRunDeaths >= deathLimit) {
                 if (!isResetting) {
-                    broadcastInfo(getMsg("autoreset_death_limit_reached").replace("{count}", String.valueOf(deathLimit)));
+                    broadcastKey("autoreset_death_limit_reached", "{count}", String.valueOf(deathLimit));
                     startAutoTriggeredReset();
                 }
             }
@@ -3981,7 +4199,7 @@ public class Main extends JavaPlugin implements Listener {
         }
 
         String playerName = dead.getName();
-        broadcastInfo(getMsg("death-reset-triggered").replace("{player}", playerName));
+        broadcastKey("death-reset-triggered", "{player}", playerName);
         startAutoTriggeredReset();
     }
 
@@ -4001,30 +4219,41 @@ public class Main extends JavaPlugin implements Listener {
         checkTimerGoal(e.getPlayer(), "ADVANCEMENT", advName.toLowerCase());
     }
 
-    // Dodatkowy w pełni precyzyjny event speedrunnerski
-    @EventHandler
-    public void onPortalEnter(EntityPortalEnterEvent e) {
+    // Precyzyjne wykrywanie przejścia przez portal (zatrzymanie stopera dopiero po faktycznej teleportacji)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerTeleport(PlayerTeleportEvent e) {
         if (isResetting || !timerEnabled || !timerRunning) return;
-        if (!(e.getEntity() instanceof Player p)) return;
+        if (e.getFrom().getWorld() == null || e.getTo() == null || e.getTo().getWorld() == null) return;
 
-        String n = e.getLocation().getWorld().getName();
-        if (!n.contains(gameWorldName)) return;
+        String from = e.getFrom().getWorld().getName();
+        String to = e.getTo().getWorld().getName();
 
-        Material m = e.getLocation().getBlock().getType();
+        // Upewniamy się, że gracz faktycznie zmienia świat
+        if (from.equalsIgnoreCase(to)) return;
+
+        // Upewniamy się, że teleportacja dotyczy aktywnego świata gry (lub jego wymiarów)
+        if (!from.contains(gameWorldName) && !to.contains(gameWorldName)) return;
+
+        PlayerTeleportEvent.TeleportCause cause = e.getCause();
         String portalType = null;
 
-        if (m == Material.NETHER_PORTAL) {
+        if (cause == PlayerTeleportEvent.TeleportCause.NETHER_PORTAL) {
             portalType = "NETHER";
-        } else if (m == Material.END_PORTAL) {
-            if (n.endsWith("_the_end")) {
+        } else if (cause == PlayerTeleportEvent.TeleportCause.END_PORTAL) {
+            if (from.endsWith("_the_end")) {
                 portalType = "OVERWORLD";
             } else {
                 portalType = "END";
             }
+        } else if (cause == PlayerTeleportEvent.TeleportCause.UNKNOWN) {
+            // W silnikach Paper powrót z Endu przez fontannę może mieć przyczynę UNKNOWN
+            if (from.endsWith("_the_end")) {
+                portalType = "OVERWORLD";
+            }
         }
 
         if (portalType != null) {
-            checkTimerGoal(p, "PORTAL", portalType);
+            checkTimerGoal(e.getPlayer(), "PORTAL", portalType);
         }
     }
 
@@ -4032,21 +4261,6 @@ public class Main extends JavaPlugin implements Listener {
     public void onPortal(PlayerPortalEvent e) {
         if(isResetting) return;
         String n = e.getFrom().getWorld().getName();
-
-        // Fallback w razie opoznienia EntityPortalEnterEvent
-        if (timerEnabled && timerRunning) {
-            String portalType = "ANY";
-            if (e.getCause() == PlayerTeleportEvent.TeleportCause.NETHER_PORTAL) {
-                portalType = "NETHER";
-            } else if (e.getCause() == PlayerTeleportEvent.TeleportCause.END_PORTAL) {
-                if (n.endsWith("_the_end")) {
-                    portalType = "OVERWORLD";
-                } else {
-                    portalType = "END";
-                }
-            }
-            checkTimerGoal(e.getPlayer(), "PORTAL", portalType);
-        }
 
         if(!n.contains(gameWorldName)) return;
 
@@ -4137,14 +4351,18 @@ public class Main extends JavaPlugin implements Listener {
     // --- COMMANDS ---
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, String @NotNull [] args) {
-        if (args.length > 0) {
+        currentSender.set(sender);
+        try {
+            if (args.length > 0) {
             String arg = args[0].toLowerCase();
 
             // /wr <command> help — show help for that command
             if (args.length >= 2 && (args[1].equalsIgnoreCase("help") || args[1].equals("?"))) {
-                String helpLine = getHelpForCommand(arg);
+                String helpLine = getHelpForCommand(sender, arg);
                 if (helpLine != null) {
-                    sender.sendMessage("§8§m------§8[ §b§lWorldReset §8]§m------");
+                    boolean isPl = isSenderPl(sender);
+                    String title = getHelpTopicTitle(arg, isPl);
+                    sender.sendMessage("§8§m------§8[ §b§lWorldReset " + (isPl ? "Pomoc: " : "Help: ") + title + " §8]§m------");
                     sender.sendMessage(helpLine);
                     sender.sendMessage("§8§m----------------------------");
                     return true;
@@ -4155,13 +4373,15 @@ public class Main extends JavaPlugin implements Listener {
                 case "help", "?" -> {
                     if (args.length >= 2) {
                         String topic = args[1].toLowerCase();
-                        String helpLine = getHelpForCommand(topic);
+                        String helpLine = getHelpForCommand(sender, topic);
                         if (helpLine != null) {
-                            sender.sendMessage("§8§m------§8[ §b§lWorldReset §8]§m------");
+                            boolean isPl = isSenderPl(sender);
+                            String title = getHelpTopicTitle(topic, isPl);
+                            sender.sendMessage("§8§m------§8[ §b§lWorldReset " + (isPl ? "Pomoc: " : "Help: ") + title + " §8]§m------");
                             sender.sendMessage(helpLine);
                             sender.sendMessage("§8§m----------------------------");
                         } else {
-                            sender.sendMessage(getMsg("cmd-unknown").replace("{v1}", String.valueOf(topic)));
+                            sender.sendMessage(getMsg(sender, "cmd-unknown").replace("{v1}", String.valueOf(topic)));
                         }
                     } else {
                         sendFullHelp(sender);
@@ -4173,6 +4393,52 @@ public class Main extends JavaPlugin implements Listener {
                     loadConfigValues();
                     loadLanguage();
                     sender.sendMessage(getMsg("configuration_and_languages_reloaded"));
+                    return true;
+                }
+                case "start", "begin" -> {
+                    if (hasPerm(sender, "worldreset.start") && hasPerm(sender, "worldreset.reset")) return noPerm(sender, "worldreset.start");
+                    boolean inLimboWaiting = isWaitingStartupInLimbo || !isGameReady;
+                    int playersInLimboCount = 0;
+                    for (Player online : Bukkit.getOnlinePlayers()) {
+                        if (online.getWorld().getName().equals(limboWorldName)) {
+                            playersInLimboCount++;
+                        }
+                    }
+
+                    if (!inLimboWaiting && playersInLimboCount == 0) {
+                        sender.sendMessage(getMsg(sender, "game_already_running"));
+                        return true;
+                    }
+
+                    isWaitingStartupInLimbo = false;
+                    isGameReady = true;
+
+                    World game = Bukkit.getWorld(gameWorldName);
+                    if (game == null) {
+                        sender.sendMessage(getMsg(sender, "game_world_not_found"));
+                        return true;
+                    }
+
+                    Location spawn = game.getSpawnLocation();
+                    for (Player online : Bukkit.getOnlinePlayers()) {
+                        if (online.getWorld().getName().equals(limboWorldName)) {
+                            if (activeCountdowns.containsKey(online.getUniqueId())) {
+                                skipCountdown(online);
+                                online.clearTitle();
+                            }
+                            if (limboSavedStates.containsKey(online.getUniqueId())) {
+                                restoreLimboState(online);
+                            } else {
+                                setupGamePlayer(online, spawn);
+                            }
+                        }
+                    }
+
+                    if (timerEnabled && !timerRunning) {
+                        startTimer();
+                    }
+
+                    broadcastKey("game-started");
                     return true;
                 }
                 case "reset" -> {
@@ -4193,9 +4459,8 @@ public class Main extends JavaPlugin implements Listener {
                                 startResetWithDelayOut(delayOut);
                             } else {
                                 List<Player> allPlayers = new ArrayList<>(Bukkit.getOnlinePlayers());
-                                String subtitle = getSubtitle("reset-countdown", "World Reset...");
                                 final int finalDelayOut = delayOut;
-                                startCountdown(allPlayers, delayIn, subtitle, () -> {
+                                startCountdown(allPlayers, delayIn, "reset-countdown", () -> {
                                     if (finalDelayOut > 0) {
                                         startResetWithDelayOut(finalDelayOut);
                                     } else {
@@ -4231,18 +4496,80 @@ public class Main extends JavaPlugin implements Listener {
                     if (args.length >= 2 && args[1].equalsIgnoreCase("delay")) {
                         if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
                         if (args.length < 4) {
-                            sender.sendMessage((getMsg("current_delays_in")) + limboDelayIn + "s §7| §f" + (getMsg("out")) + limboDelayOut + "s");
-                            sender.sendMessage(getMsg("usage_wr_limbo_delay"));
+                            sender.sendMessage(getMsg(sender, "current_delays_in") + limboDelayIn + "s §7| §e" + getMsgRaw(sender, "out") + limboDelayOut + "s");
+                            sender.sendMessage(getMsg(sender, "usage_wr_limbo_delay"));
                             return true;
                         }
                         try {
                             int delayIn = Integer.parseInt(args[2]);
                             int delayOut = Integer.parseInt(args[3]);
-                            if (delayIn < 0 || delayOut < 0) { sender.sendMessage(getMsg("delay_values_must_be")); return true; }
+                            if (delayIn < 0 || delayOut < 0) { sender.sendMessage(getMsg(sender, "delay_values_must_be")); return true; }
                             limboDelayIn = delayIn; limboDelayOut = delayOut;
                             getConfig().set("limbo.delay-in", delayIn); getConfig().set("limbo.delay-out", delayOut); saveConfig();
-                            sender.sendMessage((getMsg("limbo_delays_set_in")) + delayIn + "s §7| §e" + (getMsg("out_1")) + delayOut + "s");
-                        } catch (NumberFormatException e) { sender.sendMessage(getMsg("invalid_number")); }
+                            sender.sendMessage(getMsg(sender, "limbo_delays_set_in") + delayIn + "s §7| §e" + getMsgRaw(sender, "out_1") + delayOut + "s");
+                        } catch (NumberFormatException e) { sender.sendMessage(getMsg(sender, "invalid_number")); }
+                        return true;
+                    }
+
+                    // /wr limbo status
+                    if (args.length >= 2 && args[1].equalsIgnoreCase("status")) {
+                        if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
+                        boolean isPl = isSenderPl(sender);
+                        sender.sendMessage("§8§m------§8[ §b§lWorldReset Limbo §8]§m------");
+                        sender.sendMessage("§7" + (isPl ? "Opóźnienia: §eWejście=" : "Delays: §eIn=") + limboDelayIn + "s §7| §e" + (isPl ? "Wyjście=" : "Out=") + limboDelayOut + "s");
+                        sender.sendMessage("§7" + (isPl ? "Nowi gracze do Limbo: " : "New players to Limbo: ") + getStatusLabel(sender, limboNewPlayersToLimbo));
+                        sender.sendMessage("§7" + (isPl ? "Start serwera w Limbo: " : "Start server in Limbo: ") + getStatusLabel(sender, limboStartInLimbo));
+                        sender.sendMessage("§8§m----------------------------");
+                        return true;
+                    }
+
+                    // /wr limbo newplayers [enable|disable|status]
+                    if (args.length >= 2 && (args[1].equalsIgnoreCase("newplayers") || args[1].equalsIgnoreCase("new") || args[1].equalsIgnoreCase("newplayer"))) {
+                        if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
+                        if (args.length >= 3) {
+                            String sub = args[2].toLowerCase();
+                            if (sub.equals("enable") || sub.equals("on") || sub.equals("true") || sub.equals("1")) {
+                                limboNewPlayersToLimbo = true;
+                            } else if (sub.equals("disable") || sub.equals("off") || sub.equals("false") || sub.equals("0")) {
+                                limboNewPlayersToLimbo = false;
+                            } else if (sub.equals("status") || sub.equals("info")) {
+                                sender.sendMessage(getMsg(sender, "limbo_newplayers_status").replace("{status}", getStatusLabel(sender, limboNewPlayersToLimbo)));
+                                return true;
+                            } else {
+                                sender.sendMessage(getMsg(sender, "usage_wr_limbo_newplayers"));
+                                return true;
+                            }
+                        } else {
+                            limboNewPlayersToLimbo = !limboNewPlayersToLimbo;
+                        }
+                        getConfig().set("limbo.new-players-to-limbo", limboNewPlayersToLimbo);
+                        saveConfig();
+                        sender.sendMessage(getMsg(sender, limboNewPlayersToLimbo ? "limbo_newplayers_enabled" : "limbo_newplayers_disabled"));
+                        return true;
+                    }
+
+                    // /wr limbo startup [enable|disable|status]
+                    if (args.length >= 2 && (args[1].equalsIgnoreCase("startup") || args[1].equalsIgnoreCase("boot") || args[1].equalsIgnoreCase("startinlimbo"))) {
+                        if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
+                        if (args.length >= 3) {
+                            String sub = args[2].toLowerCase();
+                            if (sub.equals("enable") || sub.equals("on") || sub.equals("true") || sub.equals("1")) {
+                                limboStartInLimbo = true;
+                            } else if (sub.equals("disable") || sub.equals("off") || sub.equals("false") || sub.equals("0")) {
+                                limboStartInLimbo = false;
+                            } else if (sub.equals("status") || sub.equals("info")) {
+                                sender.sendMessage(getMsg(sender, "limbo_startup_status").replace("{status}", getStatusLabel(sender, limboStartInLimbo)));
+                                return true;
+                            } else {
+                                sender.sendMessage(getMsg(sender, "usage_wr_limbo_startup"));
+                                return true;
+                            }
+                        } else {
+                            limboStartInLimbo = !limboStartInLimbo;
+                        }
+                        getConfig().set("limbo.start-in-limbo", limboStartInLimbo);
+                        saveConfig();
+                        sender.sendMessage(getMsg(sender, limboStartInLimbo ? "limbo_startup_enabled" : "limbo_startup_disabled"));
                         return true;
                     }
 
@@ -4315,11 +4642,58 @@ public class Main extends JavaPlugin implements Listener {
                     return true;
                 }
                 case "silent" -> {
-                    if (hasPerm(sender, "worldreset.silent")) return noPerm(sender, "worldreset.silent");
-                    boolean n = !getConfig().getBoolean("broadcast-messages");
-                    getConfig().set("broadcast-messages", n);
-                    saveConfig();
-                    sender.sendMessage(getMsg(n ? "silent-off" : "silent-on"));
+                    if (!(sender instanceof Player p)) {
+                        sender.sendMessage(getMsg(sender, "cmd_only_players_silent"));
+                        return true;
+                    }
+                    boolean currentSilent = playerSilent.getOrDefault(p.getUniqueId(), !getConfig().getBoolean("broadcast-messages", true));
+                    if (args.length < 2) {
+                        boolean newSilent = !currentSilent;
+                        playerSilent.put(p.getUniqueId(), newSilent);
+                        saveUserData();
+                        p.sendMessage(getMsg(p, newSilent ? "silent_player_on" : "silent_player_off"));
+                        return true;
+                    }
+                    String sub = args[1].toLowerCase();
+                    if (isEnableAlias(sub)) {
+                        playerSilent.put(p.getUniqueId(), true);
+                        saveUserData();
+                        p.sendMessage(getMsg(p, "silent_player_on"));
+                    } else if (isDisableAlias(sub)) {
+                        playerSilent.put(p.getUniqueId(), false);
+                        saveUserData();
+                        p.sendMessage(getMsg(p, "silent_player_off"));
+                    } else if (sub.equals("status")) {
+                        p.sendMessage(getMsg(p, "silent_player_status").replace("{status}", getStatusLabelUpper(p, currentSilent)));
+                    } else {
+                        p.sendMessage(getMsg(p, "usage_wr_silent"));
+                    }
+                    return true;
+                }
+                case "silentall", "silentALL" -> {
+                    if (hasPerm(sender, "worldreset.silent.all") && hasPerm(sender, "worldreset.silent")) return noPerm(sender, "worldreset.silent.all");
+                    boolean currentGlobalSilent = !getConfig().getBoolean("broadcast-messages", true);
+                    if (args.length < 2) {
+                        boolean newGlobalSilent = !currentGlobalSilent;
+                        getConfig().set("broadcast-messages", !newGlobalSilent);
+                        saveConfig();
+                        sender.sendMessage(getMsg(sender, newGlobalSilent ? "silent_all_on" : "silent_all_off"));
+                        return true;
+                    }
+                    String sub = args[1].toLowerCase();
+                    if (isEnableAlias(sub)) {
+                        getConfig().set("broadcast-messages", false);
+                        saveConfig();
+                        sender.sendMessage(getMsg(sender, "silent_all_on"));
+                    } else if (isDisableAlias(sub)) {
+                        getConfig().set("broadcast-messages", true);
+                        saveConfig();
+                        sender.sendMessage(getMsg(sender, "silent_all_off"));
+                    } else if (sub.equals("status")) {
+                        sender.sendMessage(getMsg(sender, "silent_all_status").replace("{status}", getStatusLabelUpper(sender, currentGlobalSilent)));
+                    } else {
+                        sender.sendMessage(getMsg(sender, "usage_wr_silentall"));
+                    }
                     return true;
                 }
                 case "death" -> {
@@ -4335,25 +4709,21 @@ public class Main extends JavaPlugin implements Listener {
                                 int limit = Integer.parseInt(sub);
                                 deathLimit = Math.max(0, limit);
                             } catch (NumberFormatException e) {
-                                sender.sendMessage(getMsg("usage_wr_death"));
+                                sender.sendMessage(getMsg("death-invalid-number"));
                                 return true;
                             }
                         }
                     } else {
-                        if (deathLimit > 0) {
-                            deathLimit = 0;
-                        } else {
-                            deathLimit = 1;
-                        }
+                        // Toggle: if > 0, set 0; if 0, set 1
+                        deathLimit = deathLimit > 0 ? 0 : 1;
                     }
-                    getConfig().set("death-limit", deathLimit);
+                    getConfig().set("reset-on-death", deathLimit > 0);
+                    getConfig().set("death.limit", deathLimit);
                     saveConfig();
-                    if (deathLimit == 0) {
-                        sender.sendMessage(getMsg("death-mode-disabled"));
-                    } else if (deathLimit == 1) {
-                        sender.sendMessage(getMsg("death-mode-enabled"));
+                    if (deathLimit > 0) {
+                        sender.sendMessage(getMsg("death-mode-enabled").replace("{v1}", String.valueOf(deathLimit)));
                     } else {
-                        sender.sendMessage(getMsg("death_limit_set").replace("{count}", String.valueOf(deathLimit)));
+                        sender.sendMessage(getMsg("death-mode-disabled"));
                     }
                     syncAutoResetScoreboard();
                     syncAllScoreboards();
@@ -4401,7 +4771,7 @@ public class Main extends JavaPlugin implements Listener {
                         getConfig().set("seed.use-fixed", false);
                         getConfig().set("seed.value", "");
                         saveConfig();
-                        sender.sendMessage(getConfig().getString("language", "en").equalsIgnoreCase("pl") ? "§aSeed wyczyszczony, ustawiono losowy." : "§aSeed cleared and set to random.");
+                        sender.sendMessage(getMsg(sender, "seed_cleared"));
                     } else if (sub.equals("copy")) {
                         // Copy current world seed to fixed seed config
                         World game = Bukkit.getWorld(gameWorldName);
@@ -4410,123 +4780,136 @@ public class Main extends JavaPlugin implements Listener {
                             getConfig().set("seed.use-fixed", true);
                             getConfig().set("seed.value", seedVal);
                             saveConfig();
-                            sender.sendMessage(getConfig().getString("language", "en").equalsIgnoreCase("pl") ? "§aAktualny seed skopiowany: §f" + seedVal : "§aCurrent seed copied: §f" + seedVal);
+                            sender.sendMessage(getMsg(sender, "seed_copied").replace("{seed}", seedVal));
                         } else {
-                            sender.sendMessage(getConfig().getString("language", "en").equalsIgnoreCase("pl") ? "§cŚwiat gry nie jest załadowany." : "§cNo game world loaded.");
+                            sender.sendMessage(getMsg(sender, "seed_no_world"));
                         }
-                    } else if (sub.equals("status")) {
-                        boolean fixed = getConfig().getBoolean("seed.use-fixed", false);
-                        String val = getConfig().getString("seed.value", "");
-                        sender.sendMessage(getMsg("seed_status"));
-                        sender.sendMessage((getMsg("mode")) + (fixed ? (getMsg("fixed")) : (getMsg("random"))));
-                        if (!val.isEmpty()) sender.sendMessage((getMsg("value")) + val);
+                    } else if (sub.equals("status") || sub.equals("info")) {
+                        boolean isPl = isSenderPl(sender);
+                        boolean fixedSeed = getConfig().getBoolean("seed.use-fixed", false);
+                        String seedVal = getConfig().getString("seed.value", "");
+                        sender.sendMessage("§8§m------§8[ §b§lWorldReset Seed §8]§m------");
+                        sender.sendMessage("§7" + (isPl ? "Tryb: " : "Mode: ") + (fixedSeed ? "§e" + (isPl ? "Stały" : "Fixed") : "§a" + (isPl ? "Losowy" : "Random")));
+                        sender.sendMessage("§7" + (isPl ? "Wartość w konfiguracji: " : "Config value: ") + (seedVal.isEmpty() ? "§7" + (isPl ? "Nie ustawiono" : "Not set") : "§f" + seedVal));
                         World game = Bukkit.getWorld(gameWorldName);
-                        if (game != null) sender.sendMessage((getMsg("active_world_seed")) + game.getSeed());
+                        if (game != null) {
+                            sender.sendMessage("§7" + (isPl ? "Aktywny seed świata: " : "Active world seed: ") + "§f" + game.getSeed());
+                        }
+                        sender.sendMessage("§8§m----------------------------");
                     } else {
-                        // Treat as seed value
+                        // Set seed value
                         getConfig().set("seed.use-fixed", true);
-                        getConfig().set("seed.value", args[1]);
+                        getConfig().set("seed.value", sub);
                         saveConfig();
-                        sender.sendMessage(getMsg("seed-set").replace("{seed}", args[1]));
+                        sender.sendMessage(getMsg("seed-set").replace("{seed}", sub));
                     }
                     return true;
                 }
                 case "give" -> {
                     if (hasPerm(sender, "worldreset.give")) return noPerm(sender, "worldreset.give");
-                    if (args.length < 2) {
-                        sender.sendMessage(getMsg("usage_wr_give_boat"));
-                        sender.sendMessage(getMsg("usage_wr_give_wood"));
-                        return true;
-                    }
-                    String item = args[1].toLowerCase();
-                    if (item.equals("boat")) {
-                        if (args.length < 3) {
-                            boolean current = getConfig().getBoolean("give.boat-if-water", true);
-                            boolean newState = !current;
-                            getConfig().set("give.boat-if-water", newState);
-                            saveConfig();
-                            sender.sendMessage(newState ? getMsg("boat_if_water_enabled") : getMsg("boat_if_water_disabled"));
-                            return true;
-                        }
-                        String val = args[2].toLowerCase();
-                        if (val.equals("status")) {
-                            boolean current = getConfig().getBoolean("give.boat-if-water", true);
-                            sender.sendMessage((getMsg("boat_if_water")) + (current ? "§a" + (getMsg("enabled")) : "§c" + (getMsg("disabled"))));
-                            return true;
-                        } else if (isEnableAlias(val)) {
-                            getConfig().set("give.boat-if-water", true);
-                            saveConfig();
-                            sender.sendMessage(getMsg("boat_if_water_enabled"));
-                        } else if (isDisableAlias(val)) {
-                            getConfig().set("give.boat-if-water", false);
-                            saveConfig();
-                            sender.sendMessage(getMsg("boat_if_water_disabled"));
-                        } else {
-                            sender.sendMessage(getMsg("usage_wr_give_boat_1"));
-                        }
-                    } else if (item.equals("wood")) {
-                        if (args.length < 3) {
-                            boolean current = getConfig().getBoolean("give.wood-if-underground", true);
-                            boolean newState = !current;
-                            getConfig().set("give.wood-if-underground", newState);
-                            saveConfig();
-                            if (newState) {
-                                int amount = getConfig().getInt("give.wood-amount", 5);
-                                sender.sendMessage(getMsg("wood-enabled").replace("{v1}", String.valueOf(amount)));
+                    if (args.length >= 2) {
+                        String item = args[1].toLowerCase();
+                        if (item.equals("boat")) {
+                            if (args.length >= 3) {
+                                String val = args[2].toLowerCase();
+                                if (isEnableAlias(val)) {
+                                    getConfig().set("give.boat-if-water", true);
+                                    saveConfig();
+                                    sender.sendMessage(getMsg("boat_if_water_enabled"));
+                                } else if (isDisableAlias(val)) {
+                                    getConfig().set("give.boat-if-water", false);
+                                    saveConfig();
+                                    sender.sendMessage(getMsg("boat_if_water_disabled"));
+                                } else {
+                                    sender.sendMessage(getMsg("usage_wr_give_boat"));
+                                }
                             } else {
-                                sender.sendMessage(getMsg("wood_if_underground_disabled"));
+                                boolean current = getConfig().getBoolean("give.boat-if-water", true);
+                                boolean newState = !current;
+                                getConfig().set("give.boat-if-water", newState);
+                                saveConfig();
+                                sender.sendMessage(newState ? getMsg("boat_if_water_enabled") : getMsg("boat_if_water_disabled"));
                             }
-                            return true;
-                        }
-                        String val = args[2].toLowerCase();
-                        if (val.equals("status")) {
-                            boolean enabled = getConfig().getBoolean("give.wood-if-underground", true);
-                            int amount = getConfig().getInt("give.wood-amount", 5);
-                            sender.sendMessage((getMsg("wood_if_underground")) + (enabled ? "§a" + amount : "§c" + (getMsg("disabled_1"))));
-                            return true;
-                        } else if (isEnableAlias(val)) {
-                            getConfig().set("give.wood-if-underground", true);
-                            saveConfig();
-                            int amount = getConfig().getInt("give.wood-amount", 5);
-                            sender.sendMessage(getMsg("wood-enabled").replace("{v1}", String.valueOf(amount)));
-                        } else if (isDisableAlias(val) || val.equals("0")) {
-                            getConfig().set("give.wood-if-underground", false);
-                            getConfig().set("give.wood-amount", 0);
-                            saveConfig();
-                            sender.sendMessage(getMsg("wood_if_underground_disabled"));
-                        } else {
-                            try {
-                                int amount = Integer.parseInt(val);
-                                amount = Math.max(0, Math.min(amount, 64));
-                                if (amount == 0) {
+                        } else if (item.equals("wood")) {
+                            if (args.length >= 3) {
+                                String val = args[2].toLowerCase();
+                                if (val.equals("status")) {
+                                    boolean enabled = getConfig().getBoolean("give.wood-if-underground", true);
+                                    int amount = getConfig().getInt("give.wood-amount", 5);
+                                    sender.sendMessage(getMsg(sender, "wood_if_underground") + (enabled ? "§a" + amount : "§c" + getMsgRaw(sender, "disabled_1")));
+                                    return true;
+                                } else if (isEnableAlias(val)) {
+                                    getConfig().set("give.wood-if-underground", true);
+                                    saveConfig();
+                                    int amount = getConfig().getInt("give.wood-amount", 5);
+                                    sender.sendMessage(getMsg("wood-enabled").replace("{v1}", String.valueOf(amount)));
+                                } else if (isDisableAlias(val) || val.equals("0")) {
                                     getConfig().set("give.wood-if-underground", false);
                                     getConfig().set("give.wood-amount", 0);
                                     saveConfig();
-                                    sender.sendMessage(getMsg("wood_if_underground_disabled_1"));
+                                    sender.sendMessage(getMsg("wood_if_underground_disabled"));
                                 } else {
-                                    getConfig().set("give.wood-if-underground", true);
-                                    getConfig().set("give.wood-amount", amount);
-                                    saveConfig();
-                                    sender.sendMessage(getMsg("wood-amount").replace("{v1}", String.valueOf(amount)));
+                                    try {
+                                        int amount = Integer.parseInt(val);
+                                        amount = Math.max(0, Math.min(amount, 64));
+                                        if (amount == 0) {
+                                            getConfig().set("give.wood-if-underground", false);
+                                            getConfig().set("give.wood-amount", 0);
+                                            saveConfig();
+                                            sender.sendMessage(getMsg("wood_if_underground_disabled_1"));
+                                        } else {
+                                            getConfig().set("give.wood-if-underground", true);
+                                            getConfig().set("give.wood-amount", amount);
+                                            saveConfig();
+                                            sender.sendMessage(getMsg("wood-amount").replace("{v1}", String.valueOf(amount)));
+                                        }
+                                    } catch (NumberFormatException e) {
+                                        sender.sendMessage(getMsg("usage_wr_give_wood_1"));
+                                    }
                                 }
-                            } catch (NumberFormatException e) {
-                                sender.sendMessage(getMsg("usage_wr_give_wood_1"));
+                            } else {
+                                sender.sendMessage(getMsg("usage_wr_give_wood"));
                             }
+                        } else {
+                            sender.sendMessage(getMsg("usage_wr_give_boatwood"));
                         }
                     } else {
                         sender.sendMessage(getMsg("usage_wr_give_boatwood"));
                     }
                     return true;
                 }
-                case "language" -> {
-                    if (hasPerm(sender, "worldreset.language")) return noPerm(sender, "worldreset.language");
+                case "language", "lang" -> {
+                    if (!(sender instanceof Player p)) {
+                        sender.sendMessage(getMsg(sender, "cmd_only_players_lang"));
+                        return true;
+                    }
+                    String current = playerLanguages.getOrDefault(p.getUniqueId(), getConfig().getString("language", "en"));
                     if (args.length < 2) {
-                        String current = getConfig().getString("language", "en");
-                        String target = current.equals("en") ? "pl" : "en";
+                        String target = current.equalsIgnoreCase("en") ? "pl" : "en";
+                        playerLanguages.put(p.getUniqueId(), target);
+                        saveUserData();
+                        p.sendMessage(getMsg(p, "language_player_changed").replace("{lang}", target.toUpperCase()));
+                        return true;
+                    }
+                    String l = args[1].toLowerCase();
+                    if (l.equals("en") || l.equals("pl")) {
+                        playerLanguages.put(p.getUniqueId(), l);
+                        saveUserData();
+                        p.sendMessage(getMsg(p, "language_player_changed").replace("{lang}", l.toUpperCase()));
+                    } else {
+                        p.sendMessage(getMsg(p, "language-invalid"));
+                    }
+                    return true;
+                }
+                case "languageall", "languageALL", "langall" -> {
+                    if (hasPerm(sender, "worldreset.language.all") && hasPerm(sender, "worldreset.language")) return noPerm(sender, "worldreset.language.all");
+                    String current = getConfig().getString("language", "en");
+                    if (args.length < 2) {
+                        String target = current.equalsIgnoreCase("en") ? "pl" : "en";
                         getConfig().set("language", target);
                         saveConfig();
                         loadLanguage();
-                        sender.sendMessage(getMsg("language-changed").replace("{lang}", target));
+                        sender.sendMessage(getMsg(sender, "language_all_changed").replace("{lang}", target.toUpperCase()));
                         return true;
                     }
                     String l = args[1].toLowerCase();
@@ -4534,8 +4917,10 @@ public class Main extends JavaPlugin implements Listener {
                         getConfig().set("language", l);
                         saveConfig();
                         loadLanguage();
-                        sender.sendMessage(getMsg("language-changed").replace("{lang}", l));
-                    } else sender.sendMessage(getMsg("language-invalid"));
+                        sender.sendMessage(getMsg(sender, "language_all_changed").replace("{lang}", l.toUpperCase()));
+                    } else {
+                        sender.sendMessage(getMsg(sender, "language-invalid"));
+                    }
                     return true;
                 }
                 case "filter" -> {
@@ -4563,6 +4948,7 @@ public class Main extends JavaPlugin implements Listener {
                     String filterSub = args[1].toLowerCase();
 
                     if (filterSub.equals("status")) {
+                        boolean isPl = isSenderPl(sender);
                         boolean filterEnabled = getConfig().getBoolean("filter.enabled", true);
                         String filterStruct = getConfig().getString("filter.structure", "");
                         String filterBiome = getConfig().getString("filter.biome", "");
@@ -4583,16 +4969,17 @@ public class Main extends JavaPlugin implements Listener {
                         boolean fixedSeed = getConfig().getBoolean("seed.use-fixed", false);
                         String seedVal = getConfig().getString("seed.value", "");
 
-                        sender.sendMessage(getMsg("filter_status"));
-                        sender.sendMessage((getMsg("enabled_1")) + (filterEnabled ? (getMsg("yes")) : (getMsg("no"))));
-                        sender.sendMessage((getMsg("structure")) + (filterStruct.isEmpty() ? (getMsg("none")) : "§a" + filterStruct));
-                        sender.sendMessage((getMsg("biome")) + (filterBiome.isEmpty() ? (getMsg("none_1")) : "§a" + displayBiome));
-                        sender.sendMessage((getMsg("attempts")) + getConfig().getInt("filter.attempts", 5));
-                        sender.sendMessage("§7Seed: " + (fixedSeed ? "§e" + seedVal + (getMsg("fixed_1")) : (getMsg("random_1"))));
+                        sender.sendMessage("§8§m------§8[ §b§lWorldReset " + (isPl ? "Filtry" : "Filters") + " §8]§m------");
+                        sender.sendMessage("§7" + (isPl ? "Włączone: " : "Enabled: ") + (filterEnabled ? "§a" + (isPl ? "Tak" : "Yes") : "§c" + (isPl ? "Nie" : "No")));
+                        sender.sendMessage("§7" + (isPl ? "Struktura: " : "Structure: ") + (filterStruct.isEmpty() ? "§7" + (isPl ? "Brak" : "None") : "§a" + filterStruct));
+                        sender.sendMessage("§7" + (isPl ? "Biom: " : "Biome: ") + (filterBiome.isEmpty() ? "§7" + (isPl ? "Brak" : "None") : "§a" + displayBiome));
+                        sender.sendMessage("§7" + (isPl ? "Maksymalne próby: " : "Max attempts: ") + "§e" + getConfig().getInt("filter.attempts", 5));
+                        sender.sendMessage("§7" + (isPl ? "Seed w konfiguracji: " : "Config seed: ") + (fixedSeed ? "§e" + seedVal + " §7(" + (isPl ? "stały" : "fixed") + ")" : "§a" + (isPl ? "Losowy" : "Random")));
                         World game = Bukkit.getWorld(gameWorldName);
                         if (game != null) {
-                            sender.sendMessage((getMsg("active_world_seed_1")) + game.getSeed());
+                            sender.sendMessage("§7" + (isPl ? "Aktywny seed świata: " : "Active world seed: ") + "§f" + game.getSeed());
                         }
+                        sender.sendMessage("§8§m----------------------------");
                         return true;
                     }
 
@@ -4746,7 +5133,7 @@ public class Main extends JavaPlugin implements Listener {
                             sender.sendMessage(getMsg("timer-auto-enabled"));
                         }
                         resetAndStartTimer();
-                        broadcastInfo(getMsg("timer_manually_reset_to"));
+                        broadcastKey("timer_manually_reset_to");
                         return true;
                     } else if (isEnableAlias(sub)) {
                         getConfig().set("timer.enabled", true);
@@ -4929,7 +5316,7 @@ public class Main extends JavaPlugin implements Listener {
                     if (hasPerm(sender, "worldreset.scoreboard.use")) return noPerm(sender, "worldreset.scoreboard.use");
 
                     if (args.length == 2 && args[1].equalsIgnoreCase("status")) {
-                        sender.sendMessage(getMsg("scoreboard_status").replace("{status}", clearScoreboardOnReset ? "§aON" : "§cOFF"));
+                        sender.sendMessage(getMsg(sender, "scoreboard_status").replace("{status}", clearScoreboardOnReset ? "§aON" : "§cOFF"));
                         return true;
                     }
 
@@ -5026,10 +5413,12 @@ public class Main extends JavaPlugin implements Listener {
                                 }
                             }
                         }
-                        sender.sendMessage(getMsg("templates_status"));
-                        sender.sendMessage((getMsg("enabled_2")) + (enabled ? (getMsg("yes_1")) : (getMsg("no_1"))));
-                        sender.sendMessage((getMsg("folder")) + folder);
-                        sender.sendMessage((getMsg("detected_worlds")) + worldCount);
+                        boolean isPl = isSenderPl(sender);
+                        sender.sendMessage("§8§m------§8[ §b§lWorldReset " + (isPl ? "Szablony" : "Templates") + " §8]§m------");
+                        sender.sendMessage("§7" + (isPl ? "Włączone: " : "Enabled: ") + (enabled ? "§a" + (isPl ? "Tak" : "Yes") : "§c" + (isPl ? "Nie" : "No")));
+                        sender.sendMessage("§7" + (isPl ? "Folder: §e" : "Folder: §e") + folder);
+                        sender.sendMessage("§7" + (isPl ? "Wykryte światy: §f" : "Detected worlds: §f") + worldCount);
+                        sender.sendMessage("§8§m----------------------------");
                     } else {
                         sender.sendMessage(getMsg("usage_wr_templates_enabledisablefolderstatus"));
                     }
@@ -5082,12 +5471,16 @@ public class Main extends JavaPlugin implements Listener {
 
                     switch (sub) {
                         case "status" -> {
-                            String statusStr = !autoResetEnabled ? (getMsg("disabled_2")) : (autoResetPaused ? (getMsg("paused")) : (getMsg("running")));
-                            sender.sendMessage(getMsg("autoreset_status"));
-                            sender.sendMessage((getMsg("status")) + statusStr);
-                            sender.sendMessage((getMsg("time")) + formatAutoResetTime(autoResetRemainingSeconds) + " §7/ §f" + formatAutoResetTime(autoResetTotalSeconds));
-                            sender.sendMessage((getMsg("loop")) + (autoResetLoop ? (getMsg("yes_2")) : (getMsg("no_2"))));
-                            sender.sendMessage((getMsg("visible")) + (autoResetVisible ? (getMsg("yes_3")) : (getMsg("no_3"))));
+                            boolean isPl = isSenderPl(sender);
+                            String statusStr = !autoResetEnabled
+                                    ? (isPl ? "§cWyłączony" : "§cDisabled")
+                                    : (autoResetPaused ? (isPl ? "§6Wstrzymany" : "§6Paused") : (isPl ? "§aWłączony" : "§aRunning"));
+                            sender.sendMessage("§8§m------§8[ §b§lWorldReset AutoReset §8]§m------");
+                            sender.sendMessage("§7" + (isPl ? "Stan: " : "Status: ") + statusStr);
+                            sender.sendMessage("§7" + (isPl ? "Pozostały czas: §e" : "Time: §e") + formatAutoResetTime(autoResetRemainingSeconds) + " §7/ §f" + formatAutoResetTime(autoResetTotalSeconds));
+                            sender.sendMessage("§7" + (isPl ? "Pętla (Auto-Restart): " : "Loop: ") + (autoResetLoop ? "§a" + (isPl ? "Tak" : "Yes") : "§c" + (isPl ? "Nie" : "No")));
+                            sender.sendMessage("§7" + (isPl ? "Widoczność na pasku: " : "ActionBar: ") + (autoResetVisible ? "§a" + (isPl ? "Tak" : "Yes") : "§c" + (isPl ? "Nie" : "No")));
+                            sender.sendMessage("§8§m----------------------------");
                         }
                         case "start" -> {
                             autoResetEnabled = true;
@@ -5128,7 +5521,7 @@ public class Main extends JavaPlugin implements Listener {
                             }
                             getConfig().set("autoreset.loop", autoResetLoop);
                             saveConfig();
-                            sender.sendMessage((getMsg("autoreset_loop")) + (autoResetLoop ? (getMsg("enabled_3")) : (getMsg("disabled_3"))));
+                            sender.sendMessage(getMsg(sender, "autoreset_loop") + (autoResetLoop ? getMsgRaw(sender, "enabled_3") : getMsgRaw(sender, "disabled_3")));
                         }
                         case "visible" -> {
                             if (args.length < 3) {
@@ -5138,7 +5531,7 @@ public class Main extends JavaPlugin implements Listener {
                             }
                             getConfig().set("autoreset.visible", autoResetVisible);
                             saveConfig();
-                            sender.sendMessage((getMsg("autoreset_visibility")) + (autoResetVisible ? (getMsg("visible_1")) : (getMsg("hidden"))));
+                            sender.sendMessage(getMsg(sender, "autoreset_visibility") + (autoResetVisible ? getMsgRaw(sender, "visible_1") : getMsgRaw(sender, "hidden")));
                         }
                         case "time" -> {
                             if (args.length < 3) {
@@ -5194,6 +5587,7 @@ public class Main extends JavaPlugin implements Listener {
                         }
                         case "status" -> {
                             if (hasPerm(sender, "worldreset.backup.list")) return noPerm(sender, "worldreset.backup.list");
+                            boolean isPl = isSenderPl(sender);
                             boolean enabled = getConfig().getBoolean("backup.enabled", true);
                             String limitStr = getConfig().getString("backup.limit", "all");
                             String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
@@ -5207,24 +5601,25 @@ public class Main extends JavaPlugin implements Listener {
                                     for (File dir : dirs) totalSize += getDirSize(dir);
                                 }
                             }
-                            sender.sendMessage(getMsg("backup_status"));
-                            sender.sendMessage((getMsg("enabled_4")) + (enabled ? (getMsg("yes_4")) : (getMsg("no_4"))));
-                            sender.sendMessage((getMsg("limit")) + limitStr);
-                            sender.sendMessage((getMsg("existing_backups")) + backupCount);
-                            sender.sendMessage((getMsg("total_size")) + formatFileSize(totalSize));
-                            sender.sendMessage((getMsg("folder_1")) + folder);
+                            sender.sendMessage("§8§m------§8[ §b§lWorldReset " + (isPl ? "Kopie Zapasowe" : "Backups") + " §8]§m------");
+                            sender.sendMessage("§7" + (isPl ? "Włączone: " : "Enabled: ") + (enabled ? "§a" + (isPl ? "Tak" : "Yes") : "§c" + (isPl ? "Nie" : "No")));
+                            sender.sendMessage("§7" + (isPl ? "Limit kopii: §e" : "Limit: §e") + limitStr);
+                            sender.sendMessage("§7" + (isPl ? "Zapisane kopie: §f" : "Existing backups: §f") + backupCount);
+                            sender.sendMessage("§7" + (isPl ? "Łączny rozmiar: §f" : "Total size: §f") + formatFileSize(totalSize));
+                            sender.sendMessage("§7" + (isPl ? "Folder: §e" : "Folder: §e") + folder);
+                            sender.sendMessage("§8§m----------------------------");
                         }
                         case "list" -> {
                             if (hasPerm(sender, "worldreset.backup.list")) return noPerm(sender, "worldreset.backup.list");
                             String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
                             File backupsDir = new File(getDataFolder().getParentFile().getParentFile(), folder);
                             if (!backupsDir.exists() || backupsDir.listFiles(File::isDirectory) == null) {
-                                sender.sendMessage(getMsg("no_backups_found"));
+                                sender.sendMessage(getMsg(sender, "no_backups_found"));
                                 return true;
                             }
                             File[] dirs = backupsDir.listFiles(File::isDirectory);
                             if (dirs == null || dirs.length == 0) {
-                                sender.sendMessage(getMsg("no_backups_found_1"));
+                                sender.sendMessage(getMsg(sender, "no_backups_found_1"));
                                 return true;
                             }
                             Arrays.sort(dirs, Comparator.comparingLong(File::lastModified).reversed());
@@ -5239,7 +5634,7 @@ public class Main extends JavaPlugin implements Listener {
                             int start = (page - 1) * perPage;
                             int end = Math.min(start + perPage, dirs.length);
 
-                            sender.sendMessage((getMsg("backups")) + dirs.length + (getMsg("page")) + page + "/" + totalPages + " §e---");
+                            sender.sendMessage(getMsg(sender, "backups") + dirs.length + getMsgRaw(sender, "page") + page + "/" + totalPages + " §e---");
                             for (int i = start; i < end; i++) {
                                 long size = getDirSize(dirs[i]);
                                 sender.sendMessage("§7 " + (i + 1) + ". §f" + dirs[i].getName() + " §8(§7" + formatFileSize(size) + "§8)");
@@ -5354,8 +5749,7 @@ public class Main extends JavaPlugin implements Listener {
                                                 // Restore player states from backup
                                                 World game = Bukkit.getWorld(gameWorldName);
                                                 if (game != null) {
-                                                    boolean isPl2 = getConfig().getString("language", "en").equalsIgnoreCase("pl");
-                                                    broadcastInfo(isPl2 ? "§aKopia zapasowa wczytana pomyślnie!" : "§aBackup loaded successfully!");
+                                                    broadcastKey("backup_restored_success");
                                                     restorePlayerStates(selectedBackup);
 
                                                     // If no players.yml existed (old backup), just teleport to spawn
@@ -5464,10 +5858,13 @@ public class Main extends JavaPlugin implements Listener {
         }
         sendFullHelp(sender);
         return true;
+        } finally {
+            currentSender.remove();
+        }
     }
 
     private boolean hasPerm(CommandSender s, String node) { return !s.hasPermission(node) && !s.hasPermission(node + ".*") && !s.hasPermission("worldreset.*") && !s.isOp(); }
-    private boolean noPerm(CommandSender s, String node) { s.sendMessage(getMsg("no-permission").replace("{permission}", node)); return true; }
+    private boolean noPerm(CommandSender s, String node) { s.sendMessage(getMsg(s, "no-permission").replace("{permission}", node)); return true; }
     private boolean isEnableAlias(String s) { return s.equals("enable") || s.equals("on") || s.equals("true"); }
     private boolean isDisableAlias(String s) { return s.equals("disable") || s.equals("off") || s.equals("false"); }
 
@@ -5490,55 +5887,86 @@ public class Main extends JavaPlugin implements Listener {
     }
 
     private void sendFullHelp(CommandSender sender) {
-        sender.sendMessage("§8§m------§8[ §b§lWorldReset §8]§m------");
-        sender.sendMessage(getMsg("use_wr_help_command"));
-        sender.sendMessage("");
-        if (sender.hasPermission("worldreset.reset") || sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.others") || sender.hasPermission("worldreset.death")) {
-            sender.sendMessage(getMsg("game"));
-            if (sender.hasPermission("worldreset.reset")) sender.sendMessage(getMsg("wr_reset_seconds_reset"));
-            if (sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.others")) sender.sendMessage(getMsg("wr_limbo_playerme_toggle"));
-            if (sender.hasPermission("worldreset.death")) sender.sendMessage(getMsg("wr_death_toggle_resetondeath"));
+        boolean isPl = isSenderPl(sender);
+        sender.sendMessage("§8§m------§8[ §b§lWorldReset " + (isPl ? "Pomoc" : "Help") + " §8]§m------");
+
+        if (sender.hasPermission("worldreset.start") || sender.hasPermission("worldreset.reset") || sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.others") || sender.hasPermission("worldreset.death")) {
+            sender.sendMessage(getMsgRaw(sender, "game"));
+            if (sender.hasPermission("worldreset.start")) sender.sendMessage(getMsgRaw(sender, "wr_start_desc"));
+            if (sender.hasPermission("worldreset.reset")) sender.sendMessage(getMsgRaw(sender, "wr_reset_seconds_reset"));
+            if (sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.others")) sender.sendMessage(getMsgRaw(sender, "wr_limbo_playerme_toggle"));
+            if (sender.hasPermission("worldreset.death")) sender.sendMessage(getMsgRaw(sender, "wr_death_toggle_resetondeath"));
             sender.sendMessage("");
         }
         if (sender.hasPermission("worldreset.timer.use") || sender.hasPermission("worldreset.timer.config") || sender.hasPermission("worldreset.autoreset.use") || sender.hasPermission("worldreset.autoreset.config")) {
-            sender.sendMessage(getMsg("timer_autoreset"));
-            if (sender.hasPermission("worldreset.timer.use") || sender.hasPermission("worldreset.timer.config")) sender.sendMessage(getMsg("wr_timer_action_speedrun"));
-            if (sender.hasPermission("worldreset.autoreset.use") || sender.hasPermission("worldreset.autoreset.config")) sender.sendMessage(getMsg("wr_autoreset_action_scheduled"));
+            sender.sendMessage(getMsgRaw(sender, "timer_autoreset"));
+            if (sender.hasPermission("worldreset.timer.use") || sender.hasPermission("worldreset.timer.config")) sender.sendMessage(getMsgRaw(sender, "wr_timer_action_speedrun"));
+            if (sender.hasPermission("worldreset.autoreset.use") || sender.hasPermission("worldreset.autoreset.config")) sender.sendMessage(getMsgRaw(sender, "wr_autoreset_action_scheduled"));
             sender.sendMessage("");
         }
         if (sender.hasPermission("worldreset.filter.use") || sender.hasPermission("worldreset.filter.config") || sender.hasPermission("worldreset.seed.use") || sender.hasPermission("worldreset.seed.config") || sender.hasPermission("worldreset.templates") || sender.hasPermission("worldreset.compass") || sender.hasPermission("worldreset.give") || sender.hasPermission("worldreset.scoreboard.use")) {
-            sender.sendMessage(getMsg("world"));
-            if (sender.hasPermission("worldreset.filter.use") || sender.hasPermission("worldreset.filter.config")) sender.sendMessage(getMsg("wr_filter_type_name"));
-            if (sender.hasPermission("worldreset.seed.use") || sender.hasPermission("worldreset.seed.config")) sender.sendMessage(getMsg("wr_seed_value_fixedrandom"));
-            if (sender.hasPermission("worldreset.templates")) sender.sendMessage(getMsg("wr_templates_action_world"));
-            if (sender.hasPermission("worldreset.compass")) sender.sendMessage(getMsg("wr_compass_enabledisable_locator"));
-            if (sender.hasPermission("worldreset.give")) sender.sendMessage(getMsg("wr_give_boatwood_auto"));
-            if (sender.hasPermission("worldreset.scoreboard.use")) sender.sendMessage(getMsg("wr_scoreboard"));
+            sender.sendMessage(getMsgRaw(sender, "world"));
+            if (sender.hasPermission("worldreset.filter.use") || sender.hasPermission("worldreset.filter.config")) sender.sendMessage(getMsgRaw(sender, "wr_filter_type_name"));
+            if (sender.hasPermission("worldreset.seed.use") || sender.hasPermission("worldreset.seed.config")) sender.sendMessage(getMsgRaw(sender, "wr_seed_value_fixedrandom"));
+            if (sender.hasPermission("worldreset.templates")) sender.sendMessage(getMsgRaw(sender, "wr_templates_action_world"));
+            if (sender.hasPermission("worldreset.compass")) sender.sendMessage(getMsgRaw(sender, "wr_compass_enabledisable_locator"));
+            if (sender.hasPermission("worldreset.give")) sender.sendMessage(getMsgRaw(sender, "wr_give_boatwood_auto"));
+            if (sender.hasPermission("worldreset.scoreboard.use")) sender.sendMessage(getMsgRaw(sender, "wr_scoreboard"));
             sender.sendMessage("");
         }
-        if (sender.hasPermission("worldreset.backup.list") || sender.hasPermission("worldreset.backup.create") || sender.hasPermission("worldreset.backup.admin") || sender.hasPermission("worldreset.language") || sender.hasPermission("worldreset.silent") || sender.hasPermission("worldreset.config.reload")) {
-            sender.sendMessage(getMsg("system"));
-            if (sender.hasPermission("worldreset.backup.list") || sender.hasPermission("worldreset.backup.create") || sender.hasPermission("worldreset.backup.admin")) sender.sendMessage(getMsg("wr_backup_action_backup"));
-            if (sender.hasPermission("worldreset.language")) sender.sendMessage(getMsg("wr_language_enpl_change"));
-            if (sender.hasPermission("worldreset.silent")) sender.sendMessage(getMsg("wr_silent_toggle_broadcasts"));
-            if (sender.hasPermission("worldreset.config.reload")) sender.sendMessage(getMsg("wr_reload_reload_config"));
-        }
+
+        sender.sendMessage(getMsgRaw(sender, "system"));
+        sender.sendMessage(getMsgRaw(sender, "wr_language_player_desc"));
+        sender.sendMessage(getMsgRaw(sender, "wr_silent_player_desc"));
+        if (sender.hasPermission("worldreset.language.all") || sender.isOp()) sender.sendMessage(getMsgRaw(sender, "wr_language_all_desc"));
+        if (sender.hasPermission("worldreset.silent.all") || sender.isOp()) sender.sendMessage(getMsgRaw(sender, "wr_silent_all_desc"));
+        if (sender.hasPermission("worldreset.backup.list") || sender.hasPermission("worldreset.backup.create") || sender.hasPermission("worldreset.backup.admin")) sender.sendMessage(getMsgRaw(sender, "wr_backup_action_backup"));
+        if (sender.hasPermission("worldreset.config.reload")) sender.sendMessage(getMsgRaw(sender, "wr_reload_reload_config"));
+
         sender.sendMessage("§8§m----------------------------");
     }
 
-    private String getHelpForCommand(String cmd) {
-        boolean isPl = getConfig().getString("language", "en").equalsIgnoreCase("pl");
-        return switch (cmd) {
+    private String getHelpTopicTitle(String topic, boolean isPl) {
+        return switch (topic.toLowerCase()) {
+            case "start", "begin" -> "Start";
+            case "reset" -> "Reset";
+            case "limbo" -> "Limbo";
+            case "death" -> isPl ? "Śmierć" : "Death";
+            case "scoreboard", "sb" -> "Scoreboard";
+            case "timer" -> "Timer";
+            case "autoreset" -> "AutoReset";
+            case "filter" -> isPl ? "Filtry" : "Filters";
+            case "seed" -> "Seed";
+            case "give" -> "Give";
+            case "templates", "template" -> isPl ? "Szablony" : "Templates";
+            case "compass" -> "Compass";
+            case "language", "lang" -> isPl ? "Język" : "Language";
+            case "languageall", "languageALL", "langall" -> isPl ? "Język Serwera" : "Server Language";
+            case "silent" -> "Silent";
+            case "silentall", "silentALL" -> isPl ? "Silent Serwera" : "Server Silent";
+            case "backup" -> isPl ? "Kopie Zapasowe" : "Backups";
+            case "reload" -> "Reload";
+            case "help", "?" -> isPl ? "Pomoc" : "Help";
+            default -> topic.isEmpty() ? "" : (topic.substring(0, 1).toUpperCase() + topic.substring(1));
+        };
+    }
+
+    private String getHelpForCommand(CommandSender sender, String cmd) {
+        boolean isPl = isSenderPl(sender);
+        return switch (cmd.toLowerCase()) {
+            case "start", "begin" -> isPl
+                    ? "§e/wr start §8- §7Rozpocznij grę dla graczy w Limbo"
+                    : "§e/wr start §8- §7Start game for players waiting in Limbo";
             case "reset" -> isPl
                     ? "§e/wr reset §6[§edelay-in§6] §6[§edelay-out§6] §8- §7Zresetuj świat.\n§7  delay-in: odliczanie przed resetem. delay-out: odliczanie w limbo przed startem."
                     : "§e/wr reset §6[§edelay-in§6] §6[§edelay-out§6] §8- §7Reset the world.\n§7  delay-in: countdown before reset. delay-out: countdown in limbo before game starts.";
             case "limbo" -> isPl
-                    ? "§e/wr limbo §8- §7Przenieś wszystkich do/z Limbo\n§e/wr limbo me §8- §7Przenieś tylko siebie\n§e/wr limbo §6<§egracz§6> §8- §7Przenieś wybranego gracza\n§e/wr limbo §6<§esekundy§6> §6[§egracz§6] §8- §7Z odliczaniem (domyślnie wszyscy)\n§e/wr limbo delay §6<§ein§6> §6<§eout§6> §8- §7Ustaw automatyczne opóźnienia"
-                    : "§e/wr limbo §8- §7Toggle all players to/from Limbo\n§e/wr limbo me §8- §7Toggle only yourself\n§e/wr limbo §6<§eplayer§6> §8- §7Toggle specific player\n§e/wr limbo §6<§eseconds§6> §6[§eplayer§6] §8- §7With countdown (default: all)\n§e/wr limbo delay §6<§ein§6> §6<§eout§6> §8- §7Set automatic delays";
+                    ? "§e/wr limbo §8- §7Przenieś wszystkich do/z Limbo\n§e/wr limbo me §8- §7Przenieś tylko siebie\n§e/wr limbo §6<§egracz§6> §8- §7Przenieś wybranego gracza\n§e/wr limbo §6<§esekundy§6> §6[§egracz§6] §8- §7Z odliczaniem (domyślnie wszyscy)\n§e/wr limbo delay §6<§ein§6> §6<§eout§6> §8- §7Ustaw automatyczne opóźnienia\n§e/wr limbo newplayers §6[§eon/off§6] §8- §7Nowi gracze do Limbo w trakcie gry\n§e/wr limbo startup §6[§eon/off§6] §8- §7Start serwera w trybie Limbo\n§e/wr limbo status §8- §7Sprawdź stan konfiguracji Limbo"
+                    : "§e/wr limbo §8- §7Toggle all players to/from Limbo\n§e/wr limbo me §8- §7Toggle only yourself\n§e/wr limbo §6<§eplayer§6> §8- §7Toggle specific player\n§e/wr limbo §6<§eseconds§6> §6[§eplayer§6] §8- §7With countdown (default: all)\n§e/wr limbo delay §6<§ein§6> §6<§eout§6> §8- §7Set automatic delays\n§e/wr limbo newplayers §6[§eon/off§6] §8- §7Send new players to Limbo during game\n§e/wr limbo startup §6[§eon/off§6] §8- §7Start server in Limbo mode\n§e/wr limbo status §8- §7Check Limbo settings status";
             case "death" -> isPl
                     ? "§e/wr death §6[§eon/off§6] §8- §7Przełącz reset po śmierci.\n§e/wr death §6<§elimit§6> §8- §7Ustaw dokładny limit żyć."
                     : "§e/wr death §6[§eon/off§6] §8- §7Toggle Reset-on-Death mode.\n§e/wr death §6<§elimit§6> §8- §7Set specific deaths limit.";
-            case "scoreboard" -> isPl
+            case "scoreboard", "sb" -> isPl
                     ? "§e/wr scoreboard §6[§eon/off§6] §8- §7Czyść cele wr_ przy resecie.\n§e/wr scoreboard status §8- §7Sprawdź stan czyszczenia."
                     : "§e/wr scoreboard §6[§eon/off§6] §8- §7Clear wr_ objectives on reset.\n§e/wr scoreboard status §8- §7Check clear status.";
             case "timer" -> isPl
@@ -5556,24 +5984,33 @@ public class Main extends JavaPlugin implements Listener {
             case "give" -> isPl
                     ? "§e/wr give boat §6<§eenable§6|§edisable§6> §8- §7Łódka przy spawnie na wodzie\n§e/wr give wood §6<§eilość§6|§eenable§6|§edisable§6> §8- §7Drewno przy spawnie podziemnym (0=wyłącz)"
                     : "§e/wr give boat §6<§eenable§6|§edisable§6> §8- §7Boat on water spawn\n§e/wr give wood §6<§eamount§6|§eenable§6|§edisable§6> §8- §7Wood on underground spawn (0=disable)";
-            case "templates" -> isPl
+            case "templates", "template" -> isPl
                     ? "§e/wr templates §6<§eenable§6|§edisable§6> §8- §7Przełącz szablony\n§e/wr templates folder §6[§eścieżka§6] §8- §7Podgląd/zmiana folderu\n§e/wr templates status §8- §7Info o szablonach"
                     : "§e/wr templates §6<§eenable§6|§edisable§6> §8- §7Toggle templates\n§e/wr templates folder §6[§epath§6] §8- §7View/set folder\n§e/wr templates status §8- §7Show template info";
             case "compass" -> isPl
                     ? "§e/wr compass §6<§eenable§6|§edisable§6> §8- §7Przełącz Locator Bar"
                     : "§e/wr compass §6<§eenable§6|§edisable§6> §8- §7Toggle Locator Bar";
             case "language", "lang" -> isPl
-                    ? "§e/wr language §6<§een§6|§epl§6> §8- §7Zmień język pluginu"
-                    : "§e/wr language §6<§een§6|§epl§6> §8- §7Switch plugin language";
+                    ? "§e/wr language §6[§een|pl§6] §8- §7Zmień swój język komunikatów (skrót: /wr lang)\n§e/wr languageall §6[§een|pl§6] §8- §7Zmień domyślny język serwera (administrator)"
+                    : "§e/wr language §6[§een|pl§6] §8- §7Change your personal language (alias: /wr lang)\n§e/wr languageall §6[§een|pl§6] §8- §7Change server default language (admin)";
+            case "languageall", "languageALL", "langall" -> isPl
+                    ? "§e/wr languageall §6[§een|pl§6] §8- §7Zmień domyślny język serwera"
+                    : "§e/wr languageall §6[§een|pl§6] §8- §7Change server default language";
             case "silent" -> isPl
-                    ? "§e/wr silent §8- §7Przełącz globalne komunikaty czatu"
-                    : "§e/wr silent §8- §7Toggle global broadcast messages on/off";
+                    ? "§e/wr silent §6[§eon/off§6] §8- §7Przełącz wyciszenie ogłoszeń dla siebie\n§e/wr silent status §8- §7Sprawdź stan wyciszenia\n§e/wr silentall §6[§eon/off§6] §8- §7Przełącz ogłoszenia na całym serwerze (administrator)"
+                    : "§e/wr silent §6[§eon/off§6] §8- §7Toggle reset broadcasts for yourself\n§e/wr silent status §8- §7Check your silent status\n§e/wr silentall §6[§eon/off§6] §8- §7Toggle server-wide broadcasts (admin)";
+            case "silentall", "silentALL" -> isPl
+                    ? "§e/wr silentall §6[§eon/off§6] §8- §7Przełącz ogłoszenia na całym serwerze\n§e/wr silentall status §8- §7Sprawdź stan ogłoszeń serwera"
+                    : "§e/wr silentall §6[§eon/off§6] §8- §7Toggle server-wide broadcast messages\n§e/wr silentall status §8- §7Check server broadcast status";
             case "backup" -> isPl
                     ? "§e/wr backup §6<§eenable§6|§edisable§6> §8- §7Przełącz kopie zapasowe\n§e/wr backup status §8- §7Status (limit, liczba, rozmiar)\n§e/wr backup list §8- §7Lista kopii zapasowych\n§e/wr backup load §6<§enumer§6> §8- §7Wczytaj kopię\n§e/wr backup clear §6[§eilość§6] §8- §7Usuń kopie (najstarsze)\n§e/wr backup limit §6<§eliczba§6|§eall§6> §8- §7Ustaw limit"
                     : "§e/wr backup §6<§eenable§6|§edisable§6> §8- §7Toggle backups\n§e/wr backup status §8- §7Show info (limit, count, size)\n§e/wr backup list §8- §7List all backups\n§e/wr backup load §6<§enumber§6> §8- §7Load a backup\n§e/wr backup clear §6[§ecount§6] §8- §7Delete backups (oldest first)\n§e/wr backup limit §6<§enumber§6|§eall§6> §8- §7Set backup limit";
             case "reload" -> isPl
                     ? "§e/wr reload §8- §7Przeładuj konfigurację i pliki językowe"
                     : "§e/wr reload §8- §7Reload config and language files";
+            case "help", "?" -> isPl
+                    ? "§e/wr help §6[§ekomenda§6] §8- §7Wyświetl pomoc (ogólną lub szczegółową dla komendy)"
+                    : "§e/wr help §6[§ecommand§6] §8- §7Show help (general or detailed for a command)";
             default -> null;
         };
     }
@@ -5585,6 +6022,15 @@ public class Main extends JavaPlugin implements Listener {
         if (args.length == 1) {
             List<String> suggestions = new ArrayList<>();
 
+            // Help, language, lang, silent are always available to all players
+            suggestions.add("help");
+            suggestions.add("language");
+            suggestions.add("lang");
+            suggestions.add("silent");
+
+            if (sender.hasPermission("worldreset.start"))
+                suggestions.add("start");
+
             if (sender.hasPermission("worldreset.reset"))
                 suggestions.add("reset");
 
@@ -5594,11 +6040,13 @@ public class Main extends JavaPlugin implements Listener {
             if (sender.hasPermission("worldreset.seed.use") || sender.hasPermission("worldreset.seed.config"))
                 suggestions.add("seed");
 
-            if (sender.hasPermission("worldreset.language"))
-                suggestions.add("language");
+            if (sender.hasPermission("worldreset.language.all") || sender.isOp()) {
+                suggestions.add("languageall");
+                suggestions.add("langall");
+            }
 
-            if (sender.hasPermission("worldreset.silent"))
-                suggestions.add("silent");
+            if (sender.hasPermission("worldreset.silent.all") || sender.isOp())
+                suggestions.add("silentall");
 
             if (sender.hasPermission("worldreset.death"))
                 suggestions.add("death");
@@ -5629,37 +6077,6 @@ public class Main extends JavaPlugin implements Listener {
 
             if (sender.hasPermission("worldreset.config.reload"))
                 suggestions.add("reload");
-
-            // Help is always available if sender has any permission
-            boolean hasAnyPermission =
-                    sender.hasPermission("worldreset.reset")
-                            || sender.hasPermission("worldreset.limbo.self")
-                            || sender.hasPermission("worldreset.limbo.others")
-                            || sender.hasPermission("worldreset.limbo.all")
-                            || sender.hasPermission("worldreset.seed.use")
-                            || sender.hasPermission("worldreset.seed.config")
-                            || sender.hasPermission("worldreset.language")
-                            || sender.hasPermission("worldreset.silent")
-                            || sender.hasPermission("worldreset.death")
-                            || sender.hasPermission("worldreset.filter.use")
-                            || sender.hasPermission("worldreset.filter.config")
-                            || sender.hasPermission("worldreset.timer.use")
-                            || sender.hasPermission("worldreset.timer.config")
-                            || sender.hasPermission("worldreset.compass")
-                            || sender.hasPermission("worldreset.scoreboard.use")
-                            || sender.hasPermission("worldreset.scoreboard.admin")
-                            || sender.hasPermission("worldreset.templates")
-                            || sender.hasPermission("worldreset.autoreset.use")
-                            || sender.hasPermission("worldreset.autoreset.config")
-                            || sender.hasPermission("worldreset.backup.list")
-                            || sender.hasPermission("worldreset.backup.create")
-                            || sender.hasPermission("worldreset.backup.admin")
-                            || sender.hasPermission("worldreset.give")
-                            || sender.hasPermission("worldreset.config.reload");
-
-            if (hasAnyPermission) {
-                suggestions.add("help");
-            }
 
             return StringUtil.copyPartialMatches(
                     args[0],
@@ -5886,6 +6303,9 @@ public class Main extends JavaPlugin implements Listener {
                 if (sender.hasPermission("worldreset.limbo.all")) {
                     suggestions.add("all");
                     suggestions.add("delay");
+                    suggestions.add("status");
+                    suggestions.add("newplayers");
+                    suggestions.add("startup");
                     suggestions.add("3");
                     suggestions.add("5");
                     suggestions.add("10");
@@ -5956,16 +6376,46 @@ public class Main extends JavaPlugin implements Listener {
             }
 
 
+            // LANGUAGE & LANG & LANGUAGEALL
+            if (args[0].equalsIgnoreCase("language")
+                    || args[0].equalsIgnoreCase("lang")
+                    || args[0].equalsIgnoreCase("languageall")
+                    || args[0].equalsIgnoreCase("langall")) {
+                return StringUtil.copyPartialMatches(
+                        args[1],
+                        Arrays.asList("en", "pl"),
+                        new ArrayList<>()
+                );
+            }
+
+            // SILENT & SILENTALL
+            if (args[0].equalsIgnoreCase("silent")
+                    || args[0].equalsIgnoreCase("silentall")) {
+                return StringUtil.copyPartialMatches(
+                        args[1],
+                        Arrays.asList("enable", "disable", "status"),
+                        new ArrayList<>()
+                );
+            }
+
             // HELP
             if (args[0].equalsIgnoreCase("help")
                     || args[0].equalsIgnoreCase("?")) {
 
                 List<String> suggestions = new ArrayList<>();
 
+                // Basic commands for all players
+                suggestions.add("language");
+                suggestions.add("lang");
+                suggestions.add("silent");
+
+                if (sender.hasPermission("worldreset.start"))
+                    suggestions.add("start");
+
                 if (sender.hasPermission("worldreset.reset"))
                     suggestions.add("reset");
 
-                if (sender.hasPermission("worldreset.limbo.self"))
+                if (sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.all"))
                     suggestions.add("limbo");
 
                 if (sender.hasPermission("worldreset.death"))
@@ -5998,11 +6448,13 @@ public class Main extends JavaPlugin implements Listener {
                 if (sender.hasPermission("worldreset.backup.list"))
                     suggestions.add("backup");
 
-                if (sender.hasPermission("worldreset.language"))
-                    suggestions.add("language");
+                if (sender.hasPermission("worldreset.language.all") || sender.isOp()) {
+                    suggestions.add("languageall");
+                    suggestions.add("langall");
+                }
 
-                if (sender.hasPermission("worldreset.silent"))
-                    suggestions.add("silent");
+                if (sender.hasPermission("worldreset.silent.all") || sender.isOp())
+                    suggestions.add("silentall");
 
                 if (sender.hasPermission("worldreset.config.reload"))
                     suggestions.add("reload");
@@ -6224,6 +6676,36 @@ public class Main extends JavaPlugin implements Listener {
                 return StringUtil.copyPartialMatches(
                         args[2],
                         Arrays.asList("0", "3", "5", "10", "15"),
+                        new ArrayList<>()
+                );
+            }
+
+
+            // LIMBO NEWPLAYERS
+            if (args[0].equalsIgnoreCase("limbo")
+                    && (args[1].equalsIgnoreCase("newplayers") || args[1].equalsIgnoreCase("new") || args[1].equalsIgnoreCase("newplayer"))) {
+
+                if (!sender.hasPermission("worldreset.limbo.all"))
+                    return Collections.emptyList();
+
+                return StringUtil.copyPartialMatches(
+                        args[2],
+                        Arrays.asList("enable", "disable", "status"),
+                        new ArrayList<>()
+                );
+            }
+
+
+            // LIMBO STARTUP
+            if (args[0].equalsIgnoreCase("limbo")
+                    && (args[1].equalsIgnoreCase("startup") || args[1].equalsIgnoreCase("boot") || args[1].equalsIgnoreCase("startinlimbo"))) {
+
+                if (!sender.hasPermission("worldreset.limbo.all"))
+                    return Collections.emptyList();
+
+                return StringUtil.copyPartialMatches(
+                        args[2],
+                        Arrays.asList("enable", "disable", "status"),
                         new ArrayList<>()
                 );
             }
@@ -6910,7 +7392,7 @@ public class Main extends JavaPlugin implements Listener {
         public String onRequest(OfflinePlayer player, @NotNull String params) {
             if (player == null) return "";
             UUID uuid = player.getUniqueId();
-            String lang = getConfig().getString("language", "en");
+            String lang = playerLanguages.getOrDefault(uuid, getConfig().getString("language", "en"));
             boolean isPl = lang.equalsIgnoreCase("pl");
 
             if (params.equalsIgnoreCase("timer")) {
@@ -6922,8 +7404,8 @@ public class Main extends JavaPlugin implements Listener {
                 return formatTime(elapsed, true);
             }
             if (params.equalsIgnoreCase("timer_status")) {
-                if (goalReachedPause) return getMsg("finished_1");
-                return timerRunning ? (getMsg("running_1")) : (getMsg("paused_1"));
+                if (goalReachedPause) return getMsgRaw(player, "finished_1");
+                return timerRunning ? getMsgRaw(player, "running_1") : getMsgRaw(player, "paused_1");
             }
             if (params.equalsIgnoreCase("timer_mode")) {
                 return timerMode != null ? timerMode : "RTA";
@@ -6953,14 +7435,14 @@ public class Main extends JavaPlugin implements Listener {
                 return timerGoalValue != null ? timerGoalValue : "";
             }
             if (params.equalsIgnoreCase("player_finished")) {
-                return playersFinished.contains(uuid) ? (getMsg("finished_2")) : (getMsg("running_2"));
+                return playersFinished.contains(uuid) ? getMsgRaw(player, "finished_2") : getMsgRaw(player, "running_2");
             }
             if (params.equalsIgnoreCase("seed")) {
                 World w = Bukkit.getWorld(gameWorldName);
                 return w != null ? String.valueOf(w.getSeed()) : "0";
             }
             if (params.equalsIgnoreCase("death_reset")) {
-                return getConfig().getBoolean("reset-on-death", false) ? (getMsg("enabled_5")) : (getMsg("disabled_4"));
+                return getConfig().getBoolean("reset-on-death", false) ? getMsgRaw(player, "enabled_5") : getMsgRaw(player, "disabled_4");
             }
             if (params.equalsIgnoreCase("world_name")) {
                 return gameWorldName;
@@ -6973,19 +7455,19 @@ public class Main extends JavaPlugin implements Listener {
                 String filterStruct = getConfig().getString("filter.structure", "");
                 String filterBiome = getConfig().getString("filter.biome", "");
                 boolean active = (filterStruct != null && !filterStruct.isEmpty()) || (filterBiome != null && !filterBiome.isEmpty());
-                return active ? (getMsg("yes_5")) : (getMsg("no_5"));
+                return active ? getMsgRaw(player, "yes_5") : getMsgRaw(player, "no_5");
             }
             if (params.equalsIgnoreCase("filter_biome")) {
                 String filterBiome = getConfig().getString("filter.biome", "");
-                return (filterBiome != null && !filterBiome.isEmpty()) ? filterBiome : (getMsg("none_2"));
+                return (filterBiome != null && !filterBiome.isEmpty()) ? filterBiome : getMsgRaw(player, "none_2");
             }
             if (params.equalsIgnoreCase("filter_structure")) {
                 String filterStruct = getConfig().getString("filter.structure", "");
-                return (filterStruct != null && !filterStruct.isEmpty()) ? filterStruct : (getMsg("none_3"));
+                return (filterStruct != null && !filterStruct.isEmpty()) ? filterStruct : getMsgRaw(player, "none_3");
             }
             if (params.equalsIgnoreCase("difficulty")) {
                 Difficulty diff = getServerDifficulty();
-                if (diff == null) return getMsg("normal");
+                if (diff == null) return getMsgRaw(player, "normal");
                 return isPl ? switch(diff) {
                     case PEACEFUL -> "Pokojowy";
                     case EASY -> "Łatwy";
@@ -6995,7 +7477,7 @@ public class Main extends JavaPlugin implements Listener {
             }
             if (params.equalsIgnoreCase("goal")) {
                 if (timerGoalType == null || timerGoalType.equalsIgnoreCase("NONE")) {
-                    return getMsg("none_4");
+                    return getMsgRaw(player, "none_4");
                 }
                 String typeStr = timerGoalType;
                 if (isPl) {
@@ -7200,15 +7682,15 @@ public class Main extends JavaPlugin implements Listener {
                 return String.valueOf(autoResetTotalSeconds);
             }
             if (params.equalsIgnoreCase("autoreset_status")) {
-                if (!autoResetEnabled) return getMsg("disabled_5");
-                if (autoResetPaused) return getMsg("paused_2");
-                return getMsg("running_3");
+                if (!autoResetEnabled) return getMsgRaw(player, "disabled_5");
+                if (autoResetPaused) return getMsgRaw(player, "paused_2");
+                return getMsgRaw(player, "running_3");
             }
             if (params.equalsIgnoreCase("autoreset_loop")) {
-                return autoResetLoop ? (getMsg("yes_6")) : (getMsg("no_6"));
+                return autoResetLoop ? getMsgRaw(player, "yes_6") : getMsgRaw(player, "no_6");
             }
             if (params.equalsIgnoreCase("autoreset_enabled")) {
-                return autoResetEnabled ? (getMsg("yes_7")) : (getMsg("no_7"));
+                return autoResetEnabled ? getMsgRaw(player, "yes_7") : getMsgRaw(player, "no_7");
             }
 
             // ---- SERVER LEADERBOARDS ----
