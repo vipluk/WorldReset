@@ -1,6 +1,6 @@
 ❤️ **If you enjoy this plugin, please consider leaving a like! It means a lot for me.** ❤️
 
-> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21+ Purpur**. Tested on Purpur 1.21, 1.21.4, 26.1.2. It should work on Bukkit and Paper.
+> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21+ Purpur**. Tested on Purpur 1.21, 1.21.3, 1.21.4, 26.1.2, 21.2. It should work on Bukkit, Paper and Purple.
 
 If you want to report a bug or suggest a new plugin, join my [Discord server](https://discord.gg/A7WVnYj3BP).
 
@@ -27,6 +27,7 @@ WorldReset is a plugin designed to manage game worlds dynamically. Instead of ki
 * **🎁 Auto Give:** Automatically gives a boat when spawning on actual water biomes, and wood when spawning underground (Y is below surface). Configurable via `/wr give boat <enable|disable>` and `/wr give wood <amount|enable|disable>`.
 * **☁️ Seamless Limbo:** Players are moved to a waiting world ("Limbo") during generation. Configurable countdown delays with on-screen timer and sound effects give players a heads-up before teleports.
 * **⏳ Limbo Countdown Delays:** Set automatic delays (in seconds) for entering and leaving Limbo. Players see a visual countdown with adaptive intervals and sounds, but can keep playing until it finishes. Use `/wr limbo <seconds>` for manual delayed toggle, or `/wr limbo delay <in> <out>` to configure global automatic delays.
+* **🛑 Limbo Startup & Mid-Game Protection:** Choose to start your server directly in Limbo waiting mode (`/wr limbo startup`), and automatically isolate new players joining mid-game into Limbo (`/wr limbo newplayers`) so active speedrun runs are never interrupted. Check all settings with `/wr limbo status`.
 * **🧭 Native Locator Bar:** Toggle Minecraft's built-in multiplayer **Locator Bar** (1.21.6+) directly with `/wr compass enable/disable`. No custom overlays — pure vanilla.
 * **🌍 Multi-Language:** Full support for **English** and **Polish** (changeable via command).
 
@@ -38,6 +39,7 @@ Main command: `/worldreset` or `/wr`
 
 | Command | Description | Permission |
 | --- | --- | --- |
+| `/wr start` | Starts the game immediately for players waiting in Limbo. | `worldreset.start` |
 | `/wr reset` | Instantly resets the game: moves everyone to Limbo, regenerates the world, and starts a new game. | `worldreset.reset` |
 | `/wr reset <in> <out>` | Reset with countdown before (delay-in) and countdown in Limbo before game starts (delay-out). | `worldreset.reset` |
 | `/wr limbo` | Toggles Limbo mode for all players. Moves everyone to Limbo or back to game. Also skips active countdowns. | `worldreset.limbo.all` |
@@ -45,8 +47,12 @@ Main command: `/worldreset` or `/wr`
 | `/wr limbo <player>` | Toggle Limbo for a specific player. Also accepts `all`. | `worldreset.limbo.others` |
 | `/wr limbo <seconds> [player]` | Toggle with countdown. Target defaults to all if omitted. | `worldreset.limbo.others` or `worldreset.limbo.all` |
 | `/wr limbo delay <in> <out>` | Sets global automatic delays (seconds) for death-reset enter/leave Limbo. | `worldreset.limbo.all` |
+| `/wr limbo newplayers [enable/disable/status]` | Sends new players joining mid-game directly to Limbo instead of active game. | `worldreset.limbo.all` |
+| `/wr limbo startup [enable/disable/status]` | Configures the server to boot up directly into Limbo waiting mode. | `worldreset.limbo.all` |
+| `/wr limbo status` | Shows current Limbo settings (delays, new players lock, startup mode). | `worldreset.limbo.all` |
 | `/wr death` | Toggles **Reset on Death** mode (Hardcore) ON/OFF. | `worldreset.death` |
-| `/wr silent` | Toggles **Silent Mode** (hides global chat messages) ON/OFF. | `worldreset.silent` |
+| `/wr silent` | Toggles your personal **Silent Mode** (hides reset messages for yourself). | — |
+| `/wr silentall` | Toggles **Global Server Broadcasts** in `config.yml` ON/OFF. | `worldreset.silent` |
 | `/wr filter` | Shows current active filters and seed status. | `worldreset.filter.use` |
 | `/wr filter structure <name>` | Sets a target structure (e.g., VILLAGE). Auto-clears biome filter. | `worldreset.filter.config` |
 | `/wr filter biome <group/name> [specific_biome]` | Sets a target biome or group (e.g., OCEANS). Auto-clears structure filter. | `worldreset.filter.config` |
@@ -66,7 +72,8 @@ Main command: `/worldreset` or `/wr`
 | `/wr compass` | Toggles the native Minecraft **Locator Bar** ON/OFF. | `worldreset.compass` |
 | `/wr scoreboard [enable/disable/status]` | Toggles clearing `wr_` objectives on world reset. | `worldreset.scoreboard.use` |
 | `/wr scoreboard reset [player]` | Clears permanent stats and records for a player (or all). | `worldreset.scoreboard.admin` |
-| `/wr language <en/pl>` | Changes the plugin language (English / Polish). | `worldreset.language` |
+| `/wr language [en/pl]` | Changes your personal language (English / Polish). Alias: `/wr lang`. | — |
+| `/wr languageall [en/pl]` | Changes the default global server language in `config.yml`. | `worldreset.language` |
 | `/wr backup <enable/disable>` | Toggle backup creation system. | `worldreset.backup.create` |
 | `/wr backup <status/list>` | Manage world backups view status. | `worldreset.backup.list` |
 | `/wr backup load <number>` | Load a backup (restores world + player states). | `worldreset.backup.admin` |

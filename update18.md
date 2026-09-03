@@ -39,6 +39,47 @@ Wydanie **1.8** dla wtyczki **WorldReset** koncentruje się na zaawansowanej kon
   * W procedurze `onJoin` zabezpieczono graczy w świecie limbo, uniemożliwiając niechcianą teleportację na spawn gry przy ponownym logowaniu.
   * W procedurze `onQuit` usunięto kasowanie `limboSavedStates` oraz indywidualnych czasów stopera, zachowując przy tym anulowanie aktywnych zadań odliczań (`activeCountdowns`), czyszczenie blokad oraz natychmiastową resynchronizację tablic wyników (`syncAllScoreboards`).
 
+### 7. Automatyczne kierowanie nowych graczy do Limbo (`/wr limbo newplayers`)
+* **Problem:** W trakcie trwania próby speedrunowej lub rozgrywki, nowi gracze wchodzący na serwer lądowali bezpośrednio w świecie gry na spawnie, ingerując w trwającą sesję.
+* **Wdrożenie:**
+  * Wprowadzono opcję konfiguracyjną `limbo.new-players-to-limbo` (domyślnie `false`).
+  * W procedurze `onJoin` dodano weryfikację: jeśli runda trwa, a dołącza nowy gracz, zostaje on skierowany bezpośrednio do poczekalni Limbo i otrzymuje dedykowany komunikat o konieczności zaczekania na kolejny reset.
+  * Udostępniono komendę `/wr limbo newplayers [enable|disable|status]` z pełnym wsparciem podpowiedzi Tab.
+
+### 8. Start serwera bezpośrednio w trybie Limbo (`/wr limbo startup`)
+* **Problem:** Po restarcie lub uruchomieniu serwera wtyczka natychmiast uznawała grę za gotową, wpuszczając graczy na mapę przed decyzją administratora o rozpoczęciu rozgrywki.
+* **Wdrożenie:**
+  * Wprowadzono opcję konfiguracyjną `limbo.start-in-limbo` (domyślnie `false`).
+  * W procedurze `onEnable()` serwer inicjalizuje stan `isWaitingStartupInLimbo = true`, a cykliczne zadanie Limbo wyświetla na ekranie tytuł oczekiwania na start gry. Wszyscy łączący się gracze lądują w Limbo.
+  * Gra startuje automatycznie po zainicjowaniu resetu (`/wr reset`) lub po ręcznym zwolnieniu poczekalni (`/wr limbo`).
+  * Udostępniono komendę `/wr limbo startup [enable|disable|status]` oraz komendę podglądu `/wr limbo status`.
+
+### 9. Integracja z platformą bStats
+* Wdrożono bibliotekę telemetryczną `org.bstats:bstats-bukkit:3.2.1` ze strefą cienia (`maven-shade-plugin`) relokowaną do pakietu `org.example.worldreset.bstats`, zapobiegając konfliktom z innymi wtyczkami.
+* W procedurze `onEnable()` w `Main.java` zainicjalizowano instancję `new org.bstats.bukkit.Metrics(this, 33834)`.
+
+### 10. Nowa komenda startu gry z poczekalni: `/wr start`
+* Umożliwia natychmiastowe wypuszczenie wszystkich graczy oczekujących w Limbo (np. po starcie serwera w trybie `start-in-limbo`) bezpośrednio na spawn świata gry bez konieczności ponownego generowania mapy (`/wr reset`).
+* Czyści stan `isWaitingStartupInLimbo`, ustawia `isGameReady = true` i opcjonalnie uruchamia stoper speedrunu.
+* Zabezpieczono komendę przed przypadkowym wywołaniem, gdy rozgrywka już trwa (odsyła wówczas do `/wr reset`).
+
+### 11. System ustawień lokalnych vs globalnych (Language & Silent)
+* **Lokalny język:** Komenda `/wr language [en|pl]` (lub `/wr lang`) pozwala każdemu graczowi bez uprawnień OP wybrać preferowany język komunikatów pluginu.
+* **Globalny język:** Administratorzy zarządzają domyślnym językiem serwera w `config.yml` za pomocą `/wr languageall [en|pl]`.
+* **Lokalne wyciszenie:** Komenda `/wr silent [enable|disable|status]` pozwala każdemu graczowi wyciszyć ogłoszenia o resecie świata tylko dla siebie.
+* **Globalne wyciszenie:** Administratorzy zarządzają ogłoszeniami serwera za pomocą `/wr silentall [enable|disable|status]`.
+
+### 12. Trwałość preferencji graczy (`userdata.yml`) i zasada pierwszeństwa
+* Wybory graczy dotyczące języka i trybu cichego zapisywane są trwale w pliku `userdata.yml` w oparciu o UUID.
+* Wprowadzono zasadę jurysdykcji: gracze, którzy ręcznie wybrali swoje ustawienia, nie są nadpisywani przez globalne komendy administratora (`ALL`), zachowując pełną personalizację.
+
+### 13. Pełna lokalizacja, eliminacja błędów językowych i dostosowanie odmowy uprawnień
+* **Naprawa komunikatu o braku uprawnień:** Cała obsługa komend dynamicznie rejestruje kontekst wywołującego gracza, dzięki czemu odmowa uprawnień (`Brak uprawnień!`) oraz błędy składni są zawsze wysyłane w języku gracza, a nie w domyślnym języku serwera.
+* **Szczegółowa pomoc komend:** Polecenia `/wr <komenda> help` oraz `/wr help <komenda>` w pełni respektują język gracza.
+* **Spolszczenie statusów:** Wszystkie komendy statusowe (`limbo`, `startup`, `newplayers`, `silent`, `silentall`) zamiast sztywnych angielskich słów `Enabled`/`Disabled` wyświetlają przetłumaczone etykiety (`Włączone`/`Wyłączone`).
+* **Wielojęzyczne ogłoszenia serwera:** Kluczowe powiadomienia (o resecie, starcie gry, wygenerowaniu mapy czy zakończeniu speedrunu) są tłumaczone w locie i docierają do każdego gracza w jego wybranym języku.
+* **Eliminacja hardkodowanych tekstów:** Wszystkie pozostałe angielskie napisy (m.in. brak załadowanego świata, komunikaty dla konsoli) przeniesiono do plików `messages_en.yml` i `messages_pl.yml`.
+
 ---
 
 ### ❤️ Podziękowania dla Społeczności
