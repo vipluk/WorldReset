@@ -3911,21 +3911,6 @@ public class Main extends JavaPlugin implements Listener {
     }
 
     @EventHandler
-    public void onQuit(PlayerQuitEvent e) {
-        java.util.UUID uuid = e.getPlayer().getUniqueId();
-        playerStartTimes.remove(uuid);
-        playerElapsedTimes.remove(uuid);
-        playerElapsedTicks.remove(uuid);
-        playersFinished.remove(uuid);
-        org.bukkit.scheduler.BukkitTask task = activeCountdowns.remove(uuid);
-        if (task != null) task.cancel();
-        limboSavedStates.remove(uuid);
-        boatGivenPlayers.remove(uuid);
-
-        Bukkit.getScheduler().runTaskLater(this, this::syncAllScoreboards, 1L);
-    }
-
-    @EventHandler
     public void onPlayerDeath(PlayerDeathEvent e) {
         if (e.getEntity().getWorld().getName().equals(limboWorldName)) return;
         if (!e.getEntity().getWorld().getName().contains(gameWorldName)) return;
