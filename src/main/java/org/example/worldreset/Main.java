@@ -94,6 +94,7 @@ public class Main extends JavaPlugin implements Listener {
     private final Map<UUID, Long> playerElapsedTimes = new HashMap<>();
     private final Map<UUID, Integer> playerElapsedTicks = new HashMap<>();
     private final Set<UUID> playersFinished = new HashSet<>();
+    private final Set<UUID> playersDeathLocked = new HashSet<>(); // Blokada graczy na ekranie smierci (zabezpieczenie przed limbo)
 
     // --- ZMIENNE KOMPASU (RADARU) ---
     private boolean compassEnabled;
@@ -467,6 +468,7 @@ public class Main extends JavaPlugin implements Listener {
     private void sendAllToLimboForReset() {
         stopTimer();
         limboSavedStates.clear(); // Reset clears saved states — world is being regenerated
+        playersDeathLocked.clear();
 
         // Save all game worlds to disk before backup (preserves player modifications)
         saveGameWorlds();
@@ -578,7 +580,12 @@ public class Main extends JavaPlugin implements Listener {
         }
     }
 
-    private void toggleLimboForPlayer(Player p, int delay) {
+    private void toggleLimboForPlayer(Player p, CommandSender sender, int delay) {
+        if (p.isDead() || playersDeathLocked.contains(p.getUniqueId())) {
+            sender.sendMessage(getMsg("player-dead"));
+            return;
+        }
+
         // Skip active countdown
         if (activeCountdowns.containsKey(p.getUniqueId())) {
             skipCountdown(p);
@@ -3835,6 +3842,7 @@ public class Main extends JavaPlugin implements Listener {
     // --- EVENTS ---
     @EventHandler
     public void onRespawn(PlayerRespawnEvent e) {
+        playersDeathLocked.remove(e.getPlayer().getUniqueId());
         if (isResetting && !isDelayingReset) {
             // Reset in progress and delay is over — respawn in limbo
             Location limbo = getLimboSpawn();
@@ -3921,16 +3929,19 @@ public class Main extends JavaPlugin implements Listener {
         if (task != null) task.cancel();
         limboSavedStates.remove(uuid);
         boatGivenPlayers.remove(uuid);
+        playersDeathLocked.remove(uuid);
 
         Bukkit.getScheduler().runTaskLater(this, this::syncAllScoreboards, 1L);
     }
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent e) {
+        Player dead = e.getEntity();
+        playersDeathLocked.add(dead.getUniqueId());
+
         if (e.getEntity().getWorld().getName().equals(limboWorldName)) return;
         if (!e.getEntity().getWorld().getName().contains(gameWorldName)) return;
 
-        Player dead = e.getEntity();
         String path = "players." + dead.getUniqueId();
         int deaths = recordsConfig.getInt(path + ".deaths", 0);
         recordsConfig.set(path + ".deaths", deaths + 1);
@@ -4296,7 +4307,7 @@ public class Main extends JavaPlugin implements Listener {
 
                     // Execute toggle for each target
                     for (Player target : targets) {
-                        toggleLimboForPlayer(target, manualDelay);
+                        toggleLimboForPlayer(target, sender, manualDelay);
                     }
                     return true;
                 }
