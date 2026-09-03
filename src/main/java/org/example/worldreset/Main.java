@@ -3921,13 +3921,8 @@ public class Main extends JavaPlugin implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
         java.util.UUID uuid = e.getPlayer().getUniqueId();
-        playerStartTimes.remove(uuid);
-        playerElapsedTimes.remove(uuid);
-        playerElapsedTicks.remove(uuid);
-        playersFinished.remove(uuid);
         org.bukkit.scheduler.BukkitTask task = activeCountdowns.remove(uuid);
         if (task != null) task.cancel();
-        limboSavedStates.remove(uuid);
         boatGivenPlayers.remove(uuid);
         playersDeathLocked.remove(uuid);
 
