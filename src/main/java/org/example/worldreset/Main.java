@@ -16,13 +16,13 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
-import org.bukkit.event.entity.EntityPortalEnterEvent;
 import org.bukkit.event.entity.EntityPortalEvent;
 import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
@@ -3991,30 +3991,41 @@ public class Main extends JavaPlugin implements Listener {
         checkTimerGoal(e.getPlayer(), "ADVANCEMENT", advName.toLowerCase());
     }
 
-    // Dodatkowy w pełni precyzyjny event speedrunnerski
-    @EventHandler
-    public void onPortalEnter(EntityPortalEnterEvent e) {
+    // Precyzyjne wykrywanie przejścia przez portal (zatrzymanie stopera dopiero po faktycznej teleportacji)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerTeleport(PlayerTeleportEvent e) {
         if (isResetting || !timerEnabled || !timerRunning) return;
-        if (!(e.getEntity() instanceof Player p)) return;
+        if (e.getFrom().getWorld() == null || e.getTo() == null || e.getTo().getWorld() == null) return;
 
-        String n = e.getLocation().getWorld().getName();
-        if (!n.contains(gameWorldName)) return;
+        String from = e.getFrom().getWorld().getName();
+        String to = e.getTo().getWorld().getName();
 
-        Material m = e.getLocation().getBlock().getType();
+        // Upewniamy się, że gracz faktycznie zmienia świat
+        if (from.equalsIgnoreCase(to)) return;
+
+        // Upewniamy się, że teleportacja dotyczy aktywnego świata gry (lub jego wymiarów)
+        if (!from.contains(gameWorldName) && !to.contains(gameWorldName)) return;
+
+        PlayerTeleportEvent.TeleportCause cause = e.getCause();
         String portalType = null;
 
-        if (m == Material.NETHER_PORTAL) {
+        if (cause == PlayerTeleportEvent.TeleportCause.NETHER_PORTAL) {
             portalType = "NETHER";
-        } else if (m == Material.END_PORTAL) {
-            if (n.endsWith("_the_end")) {
+        } else if (cause == PlayerTeleportEvent.TeleportCause.END_PORTAL) {
+            if (from.endsWith("_the_end")) {
                 portalType = "OVERWORLD";
             } else {
                 portalType = "END";
             }
+        } else if (cause == PlayerTeleportEvent.TeleportCause.UNKNOWN) {
+            // W silnikach Paper powrót z Endu przez fontannę może mieć przyczynę UNKNOWN
+            if (from.endsWith("_the_end")) {
+                portalType = "OVERWORLD";
+            }
         }
 
         if (portalType != null) {
-            checkTimerGoal(p, "PORTAL", portalType);
+            checkTimerGoal(e.getPlayer(), "PORTAL", portalType);
         }
     }
 
@@ -4022,21 +4033,6 @@ public class Main extends JavaPlugin implements Listener {
     public void onPortal(PlayerPortalEvent e) {
         if(isResetting) return;
         String n = e.getFrom().getWorld().getName();
-
-        // Fallback w razie opoznienia EntityPortalEnterEvent
-        if (timerEnabled && timerRunning) {
-            String portalType = "ANY";
-            if (e.getCause() == PlayerTeleportEvent.TeleportCause.NETHER_PORTAL) {
-                portalType = "NETHER";
-            } else if (e.getCause() == PlayerTeleportEvent.TeleportCause.END_PORTAL) {
-                if (n.endsWith("_the_end")) {
-                    portalType = "OVERWORLD";
-                } else {
-                    portalType = "END";
-                }
-            }
-            checkTimerGoal(e.getPlayer(), "PORTAL", portalType);
-        }
 
         if(!n.contains(gameWorldName)) return;
 
