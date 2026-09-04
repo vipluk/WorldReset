@@ -159,7 +159,7 @@ timer:
 compass:
   # [PL] Czy włączyć natywny Locator Bar Minecrafta (pasek pozycji graczy na górze ekranu)?
   # [EN] Enable Minecraft's native Locator Bar (player position ribbon on top of the screen)?
-  enabled: false
+  enabled: true
 
 # --- AUTORESET (Zaplanowane automatyczne resety) ---
 autoreset:
