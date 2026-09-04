@@ -64,8 +64,8 @@ Wydanie **1.8** dla wtyczki **WorldReset** koncentruje się na zaawansowanej kon
 * Zabezpieczono komendę przed przypadkowym wywołaniem, gdy rozgrywka już trwa (odsyła wówczas do `/wr reset`).
 
 ### 11. System ustawień lokalnych vs globalnych (Language & Silent)
-* **Lokalny język:** Komenda `/wr language [en|pl]` (lub `/wr lang`) pozwala każdemu graczowi bez uprawnień OP wybrać preferowany język komunikatów pluginu.
-* **Globalny język:** Administratorzy zarządzają domyślnym językiem serwera w `config.yml` za pomocą `/wr languageall [en|pl]`.
+* **Lokalny język:** Komenda `/wr language [en|de|pl]` (lub `/wr lang`) pozwala każdemu graczowi bez uprawnień OP wybrać preferowany język komunikatów pluginu lub przełączać go cyklicznie.
+* **Globalny język:** Administratorzy zarządzają domyślnym językiem serwera w `config.yml` za pomocą `/wr languageall [en|de|pl]`.
 * **Lokalne wyciszenie:** Komenda `/wr silent [enable|disable|status]` pozwala każdemu graczowi wyciszyć ogłoszenia o resecie świata tylko dla siebie.
 * **Globalne wyciszenie:** Administratorzy zarządzają ogłoszeniami serwera za pomocą `/wr silentall [enable|disable|status]`.
 
@@ -79,6 +79,19 @@ Wydanie **1.8** dla wtyczki **WorldReset** koncentruje się na zaawansowanej kon
 * **Spolszczenie statusów:** Wszystkie komendy statusowe (`limbo`, `startup`, `newplayers`, `silent`, `silentall`) zamiast sztywnych angielskich słów `Enabled`/`Disabled` wyświetlają przetłumaczone etykiety (`Włączone`/`Wyłączone`).
 * **Wielojęzyczne ogłoszenia serwera:** Kluczowe powiadomienia (o resecie, starcie gry, wygenerowaniu mapy czy zakończeniu speedrunu) są tłumaczone w locie i docierają do każdego gracza w jego wybranym języku.
 * **Eliminacja hardkodowanych tekstów:** Wszystkie pozostałe angielskie napisy (m.in. brak załadowanego świata, komunikaty dla konsoli) przeniesiono do plików `messages_en.yml` i `messages_pl.yml`.
+
+### 14. Pełna integracja języka niemieckiego (`de`) i cykliczny przełącznik języków
+* **Kompletna translacja:** Utworzono plik `messages_de.yml` zawierający pełne tłumaczenie wszystkich 340 kluczy konfiguracyjnych na język niemiecki (włącznie z komunikatami czatu, tytułami na ekranie, action barem, menu pomocy oraz odmowami uprawnień).
+* **Cykliczny przełącznik (`en` ➔ `de` ➔ `pl` ➔ `en`):**
+  * Wywołanie `/wr language` bez parametrów działa jako natychmiastowy przełącznik języka dla danego gracza.
+  * Zaimplementowano regułę dziedziczenia: jeśli gracz nigdy wcześniej nie konfigurował własnego języka, wtyczka sprawdza globalny język serwera z `config.yml` jako punkt wyjścia i przełącza go na kolejny język dla tego gracza, zapisując wybór do `userdata.yml`.
+  * Analogiczny przełącznik cykliczny zaimplementowano dla administratorów w komendzie globalnej `/wr languageall` (zapisuje nowy język do `config.yml` i natychmiast przeładowuje konfigurację).
+* **Ergonomia autouzupełniania Tab (`onTabComplete`):**
+  * Ukryto aliasy `/wr lang` oraz `/wr langall` z podpowiedzi głównego polecenia `/wr <tab>` oraz z menu pomocy `/wr help <tab>`, aby zapobiegać dublowaniu poleceń w interfejsie.
+  * Po wpisaniu aliasu `/wr lang <tab>` lub `/wr langall <tab>` silnik precyzyjnie podpowiada dostępne kody języków: `["de", "en", "pl"]`.
+* **Wielojęzyczne ekrany statusowe i PlaceholderAPI:**
+  * Zlokalizowano 6 wewnętrznych ekranów statusowych (`limbo`, `seed`, `filter`, `templates`, `autoreset`, `backup`) z podziałem na `pl`, `de` i `en`.
+  * Rozszerzenie PlaceholderAPI (`WorldResetExpansion`) wspiera niemieckie nazwy poziomów trudności (`Friedlich`, `Einfach`, `Normal`, `Schwer`), celów speedrunu (`Portal`, `Tötung`, `Fortschritt`, `Blockabbau`, `Gegenstand`) oraz fallback pustych wartości (`Keine`).
 
 ---
 

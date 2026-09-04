@@ -101,7 +101,7 @@ placeholders:
 
   # --- Personal Bests / Rekordy Osobiste (PB) ---
   %worldreset_pb%:
-    description_en: "Personal Best formatted time of the player (e.g. 10:15.542 or 'Brak' if none)."
+    description_en: "Personal Best formatted time of the player (e.g. 10:15.542 or 'None' if none)."
     description_pl: "Rekord życiowy (Personal Best) gracza, np. 10:15.542 (lub 'Brak')."
 
   %worldreset_pb_ms%:

@@ -29,7 +29,7 @@ WorldReset is a plugin designed to manage game worlds dynamically. Instead of ki
 * **⏳ Limbo Countdown Delays:** Set automatic delays (in seconds) for entering and leaving Limbo. Players see a visual countdown with adaptive intervals and sounds, but can keep playing until it finishes. Use `/wr limbo <seconds>` for manual delayed toggle, or `/wr limbo delay <in> <out>` to configure global automatic delays.
 * **🛑 Limbo Startup & Mid-Game Protection:** Choose to start your server directly in Limbo waiting mode (`/wr limbo startup`), and automatically isolate new players joining mid-game into Limbo (`/wr limbo newplayers`) so active speedrun runs are never interrupted. Check all settings with `/wr limbo status`.
 * **🧭 Native Locator Bar:** Toggle Minecraft's built-in multiplayer **Locator Bar** (1.21.6+) directly with `/wr compass enable/disable`. No custom overlays — pure vanilla.
-* **🌍 Multi-Language:** Full support for **English** and **Polish** (changeable via command).
+* **🌍 Multi-Language:** Full support for **English**, **German**, and **Polish** (changeable via command with instant cycle switch).
 
 ---
 
@@ -72,8 +72,8 @@ Main command: `/worldreset` or `/wr`
 | `/wr compass` | Toggles the native Minecraft **Locator Bar** ON/OFF. | `worldreset.compass` |
 | `/wr scoreboard [enable/disable/status]` | Toggles clearing `wr_` objectives on world reset. | `worldreset.scoreboard.use` |
 | `/wr scoreboard reset [player]` | Clears permanent stats and records for a player (or all). | `worldreset.scoreboard.admin` |
-| `/wr language [en/pl]` | Changes your personal language (English / Polish). Alias: `/wr lang`. | — |
-| `/wr languageall [en/pl]` | Changes the default global server language in `config.yml`. | `worldreset.language` |
+| `/wr language [en/de/pl]` | Changes or cycles your personal language (English / German / Polish). Alias: `/wr lang`. | — |
+| `/wr languageall [en/de/pl]` | Changes or cycles the default global server language in `config.yml`. | `worldreset.language` |
 | `/wr backup <enable/disable>` | Toggle backup creation system. | `worldreset.backup.create` |
 | `/wr backup <status/list>` | Manage world backups view status. | `worldreset.backup.list` |
 | `/wr backup load <number>` | Load a backup (restores world + player states). | `worldreset.backup.admin` |

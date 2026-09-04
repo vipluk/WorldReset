@@ -2,7 +2,8 @@
 
 # [PL] Wybierz język wiadomości w grze.
 # [EN] Select in-game language.
-language: en # en, pl
+# [DE] Wähle die Spielsprache.
+language: en # en, de, pl
 
 # [PL] Nazwa świata, który będzie tworzony i resetowany przez plugin.
 #      WAŻNE: To NIE MOŻE być "world" (domyślny świat serwera)!
