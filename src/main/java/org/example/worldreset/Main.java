@@ -447,6 +447,10 @@ public class Main extends JavaPlugin implements Listener {
     }
 
     private void loadLanguage() {
+        updateResourceFile("messages_en.yml");
+        updateResourceFile("messages_de.yml");
+        updateResourceFile("messages_pl.yml");
+
         String lang = getConfig().getString("language", "en");
         File langFile = new File(getDataFolder(), "messages_" + lang + ".yml");
         if (!langFile.exists()) langFile = new File(getDataFolder(), "messages_en.yml");
@@ -513,6 +517,13 @@ public class Main extends JavaPlugin implements Listener {
         return getMsgRaw(s, enabled ? "status_enabled_upper" : "status_disabled_upper");
     }
 
+    private String getYesNo(CommandSender s, boolean val) {
+        String lang = getSenderLang(s);
+        if ("pl".equals(lang)) return val ? "§aTak" : "§cNie";
+        if ("de".equals(lang)) return val ? "§aJa" : "§cNein";
+        return val ? "§aYes" : "§cNo";
+    }
+
     private FileConfiguration getMessageConfigForLang(String lang) {
         if ("pl".equalsIgnoreCase(lang)) return messagesPlConfig != null ? messagesPlConfig : langConfig;
         if ("de".equalsIgnoreCase(lang)) return messagesDeConfig != null ? messagesDeConfig : langConfig;
@@ -549,6 +560,10 @@ public class Main extends JavaPlugin implements Listener {
         return msg.replace("&", "§");
     }
 
+    private String getMsgRaw(Player player, String key) {
+        return getMsgRaw((CommandSender) player, key);
+    }
+
     private String getSubtitle(CommandSender sender, String key, String fallback) {
         FileConfiguration cfg = getMessageConfigForLang(getSenderLang(sender));
         return cfg.getString(key, langConfig.getString(key, fallback)).replace("&", "§");
@@ -576,8 +591,9 @@ public class Main extends JavaPlugin implements Listener {
     }
 
     /**
-     * Updates a resource file by adding any missing keys from the JAR default
-     * without overwriting existing user values.
+     * Updates a resource file by checking if any keys from the JAR default are missing.
+     * If keys are missing, backs up the existing file to <fileName>.old and replaces it
+     * with the latest version from JAR.
      */
     private void updateResourceFile(String fileName) {
         File file = new File(getDataFolder(), fileName);
@@ -592,17 +608,27 @@ public class Main extends JavaPlugin implements Listener {
             FileConfiguration userConfig = YamlConfiguration.loadConfiguration(file);
             FileConfiguration defaultConfig = YamlConfiguration.loadConfiguration(new java.io.InputStreamReader(defaultStream));
 
-            boolean updated = false;
+            boolean hasMissingKeys = false;
             for (String key : defaultConfig.getKeys(true)) {
                 if (!userConfig.contains(key)) {
-                    userConfig.set(key, defaultConfig.get(key));
-                    updated = true;
+                    hasMissingKeys = true;
+                    break;
                 }
             }
 
-            if (updated) {
-                userConfig.save(file);
-                getLogger().info("Updated " + fileName + " with new keys.");
+            if (hasMissingKeys) {
+                File oldFile = new File(file.getParentFile(), fileName + ".old");
+                if (oldFile.exists()) {
+                    oldFile.delete();
+                }
+                boolean renamed = file.renameTo(oldFile);
+                if (!renamed) {
+                    try {
+                        java.nio.file.Files.copy(file.toPath(), oldFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    } catch (Exception ignored) {}
+                }
+                saveResource(fileName, true);
+                getLogger().info("Found missing keys in " + fileName + ". Renamed old file to " + fileName + ".old and updated " + fileName + " to the latest version.");
             }
         } catch (Exception e) {
             // File may contain YAML-incompatible characters (like % in placeholderapi.yml)
@@ -646,8 +672,6 @@ public class Main extends JavaPlugin implements Listener {
                     default -> Difficulty.NORMAL;
                 };
             }
-            
-            getLogger().info("Loaded difficulty from server.properties: " + difficulty.name().toLowerCase());
             return difficulty;
         } catch (Exception e) {
             getLogger().warning("Error reading server.properties: " + e.getMessage());
@@ -3595,7 +3619,7 @@ public class Main extends JavaPlugin implements Listener {
         }
 
         startTimerTask();
-        broadcastKey("timer-started");
+        announceTimerStart();
         syncAllScoreboards();
     }
 
@@ -3641,10 +3665,87 @@ public class Main extends JavaPlugin implements Listener {
 
         if (!timerRunning) {
             timerRunning = true;
-            broadcastKey("timer-started");
+            announceTimerStart();
         }
         startTimerTask();
         syncAllScoreboards();
+    }
+
+    private void announceTimerStart() {
+        boolean globalEnabled = getConfig().getBoolean("broadcast-messages", true);
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            boolean isSilent = playerSilent.containsKey(p.getUniqueId())
+                    ? playerSilent.get(p.getUniqueId())
+                    : !globalEnabled;
+
+            String goalDesc = formatGoalDescription(p);
+            String title = getMsgRaw(p, "timer-title-started");
+            String subtitle = !goalDesc.isEmpty() ? "§e" + goalDesc : "";
+            sendTitleToPlayer(p, title, subtitle, 10, 60, 20);
+
+            if (!isSilent) {
+                p.sendMessage(getMsg(p, "timer-started"));
+                if (!goalDesc.isEmpty()) {
+                    p.sendMessage(getMsg(p, "timer-goal-chat").replace("{goal}", goalDesc));
+                }
+            }
+        }
+        Bukkit.getConsoleSender().sendMessage(getMsg("timer-started"));
+        String consoleGoal = formatGoalDescription(Bukkit.getConsoleSender());
+        if (!consoleGoal.isEmpty()) {
+            Bukkit.getConsoleSender().sendMessage(getMsg("timer-goal-chat").replace("{goal}", consoleGoal));
+        }
+    }
+
+    private String formatGoalDescription(CommandSender receiver) {
+        if (!timerEnabled || timerGoalType == null || timerGoalType.equals("NONE") || timerGoalValue == null || timerGoalValue.isEmpty()) {
+            return "";
+        }
+
+        switch (timerGoalType) {
+            case "PORTAL" -> {
+                String portalKey = "goal-portal-" + timerGoalValue.toLowerCase();
+                String res = getMsgRaw(receiver, portalKey);
+                if (res == null || res.equals(portalKey) || res.startsWith("goal-portal-")) {
+                    return "Portal: " + formatFriendlyTargetName(timerGoalValue);
+                }
+                return res;
+            }
+            case "ENTITY" -> {
+                String name = formatFriendlyTargetName(timerGoalValue);
+                return getMsgRaw(receiver, "goal-entity").replace("{target}", name);
+            }
+            case "ADVANCEMENT" -> {
+                String name = formatFriendlyTargetName(timerGoalValue);
+                return getMsgRaw(receiver, "goal-advancement").replace("{target}", name);
+            }
+            case "BLOCK" -> {
+                String name = formatFriendlyTargetName(timerGoalValue);
+                return getMsgRaw(receiver, "goal-block").replace("{target}", name);
+            }
+            case "ITEM" -> {
+                String name = formatFriendlyTargetName(timerGoalValue);
+                return getMsgRaw(receiver, "goal-item").replace("{target}", name);
+            }
+            default -> {
+                return formatFriendlyTargetName(timerGoalValue);
+            }
+        }
+    }
+
+    private String formatFriendlyTargetName(String raw) {
+        if (raw == null || raw.isEmpty()) return "";
+        String s = raw;
+        if (s.contains(":")) s = s.substring(s.indexOf(":") + 1);
+        if (s.contains("/")) s = s.substring(s.lastIndexOf("/") + 1);
+        String[] words = s.replace("_", " ").toLowerCase().split("\\s+");
+        StringBuilder sb = new StringBuilder();
+        for (String w : words) {
+            if (w.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1));
+        }
+        return sb.toString();
     }
 
     private void startTimerTask() {
@@ -4510,13 +4611,11 @@ public class Main extends JavaPlugin implements Listener {
                     // /wr limbo status
                     if (args.length >= 2 && args[1].equalsIgnoreCase("status")) {
                         if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
-                        boolean isPl = isSenderPl(sender);
-                        boolean isDe = isSenderDe(sender);
-                        sender.sendMessage("§8§m------§8[ §b§lWorldReset Limbo §8]§m------");
-                        sender.sendMessage("§7" + (isPl ? "Opóźnienia: §eWejście=" : (isDe ? "Verzögerungen: §eEingang=" : "Delays: §eIn=")) + limboDelayIn + "s §7| §e" + (isPl ? "Wyjście=" : (isDe ? "Ausgang=" : "Out=")) + limboDelayOut + "s");
-                        sender.sendMessage("§7" + (isPl ? "Nowi gracze do Limbo: " : (isDe ? "Neue Spieler ins Limbo: " : "New players to Limbo: ")) + getStatusLabel(sender, limboNewPlayersToLimbo));
-                        sender.sendMessage("§7" + (isPl ? "Start serwera w Limbo: " : (isDe ? "Serverstart im Limbo: " : "Start server in Limbo: ")) + getStatusLabel(sender, limboStartInLimbo));
-                        sender.sendMessage("§8§m----------------------------");
+                        sender.sendMessage(getMsgRaw(sender, "status_limbo_header"));
+                        sender.sendMessage(getMsgRaw(sender, "status_limbo_delays").replace("{in}", String.valueOf(limboDelayIn)).replace("{out}", String.valueOf(limboDelayOut)));
+                        sender.sendMessage(getMsgRaw(sender, "status_limbo_newplayers").replace("{status}", getStatusLabel(sender, limboNewPlayersToLimbo)));
+                        sender.sendMessage(getMsgRaw(sender, "status_limbo_startup").replace("{status}", getStatusLabel(sender, limboStartInLimbo)));
+                        sender.sendMessage(getMsgRaw(sender, "status_divider"));
                         return true;
                     }
 
@@ -4782,18 +4881,18 @@ public class Main extends JavaPlugin implements Listener {
                             sender.sendMessage(getMsg(sender, "seed_no_world"));
                         }
                     } else if (sub.equals("status") || sub.equals("info")) {
-                        boolean isPl = isSenderPl(sender);
-                        boolean isDe = isSenderDe(sender);
                         boolean fixedSeed = getConfig().getBoolean("seed.use-fixed", false);
                         String seedVal = getConfig().getString("seed.value", "");
-                        sender.sendMessage("§8§m------§8[ §b§lWorldReset Seed §8]§m------");
-                        sender.sendMessage("§7" + (isPl ? "Tryb: " : (isDe ? "Modus: " : "Mode: ")) + (fixedSeed ? "§e" + (isPl ? "Stały" : (isDe ? "Fest" : "Fixed")) : "§a" + (isPl ? "Losowy" : (isDe ? "Zufällig" : "Random"))));
-                        sender.sendMessage("§7" + (isPl ? "Wartość w konfiguracji: " : (isDe ? "Konfigurationswert: " : "Config value: ")) + (seedVal.isEmpty() ? "§7" + (isPl ? "Nie ustawiono" : (isDe ? "Nicht gesetzt" : "Not set")) : "§f" + seedVal));
+                        sender.sendMessage(getMsgRaw(sender, "status_seed_header"));
+                        String modeStr = fixedSeed ? getMsgRaw(sender, "status_seed_fixed") : getMsgRaw(sender, "status_seed_random");
+                        sender.sendMessage(getMsgRaw(sender, "status_seed_mode").replace("{mode}", modeStr));
+                        String valStr = seedVal.isEmpty() ? getMsgRaw(sender, "status_seed_not_set") : "§f" + seedVal;
+                        sender.sendMessage(getMsgRaw(sender, "status_seed_config_val").replace("{value}", valStr));
                         World game = Bukkit.getWorld(gameWorldName);
                         if (game != null) {
-                            sender.sendMessage("§7" + (isPl ? "Aktywny seed świata: " : (isDe ? "Aktiver Welt-Seed: " : "Active world seed: ")) + "§f" + game.getSeed());
+                            sender.sendMessage(getMsgRaw(sender, "status_seed_active").replace("{seed}", String.valueOf(game.getSeed())));
                         }
-                        sender.sendMessage("§8§m----------------------------");
+                        sender.sendMessage(getMsgRaw(sender, "status_divider"));
                     } else {
                         // Set seed value
                         getConfig().set("seed.use-fixed", true);
@@ -4971,17 +5070,19 @@ public class Main extends JavaPlugin implements Listener {
                         boolean fixedSeed = getConfig().getBoolean("seed.use-fixed", false);
                         String seedVal = getConfig().getString("seed.value", "");
 
-                        sender.sendMessage("§8§m------§8[ §b§lWorldReset " + (isPl ? "Filtry" : (isDe ? "Filter" : "Filters")) + " §8]§m------");
-                        sender.sendMessage("§7" + (isPl ? "Włączone: " : (isDe ? "Aktiviert: " : "Enabled: ")) + (filterEnabled ? "§a" + (isPl ? "Tak" : (isDe ? "Ja" : "Yes")) : "§c" + (isPl ? "Nie" : (isDe ? "Nein" : "No"))));
-                        sender.sendMessage("§7" + (isPl ? "Struktura: " : (isDe ? "Struktur: " : "Structure: ")) + (filterStruct.isEmpty() ? "§7" + (isPl ? "Brak" : (isDe ? "Keine" : "None")) : "§a" + filterStruct));
-                        sender.sendMessage("§7" + (isPl ? "Biom: " : (isDe ? "Biom: " : "Biome: ")) + (filterBiome.isEmpty() ? "§7" + (isPl ? "Brak" : (isDe ? "Keine" : "None")) : "§a" + displayBiome));
-                        sender.sendMessage("§7" + (isPl ? "Maksymalne próby: " : (isDe ? "Maximale Versuche: " : "Max attempts: ")) + "§e" + getConfig().getInt("filter.attempts", 5));
-                        sender.sendMessage("§7" + (isPl ? "Seed w konfiguracji: " : (isDe ? "Konfigurations-Seed: " : "Config seed: ")) + (fixedSeed ? "§e" + seedVal + " §7(" + (isPl ? "stały" : (isDe ? "fest" : "fixed")) + ")" : "§a" + (isPl ? "Losowy" : (isDe ? "Zufällig" : "Random"))));
+                        sender.sendMessage(getMsgRaw(sender, "status_filter_header"));
+                        sender.sendMessage(getMsgRaw(sender, "status_filter_enabled").replace("{status}", getYesNo(sender, filterEnabled)));
+                        String noneStr = getMsgRaw(sender, "status_filter_none");
+                        sender.sendMessage(getMsgRaw(sender, "status_filter_structure").replace("{structure}", filterStruct.isEmpty() ? noneStr : "§a" + filterStruct));
+                        sender.sendMessage(getMsgRaw(sender, "status_filter_biome").replace("{biome}", filterBiome.isEmpty() ? noneStr : "§a" + displayBiome));
+                        sender.sendMessage(getMsgRaw(sender, "status_filter_attempts").replace("{attempts}", String.valueOf(getConfig().getInt("filter.attempts", 5))));
+                        String seedInfo = fixedSeed ? "§e" + seedVal + " §7(" + getMsgRaw(sender, "status_filter_fixed_tag") + ")" : getMsgRaw(sender, "status_seed_random");
+                        sender.sendMessage(getMsgRaw(sender, "status_filter_config_seed").replace("{seed_info}", seedInfo));
                         World game = Bukkit.getWorld(gameWorldName);
                         if (game != null) {
-                            sender.sendMessage("§7" + (isPl ? "Aktywny seed świata: " : (isDe ? "Aktiver Welt-Seed: " : "Active world seed: ")) + "§f" + game.getSeed());
+                            sender.sendMessage(getMsgRaw(sender, "status_filter_active_seed").replace("{seed}", String.valueOf(game.getSeed())));
                         }
-                        sender.sendMessage("§8§m----------------------------");
+                        sender.sendMessage(getMsgRaw(sender, "status_divider"));
                         return true;
                     }
 
@@ -5415,13 +5516,11 @@ public class Main extends JavaPlugin implements Listener {
                                 }
                             }
                         }
-                        boolean isPl = isSenderPl(sender);
-                        boolean isDe = isSenderDe(sender);
-                        sender.sendMessage("§8§m------§8[ §b§lWorldReset " + (isPl ? "Szablony" : (isDe ? "Vorlagen" : "Templates")) + " §8]§m------");
-                        sender.sendMessage("§7" + (isPl ? "Włączone: " : (isDe ? "Aktiviert: " : "Enabled: ")) + (enabled ? "§a" + (isPl ? "Tak" : (isDe ? "Ja" : "Yes")) : "§c" + (isPl ? "Nie" : (isDe ? "Nein" : "No"))));
-                        sender.sendMessage("§7Folder: §e" + folder);
-                        sender.sendMessage("§7" + (isPl ? "Wykryte światy: §f" : (isDe ? "Erkannte Welten: §f" : "Detected worlds: §f")) + worldCount);
-                        sender.sendMessage("§8§m----------------------------");
+                        sender.sendMessage(getMsgRaw(sender, "status_templates_header"));
+                        sender.sendMessage(getMsgRaw(sender, "status_templates_enabled").replace("{status}", getYesNo(sender, enabled)));
+                        sender.sendMessage(getMsgRaw(sender, "status_templates_folder").replace("{folder}", folder));
+                        sender.sendMessage(getMsgRaw(sender, "status_templates_worlds").replace("{count}", String.valueOf(worldCount)));
+                        sender.sendMessage(getMsgRaw(sender, "status_divider"));
                     } else {
                         sender.sendMessage(getMsg("usage_wr_templates_enabledisablefolderstatus"));
                     }
@@ -5474,17 +5573,17 @@ public class Main extends JavaPlugin implements Listener {
 
                     switch (sub) {
                         case "status" -> {
-                            boolean isPl = isSenderPl(sender);
-                            boolean isDe = isSenderDe(sender);
                             String statusStr = !autoResetEnabled
-                                    ? (isPl ? "§cWyłączony" : (isDe ? "§cDeaktiviert" : "§cDisabled"))
-                                    : (autoResetPaused ? (isPl ? "§6Wstrzymany" : (isDe ? "§6Pausiert" : "§6Paused")) : (isPl ? "§aWłączony" : (isDe ? "§aAktiv" : "§aRunning")));
-                            sender.sendMessage("§8§m------§8[ §b§lWorldReset AutoReset §8]§m------");
-                            sender.sendMessage("§7" + (isPl ? "Stan: " : (isDe ? "Status: " : "Status: ")) + statusStr);
-                            sender.sendMessage("§7" + (isPl ? "Pozostały czas: §e" : (isDe ? "Verbleibende Zeit: §e" : "Time: §e")) + formatAutoResetTime(autoResetRemainingSeconds) + " §7/ §f" + formatAutoResetTime(autoResetTotalSeconds));
-                            sender.sendMessage("§7" + (isPl ? "Pętla (Auto-Restart): " : (isDe ? "Schleife (Auto-Neustart): " : "Loop: ")) + (autoResetLoop ? "§a" + (isPl ? "Tak" : (isDe ? "Ja" : "Yes")) : "§c" + (isPl ? "Nie" : (isDe ? "Nein" : "No"))));
-                            sender.sendMessage("§7" + (isPl ? "Widoczność na pasku: " : (isDe ? "ActionBar-Anzeige: " : "ActionBar: ")) + (autoResetVisible ? "§a" + (isPl ? "Tak" : (isDe ? "Ja" : "Yes")) : "§c" + (isPl ? "Nie" : (isDe ? "Nein" : "No"))));
-                            sender.sendMessage("§8§m----------------------------");
+                                    ? getMsgRaw(sender, "status_autoreset_disabled")
+                                    : (autoResetPaused ? getMsgRaw(sender, "status_autoreset_paused") : getMsgRaw(sender, "status_autoreset_running"));
+                            sender.sendMessage(getMsgRaw(sender, "status_autoreset_header"));
+                            sender.sendMessage(getMsgRaw(sender, "status_autoreset_state").replace("{status}", statusStr));
+                            sender.sendMessage(getMsgRaw(sender, "status_autoreset_time")
+                                    .replace("{remaining}", formatAutoResetTime(autoResetRemainingSeconds))
+                                    .replace("{total}", formatAutoResetTime(autoResetTotalSeconds)));
+                            sender.sendMessage(getMsgRaw(sender, "status_autoreset_loop").replace("{status}", getYesNo(sender, autoResetLoop)));
+                            sender.sendMessage(getMsgRaw(sender, "status_autoreset_actionbar").replace("{status}", getYesNo(sender, autoResetVisible)));
+                            sender.sendMessage(getMsgRaw(sender, "status_divider"));
                         }
                         case "start" -> {
                             autoResetEnabled = true;
@@ -5606,11 +5705,11 @@ public class Main extends JavaPlugin implements Listener {
                                     for (File dir : dirs) totalSize += getDirSize(dir);
                                 }
                             }
-                            sender.sendMessage("§8§m------§8[ §b§lWorldReset " + (isPl ? "Kopie Zapasowe" : (isDe ? "Backups" : "Backups")) + " §8]§m------");
-                            sender.sendMessage("§7" + (isPl ? "Włączone: " : (isDe ? "Aktiviert: " : "Enabled: ")) + (enabled ? "§a" + (isPl ? "Tak" : (isDe ? "Ja" : "Yes")) : "§c" + (isPl ? "Nie" : (isDe ? "Nein" : "No"))));
-                            sender.sendMessage("§7" + (isPl ? "Limit kopii: §e" : (isDe ? "Backup-Limit: §e" : "Limit: §e")) + limitStr);
-                            sender.sendMessage("§7" + (isPl ? "Zapisane kopie: §f" : (isDe ? "Gespeicherte Backups: §f" : "Existing backups: §f")) + backupCount);
-                            sender.sendMessage("§7" + (isPl ? "Łączny rozmiar: §f" : (isDe ? "Gesamtgröße: §f" : "Total size: §f")) + formatFileSize(totalSize));
+                            sender.sendMessage("§8§m------§8[ §b§lWorldReset Backups §8]§m------");
+                            sender.sendMessage("§7Enabled: " + (enabled ? "§aYes" : "§cNo"));
+                            sender.sendMessage("§7Backup limit: §e" + limitStr);
+                            sender.sendMessage("§7Existing backups: §f" + backupCount);
+                            sender.sendMessage("§7Total size: §f" + formatFileSize(totalSize));
                             sender.sendMessage("§7Folder: §e" + folder);
                             sender.sendMessage("§8§m----------------------------");
                         }
@@ -7205,7 +7304,8 @@ public class Main extends JavaPlugin implements Listener {
             org.bukkit.scoreboard.Objective goalTypeObj = getOrRegisterObjective(scoreboard, "wr_goal_type", getMsg("goal_type"));
 
             int difficultyVal = 2;
-            Difficulty bukkitDiff = getServerDifficulty();
+            World gameWorld = Bukkit.getWorld(gameWorldName);
+            Difficulty bukkitDiff = gameWorld != null ? gameWorld.getDifficulty() : getServerDifficulty();
             if (bukkitDiff != null) {
                 switch (bukkitDiff) {
                     case PEACEFUL: difficultyVal = 0; break;
@@ -7513,7 +7613,8 @@ public class Main extends JavaPlugin implements Listener {
                 return (filterStruct != null && !filterStruct.isEmpty()) ? filterStruct : getMsgRaw(player, "none_3");
             }
             if (params.equalsIgnoreCase("difficulty")) {
-                Difficulty diff = getServerDifficulty();
+                World gameWorld = Bukkit.getWorld(gameWorldName);
+                Difficulty diff = gameWorld != null ? gameWorld.getDifficulty() : getServerDifficulty();
                 if (diff == null) return getMsgRaw(player, "normal");
                 if (isPl) {
                     return switch(diff) {

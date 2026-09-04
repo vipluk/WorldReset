@@ -13,7 +13,9 @@
 * 🌐 **Per-Player Language Settings (`/wr language` / `/wr lang`):** Players can now choose their personal language (`en`/`de`/`pl`) independently of other players and the server default. Administrators manage the server-wide default via `/wr languageall`.
 * 🇩🇪 **German Language Support & Quick Switcher:** Added full German translation across the entire plugin. You can also run `/wr language` or `/wr languageall` without parameters to quickly cycle between English, German, and Polish.
 * 🔕 **Per-Player Silent Mode (`/wr silent`):** Players can individually mute or unmute world reset broadcast messages on their own chat. Administrators toggle global broadcasts via `/wr silentall`.
-* 💾 **Persistent User Data (`userdata.yml`):** Individual language and silent preferences are saved per UUID and protected against server-wide setting changes.
+* 🎯 **Dynamic Timer Goal Announcements:** Starting the timer now shows a clean on-screen title and subtitle with the exact objective (e.g. "Enter the Nether first", "Kill: Ender Dragon") and announces it in chat in each player's chosen language.
+* ⚡ **Difficulty Cache & Console Optimization:** Eliminated redundant console spam (`Loaded difficulty from server.properties`) by reading world difficulty directly from the active world in RAM instead of reading disk on every scoreboard update.
+* 🔄 **Safe Language Updates (`.yml.old`):** If a language file on disk lacks newly introduced keys, the plugin automatically archives the old file to `<file>.old` and deploys the fresh default from the JAR without data loss.
 * 📈 **bStats Metrics Integration:** Added anonymous server metrics via [bStats.org](https://bstats.org) to monitor active installations and Minecraft versions.
 
 ---

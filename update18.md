@@ -93,6 +93,25 @@ Wydanie **1.8** dla wtyczki **WorldReset** koncentruje się na zaawansowanej kon
   * Zlokalizowano 6 wewnętrznych ekranów statusowych (`limbo`, `seed`, `filter`, `templates`, `autoreset`, `backup`) z podziałem na `pl`, `de` i `en`.
   * Rozszerzenie PlaceholderAPI (`WorldResetExpansion`) wspiera niemieckie nazwy poziomów trudności (`Friedlich`, `Einfach`, `Normal`, `Schwer`), celów speedrunu (`Portal`, `Tötung`, `Fortschritt`, `Blockabbau`, `Gegenstand`) oraz fallback pustych wartości (`Keine`).
 
+### 15. Dynamiczne powiadomienia o celu na ekranie i czacie przy starcie stopera
+* **Wizualna informacja na ekranie:** Przy starcie stopera (zarówno po komendzie `/wr timer start`, jak i przy automatycznym rozpoczęciu biegu) na ekranie graczy pojawia się tytuł `⏱ Timer wystartował!` wraz z podtytułem precyzującym cel biegu.
+* **Naturalne opisy celów:** Zaimplementowano generator czytelnych poleceń w 3 językach (np. `Wejdź pierwszy do Netheru` / `Zabij: Ender Dragon` / `Zdobądź postęp: ...`), eliminując surowe kody techniczne Minecrafta.
+* **Informacja na czacie:** Czat wyświetla dodatkowy wiersz ze spersonalizowaną nazwą celu dla każdego gracza w jego wybranym języku.
+* **Czysty komunikat wygranej:** Zachowano zwięzłą formę ogłoszenia zwycięzcy i nowego rekordu życiowego (PB) bez duplikowania nazwy celu.
+
+### 16. Bezpieczny mechanizm aktualizacji plików językowych (`.yml.old`)
+* **Problem:** Zwykłe dopisywanie brakujących kluczy uniemożliwiało odświeżenie zmodyfikowanych lub skorygowanych domyślnych tłumaczeń na dysku serwera.
+* **Wdrożenie:** Zmodernizowano procedurę `updateResourceFile`:
+  * Jeśli w pliku na dysku brakuje choćby jednego klucza względem najnowszego pliku z JAR, stary plik jest automatycznie archiwizowany jako `<nazwa>.old` (np. `messages_de.yml.old`).
+  * Na jego miejsce instalowana jest pełna, aktualna wersja szablonu z JAR.
+  * Konsola serwera rejestruje informację o zabezpieczeniu dotychczasowego pliku i zaktualizowaniu konfiguracji.
+
+### 17. Optymalizacja poziomu trudności i eliminacja spamu w konsoli
+* **Problem:** Funkcja `syncScoreboard` odświeżana przy każdym starcie, pauzie i finiszu stopera wywoływała `getServerDifficulty()`, odczytując plik `server.properties` z dysku i wypisując do konsoli informację o poziomie trudności dla każdego gracza online z osobna.
+* **Wdrożenie:**
+  * Usunięto zbędne logowanie informacyjne z `getServerDifficulty()`.
+  * W `syncScoreboard` oraz rozszerzeniu PlaceholderAPI wprowadzono odczyt poziomu trudności bezpośrednio z załadowanego w pamięci RAM świata gry (`gameWorld.getDifficulty()`), redukując liczbę operacji wejścia/wyjścia (I/O) do zera podczas rozgrywki.
+
 ---
 
 ### ❤️ Podziękowania dla Społeczności
