@@ -492,14 +492,6 @@ public class Main extends JavaPlugin implements Listener {
         return "en";
     }
 
-    private boolean isSenderPl(CommandSender sender) {
-        return "pl".equals(getSenderLang(sender));
-    }
-
-    private boolean isSenderDe(CommandSender sender) {
-        return "de".equals(getSenderLang(sender));
-    }
-
     private String getNextLanguage(String current) {
         if (current == null) return "de";
         return switch (current.toLowerCase()) {
@@ -5048,8 +5040,6 @@ public class Main extends JavaPlugin implements Listener {
                     String filterSub = args[1].toLowerCase();
 
                     if (filterSub.equals("status")) {
-                        boolean isPl = isSenderPl(sender);
-                        boolean isDe = isSenderDe(sender);
                         boolean filterEnabled = getConfig().getBoolean("filter.enabled", true);
                         String filterStruct = getConfig().getString("filter.structure", "");
                         String filterBiome = getConfig().getString("filter.biome", "");
@@ -5690,8 +5680,6 @@ public class Main extends JavaPlugin implements Listener {
                         }
                         case "status" -> {
                             if (hasPerm(sender, "worldreset.backup.list")) return noPerm(sender, "worldreset.backup.list");
-                            boolean isPl = isSenderPl(sender);
-                            boolean isDe = isSenderDe(sender);
                             boolean enabled = getConfig().getBoolean("backup.enabled", true);
                             String limitStr = getConfig().getString("backup.limit", "all");
                             String folder = getConfig().getString("backup.folder", "WorldReset_BackUps");
