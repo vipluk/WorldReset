@@ -782,7 +782,7 @@ public class Main extends JavaPlugin implements Listener {
 
     private void toggleLimboForPlayer(Player p, CommandSender sender, int delay) {
         if (p.isDead() || playersDeathLocked.contains(p.getUniqueId())) {
-            sender.sendMessage(getMsg("player-dead"));
+            sender.sendMessage(getMsg(sender, "player-dead"));
             return;
         }
 
@@ -3833,7 +3833,7 @@ public class Main extends JavaPlugin implements Listener {
                     recordsConfig.set(path + ".pb", finalTime);
                     String dateStr = new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss").format(new java.util.Date());
                     recordsConfig.set(path + ".pb_date", dateStr);
-                    winner.sendMessage(net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacyAmpersand().deserialize(getMsg("timer-new-pb").replace("{time}", formatTime(finalTime, true))));
+                    winner.sendMessage(net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacyAmpersand().deserialize(getMsg(winner, "timer-new-pb").replace("{time}", formatTime(finalTime, true))));
                 }
 
                 World w = Bukkit.getWorld(gameWorldName);

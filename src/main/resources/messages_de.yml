@@ -115,8 +115,8 @@ timer-paused: "&6Timer pausiert!"
 timer-enabled: "&aTimer aktiviert."
 timer-disabled: "&cTimer deaktiviert."
 timer-auto-enabled: "&aStoppuhr war deaktiviert. Automatisch aktiviert!"
-timer-win-global: "&6&l[ZIEL ERREICHT] &a{player} &ehat das Ziel erreicht: &f{goal}&e! Zeit: &a{time}"
-timer-win-individual: "&6&l[ZIEL ERREICHT] &a{player} &ehat das persönliche Ziel erreicht: &f{goal}&e! Zeit: &a{time}"
+timer-win-global: "&6🏆 &l{player} &ehat das Ziel in &a&l{time}&e erreicht!"
+timer-win-individual: "&6🏆 &l{player} &ehat das persönliche Ziel in &a&l{time}&e erreicht!"
 timer-new-pb: "&6🏆 &lNEUE PERSÖNLICHE BESTZEIT (PB): &a&l{time}&6!"
 timer-finished-action: "&6&lZIEL ERREICHT! &a{time}"
 timer_manually_reset_to: "&eTimer manuell zurückgesetzt."
@@ -127,13 +127,13 @@ invalid_advancement_format: "&cUngültiges Fortschritts-Format."
 invalid_portal_use_nether: "&cUngültiges Portal! Nutze: NETHER, END, OVERWORLD, ANY"
 invalid_block_format: "&cUngültiges Block-Format."
 invalid_item_format: "&cUngültiges Item-Format."
-timer-mode-set: "&aTimer-Modus gesetzt auf: &e{mode}"
-timer-scope-set: "&aTimer-Geltungsbereich gesetzt auf: &e{scope}"
+timer-mode-set: "&aTimer-Modus gesetzt auf: &e{v1}"
+timer-scope-set: "&aTimer-Geltungsbereich gesetzt auf: &e{v1}"
 invalid-entity: "&cUngültiger Entitätstyp: {v1}"
 invalid-advancement: "&cUngültiger Fortschritt: {v1}"
 invalid-block: "&cUngültiges Blockmaterial: {v1}"
 invalid-item: "&cUngültiges Itemmaterial: {v1}"
-timer-goal-set: "&aTimer-Ziel gesetzt auf: &e{goal} &8(&f{value}&8)"
+timer-goal-set: "&aTimer-Ziel gesetzt: &e{v1} -> {v2}"
 
 # ===========================================================================
 # AutoReset Settings
@@ -145,7 +145,7 @@ autoreset-paused-action: "&8⏱ AutoReset: {time} &7(Pausiert)"
 autoreset-running-action: "&e⏱ AutoReset in: {color}{time}"
 autoreset-enabled: "&aAutoReset-Timer aktiviert!"
 autoreset-disabled: "&cAutoReset deaktiviert."
-autoreset-started: "&aAutoReset gestartet! Intervall: &e{time}"
+autoreset-started: "&aAutoReset-Countdown gestartet!"
 autoreset-stopped: "&cAutoReset gestoppt."
 autoreset-loop-on: "&aAutoReset-Schleife aktiviert."
 autoreset-loop-off: "&cAutoReset-Schleife deaktiviert."
@@ -312,29 +312,14 @@ usage_wr_backup_limit: "&cVerwendung: /wr backup limit <Zahl|all>"
 limit_must_be_at_1: "&cLimit muss mindestens 1 sein!"
 deleted-oldest: "&aÄlteste(s) &e{v1} &aBackup(s) gelöscht."
 deleted-all: "&aAlle &e{v1} &aBackup(s) gelöscht."
-backup-limit-set: "&aBackup-Limit gesetzt auf: &e{limit}"
+backup-limit-set: "&aBackup-Limit gesetzt auf: &e{v1} &7(behalte die letzten {v1} Backups)"
 backup-limit-set-basic: "&aBackup-Limit gesetzt auf: &e{v1}"
 backup-list-next: "&7Nutze &e/wr backup list {v1} &7für die nächste Seite."
 
 # ===========================================================================
 # Help UI Command Menu
 # ===========================================================================
-command-usage: "
-&8&m------&8[ &b&lWorldReset &8]&m------
-&e/wr reset [Sekunden] &8- &7Welt sofort zurücksetzen (optionaler Countdown)
-&e/wr limbo [Sekunden] &8- &7Ins/aus dem Limbo teleportieren (optionaler Countdown)
-&e/wr limbo <rein> <raus> &8- &7Automatische Limbo-Verzögerungen einstellen
-&e/wr timer &6<&estart&6|&epause&6|&ereset&6|&eenable&6|&edisable&6|&emode&6|&escope&6|&egoal&6> &8- &7Stoppuhr-Einstellungen
-&e/wr compass &6<&eenable&6|&edisable&6> &8- &7Spieler-Ortungsleiste einstellen
-&e/wr filter &6<&estructure&6|&ebiome&6> &6<&eName&6|&eclear&6> &8- &7Intelligenter Spawnpunkt-Filter
-&e/wr seed [Wert] &8- &7Festen oder zufälligen Seed festlegen
-&e/wr templates &6<&eenable&6|&edisable&6|&efolder&6|&estatus&6> &8- &7Weltvorlagen verwalten
-&e/wr autoreset &6<&estart&6|&estop&6|&edisable&6|&eloop&6|&eZeit&6> &8- &7Auto-Reset planen
-&e/wr death &8- &7Reset-bei-Tod Modus umschalten
-&e/wr silent &8- &7Globale Reset-Nachrichten stummschalten
-&e/wr language &6<&een&6|&ede&6|&epl&6> &8- &7Plugin-Sprache ändern
-&e/wr reload &8- &7Plugin-Konfiguration neu laden
-&8&m----------------------------"
+command-usage: "\n&8&m------&8[ &b&lWorldReset &8]&m------\n&e/wr reset [Sekunden] &8- &7Welt sofort zurücksetzen (optionaler Countdown)\n&e/wr limbo [Sekunden] &8- &7Ins/aus dem Limbo teleportieren (optionaler Countdown)\n&e/wr limbo <rein> <raus> &8- &7Automatische Limbo-Verzögerungen einstellen\n&e/wr timer &6<&estart&6|&epause&6|&ereset&6|&eenable&6|&edisable&6|&emode&6|&escope&6|&egoal&6> &8- &7Stoppuhr-Einstellungen\n&e/wr compass &6<&eenable&6|&edisable&6> &8- &7Spieler-Ortungsleiste einstellen\n&e/wr filter &6<&estructure&6|&ebiome&6> &6<&eName&6|&eclear&6> &8- &7Intelligenter Spawnpunkt-Filter\n&e/wr seed [Wert] &8- &7Festen oder zufälligen Seed festlegen\n&e/wr templates &6<&eenable&6|&edisable&6|&efolder&6|&estatus&6> &8- &7Weltvorlagen verwalten\n&e/wr autoreset &6<&estart&6|&estop&6|&edisable&6|&eloop&6|&eZeit&6> &8- &7Auto-Reset planen\n&e/wr death &8- &7Reset-bei-Tod Modus umschalten\n&e/wr silent &8- &7Globale Reset-Nachrichten stummschalten\n&e/wr language &6<&een&6|&ede&6|&epl&6> &8- &7Plugin-Sprache ändern\n&e/wr reload &8- &7Plugin-Konfiguration neu laden\n&8&m----------------------------"
 use_wr_help_command: "&7&oNutze &e/wr help &6<&eBefehl&6> &7&ofür Details."
 wr_reset_seconds_reset: "  &e/wr reset &6[&eSekunden&6] &8- &7Setze die Welt zurück"
 wr_death_toggle_resetondeath: "  &e/wr death &6[&eLimit&6] &8- &7Todeslimit einstellen"
