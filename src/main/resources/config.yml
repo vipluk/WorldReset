@@ -2,7 +2,8 @@
 
 # [PL] Wybierz język wiadomości w grze.
 # [EN] Select in-game language.
-language: en # en, pl
+# [DE] Wähle die Spielsprache.
+language: en # en, de, pl
 
 # [PL] Nazwa świata, który będzie tworzony i resetowany przez plugin.
 #      WAŻNE: To NIE MOŻE być "world" (domyślny świat serwera)!
@@ -158,7 +159,7 @@ timer:
 compass:
   # [PL] Czy włączyć natywny Locator Bar Minecrafta (pasek pozycji graczy na górze ekranu)?
   # [EN] Enable Minecraft's native Locator Bar (player position ribbon on top of the screen)?
-  enabled: false
+  enabled: true
 
 # --- AUTORESET (Zaplanowane automatyczne resety) ---
 autoreset:
