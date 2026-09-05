@@ -1,24 +1,27 @@
 # Changelog - WorldReset v1.8
 
-### 🚀 New Features & Improvements
+---
+### ❤️ Special Thanks
+* A huge thank you to **[@yuzzzie](https://github.com/yuzzzie)** for contributing pull requests, highlighting important edge cases, and helping shape this release!
+---
+
+### 🚀 New Features
+* 🏳️ **German Language Support:** Added full German translation across the entire plugin. Thanks to data from [FastStats.dev](https://faststats.dev).
+* 🌐 **Per-Player Language Settings (`/wr language` / `/wr lang`):** Players can now choose their personal language (`en`/`de`/`pl`) independently of other players and the server default. Administrators manage the server-wide default via `/wr languageall`.
+* 🔕 **Per-Player Silent Mode (`/wr silent`):** Players can individually mute or unmute world reset broadcast messages on their own chat. Administrators toggle global broadcasts via `/wr silentall`.
+* 🎯 **Dynamic Timer Goal Announcements:** Starting the timer now shows a clean on-screen title and subtitle with the exact objective (e.g. "Enter the Nether first", "Kill: Ender Dragon") and announces it in chat in each player's chosen language.
+* 📈 **bStats Metrics Integration:** Added anonymous server metrics via [bStats.org](https://bstats.org) to monitor active installations and Minecraft versions. I want to compare it with [FastStats.dev](https://faststats.dev).
+* 🚪 **New Players to Limbo (`/wr limbo newplayers`):** Configurable option (`new-players-to-limbo`) to prevent players joining mid-game from entering an active run; they are automatically sent to Limbo until the next game starts.
+* 🛑 **Start Server in Limbo (`/wr limbo startup`):** Configurable option (`start-in-limbo`) allowing the server to boot up into Limbo waiting mode, keeping players in Limbo until an administrator starts the round.
+* 🎮 **Start Game from Limbo (`/wr start`):** New command to immediately release players waiting in Limbo and launch the game without running a full world reset.
+
+### 🐛 Improvements
 * ⌨️ **Dynamic Permission Tab Completion:** Auto-completion under the `Tab` key now dynamically checks player permissions. Regular players only see commands they can execute, while administrative commands remain hidden.
 * 📖 **Filtered `/wr help`:** The in-game help menu now displays only the command categories and instructions that the player has permission to use.
 * 🔓 **Root Command Access for Players:** Removed the global `worldreset.admin` requirement from `/wr`, allowing non-admin players to execute permitted sub-commands (such as `/wr limbo` or `/wr help`).
 * 🌌 **Accurate Speedrun Portal Detection:** Portal timer goals now trigger upon actual dimension teleportation (`PlayerTeleportEvent`) rather than initial block contact. Includes safeguards against cancelled teleports, command teleportation (`/tp`), and correctly registers returning from The End (`OVERWORLD`).
 * 💀 **Death Screen Limbo Protection:** Players on the death screen cannot be transferred to limbo, preventing respawn camera locks and inventory corruption.
 * ⏳ **Persistent Limbo State Across Disconnects:** Players who disconnect while in Limbo now remain in Limbo upon reconnecting and safely preserve their saved game world inventory and position.
-* 🚪 **New Players to Limbo (`/wr limbo newplayers`):** Configurable option (`limbo.new-players-to-limbo`) to prevent players joining mid-game from entering an active run; they are automatically sent to Limbo until the next game starts.
-* 🛑 **Start Server in Limbo (`/wr limbo startup`):** Configurable option (`limbo.start-in-limbo`) allowing the server to boot up into Limbo waiting mode, keeping players in Limbo until an administrator starts the round.
-* 🎮 **Start Game from Limbo (`/wr start`):** New command to immediately release players waiting in Limbo and launch the game without running a full world reset.
-* 🌐 **Per-Player Language Settings (`/wr language` / `/wr lang`):** Players can now choose their personal language (`en`/`de`/`pl`) independently of other players and the server default. Administrators manage the server-wide default via `/wr languageall`.
-* 🇩🇪 **German Language Support & Quick Switcher:** Added full German translation across the entire plugin. You can also run `/wr language` or `/wr languageall` without parameters to quickly cycle between English, German, and Polish.
-* 🔕 **Per-Player Silent Mode (`/wr silent`):** Players can individually mute or unmute world reset broadcast messages on their own chat. Administrators toggle global broadcasts via `/wr silentall`.
-* 🎯 **Dynamic Timer Goal Announcements:** Starting the timer now shows a clean on-screen title and subtitle with the exact objective (e.g. "Enter the Nether first", "Kill: Ender Dragon") and announces it in chat in each player's chosen language.
 * ⚡ **Difficulty Cache & Console Optimization:** Eliminated redundant console spam (`Loaded difficulty from server.properties`) by reading world difficulty directly from the active world in RAM instead of reading disk on every scoreboard update.
 * 🔄 **Safe Language Updates (`.yml.old`):** If a language file on disk lacks newly introduced keys, the plugin automatically archives the old file to `<file>.old` and deploys the fresh default from the JAR without data loss.
-* 📈 **bStats Metrics Integration:** Added anonymous server metrics via [bStats.org](https://bstats.org) to monitor active installations and Minecraft versions.
 
----
-
-### ❤️ Special Thanks
-* A huge thank you to **[@yuzzzie](https://github.com/yuzzzie)** for contributing pull requests, highlighting important edge cases, and helping shape this release!
