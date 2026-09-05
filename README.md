@@ -42,14 +42,13 @@ Main command: `/worldreset` or `/wr`
 | `/wr start` | Starts the game immediately for players waiting in Limbo. | `worldreset.start` |
 | `/wr reset` | Instantly resets the game: moves everyone to Limbo, regenerates the world, and starts a new game. | `worldreset.reset` |
 | `/wr reset <in> <out>` | Reset with countdown before (delay-in) and countdown in Limbo before game starts (delay-out). | `worldreset.reset` |
-| `/wr limbo` | Toggles Limbo mode for all players. Moves everyone to Limbo or back to game. Also skips active countdowns. | `worldreset.limbo.all` |
-| `/wr limbo me` | Same but only for yourself. Aliases: `m`, `ja`, `j`. | `worldreset.limbo.self` |
-| `/wr limbo <player>` | Toggle Limbo for a specific player. Also accepts `all`. | `worldreset.limbo.others` |
-| `/wr limbo <seconds> [player]` | Toggle with countdown. Target defaults to all if omitted. | `worldreset.limbo.others` or `worldreset.limbo.all` |
-| `/wr limbo delay <in> <out>` | Sets global automatic delays (seconds) for death-reset enter/leave Limbo. | `worldreset.limbo.all` |
-| `/wr limbo newplayers [enable/disable/status]` | Sends new players joining mid-game directly to Limbo instead of active game. | `worldreset.limbo.all` |
-| `/wr limbo startup [enable/disable/status]` | Configures the server to boot up directly into Limbo waiting mode. | `worldreset.limbo.all` |
-| `/wr limbo status` | Shows current Limbo settings (delays, new players lock, startup mode). | `worldreset.limbo.all` |
+| `/wr limbo [seconds]` | Toggles Limbo mode for yourself. Moves you to Limbo or back to game. Also skips active countdowns. | `worldreset.limbo.self` |
+| `/wr limbo <player> [seconds]` | Toggles Limbo mode for a specific player with optional countdown delay. | `worldreset.limbo.others` |
+| `/wr limboall [seconds]` | Moves all players currently in the game world into Limbo (dedicated switch). | `worldreset.limbo.all` |
+| `/wr limboall delay <in> <out>` | Sets global automatic delays (seconds) for entering/leaving Limbo. | `worldreset.limbo.all` |
+| `/wr limboall newplayers [enable/disable/status]` | Sends new players joining mid-game directly to Limbo instead of active game. | `worldreset.limbo.all` |
+| `/wr limboall startup [enable/disable/status]` | Configures the server to boot up directly into Limbo waiting mode. | `worldreset.limbo.all` |
+| `/wr limboall status` | Shows current Limbo settings (delays, new players lock, startup mode). | `worldreset.limbo.all` |
 | `/wr death` | Toggles **Reset on Death** mode (Hardcore) ON/OFF. | `worldreset.death` |
 | `/wr silent` | Toggles your personal **Silent Mode** (hides reset messages for yourself). | — |
 | `/wr silentall` | Toggles **Global Server Broadcasts** in `config.yml` ON/OFF. | `worldreset.silent` |

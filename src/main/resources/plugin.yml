@@ -10,7 +10,7 @@ commands:
   worldreset:
     description: Main command
     aliases: [wr]
-    usage: /wr <reset|limbo|seed|language|silent|death|filter|timer|templates|autoreset|backup|scoreboard|reload>
+    usage: /wr <reset|limbo|limboall|seed|language|silent|death|filter|timer|templates|autoreset|backup|scoreboard|reload>
 
 permissions:
   # ==========================================
