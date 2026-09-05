@@ -33,11 +33,16 @@ Wydanie **1.8** dla wtyczki **WorldReset** koncentruje się na zaawansowanej kon
 * **Problem:** Przeniesienie gracza znajdującego się na ekranie śmierci do poczekalni limbo skutkowało zacięciem klienta gry i błędami ekwipunku.
 * **Wdrożenie:** Dodano zbiór `playersDeathLocked` aktywowany przy `PlayerDeathEvent` i zwalniany przy `PlayerRespawnEvent`, `PlayerQuitEvent` oraz procedurze resetu świata. Próba przeniesienia martwego gracza do poczekalni zwraca zlokalizowany komunikat `player-dead`.
 
-### 6. Bezpieczne zachowanie stanu sesji i poczekalni przy wyjściu gracza
-* **Problem:** Rozłączenie gracza w poczekalni kasowało dane jego zapisanego ekwipunku ze świata gry (`limboSavedStates`), a ponowne dołączenie wyrzucało go na punkt startowy gry.
+### 6. Bezpieczne zachowanie stanu sesji i inteligentny powrót z poczekalni (Limbo Reconnect)
+* **Problem:** Rozłączenie gracza w poczekalni kasowało dane jego zapisanego ekwipunku ze świata gry (`limboSavedStates`), a ponowne dołączenie wyrzucało go na punkt startowy gry. Z kolei bezwarunkowe pozostawianie gracza w Limbo blokowało osoby, które chciały kontynuować trwającą rundę.
 * **Wdrożenie:**
-  * W procedurze `onJoin` zabezpieczono graczy w świecie limbo, uniemożliwiając niechcianą teleportację na spawn gry przy ponownym logowaniu.
   * W procedurze `onQuit` usunięto kasowanie `limboSavedStates` oraz indywidualnych czasów stopera, zachowując przy tym anulowanie aktywnych zadań odliczań (`activeCountdowns`), czyszczenie blokad oraz natychmiastową resynchronizację tablic wyników (`syncAllScoreboards`).
+  * W procedurze `onJoin` wdrożono inteligentne włączanie gracza do trwającej gry (`isGameReady && !isResetting`):
+    * Jeśli opcja `limbo.new-players-to-limbo` jest włączona (`true`), gracz pozostaje w Limbo oczekując na następny reset i otrzymuje stosowny komunikat (`limbo_new_player_notice`).
+    * Jeśli opcja `limbo.new-players-to-limbo` jest wyłączona (`false`), gracz jest automatycznie włączany do rozgrywki:
+      * W przypadku posiadania zapisanego stanu ekwipunku i pozycji (`limboSavedStates`), stan ten zostaje bezpiecznie przywrócony wraz z powiadomieniem `limbo-leave`.
+      * W przypadku braku zapisanego stanu (np. po restarcie serwera), gracz otrzymuje czysty start na punkcie startowym gry (survivalowy spawn z komunikatem `game-started`).
+    * Wszystkie komunikaty honorują zarówno globalny, jak i indywidualny tryb cichy (`/wr silent`).
 
 ### 7. Automatyczne kierowanie nowych graczy do Limbo (`/wr limbo newplayers`)
 * **Problem:** W trakcie trwania próby speedrunowej lub rozgrywki, nowi gracze wchodzący na serwer lądowali bezpośrednio w świecie gry na spawnie, ingerując w trwającą sesję.
@@ -112,7 +117,21 @@ Wydanie **1.8** dla wtyczki **WorldReset** koncentruje się na zaawansowanej kon
   * Usunięto zbędne logowanie informacyjne z `getServerDifficulty()`.
   * W `syncScoreboard` oraz rozszerzeniu PlaceholderAPI wprowadzono odczyt poziomu trudności bezpośrednio z załadowanego w pamięci RAM świata gry (`gameWorld.getDifficulty()`), redukując liczbę operacji wejścia/wyjścia (I/O) do zera podczas rozgrywki.
 
+### 18. Rozdzielenie komend Limbo (`/wr limbo` i `/wr limboall`) oraz inteligentne powiadomienia
+* **Architektura poleceń:**
+  * Wprowadzono precyzyjny podział na komendę selektywną `/wr limbo [gracz] [sekundy]` (wymagającą uprawnienia `worldreset.limbo.self` dla siebie lub `worldreset.limbo.others` dla innego gracza) oraz komendę globalną `/wr limboall [sekundy]` (wymagającą `worldreset.limbo.all`).
+  * `/wr limboall` działa jako dedykowany wyłącznik (off-switch): przenosi do poczekalni Limbo tylko tych graczy, którzy aktualnie znajdują się w świecie gry. Jeśli wszyscy są już w Limbo, komenda wyświetla stosowną informację.
+  * Zapewniono pełne wsparcie dla podpowiedzi Tab z uwzględnieniem uprawnień gracza.
+* **Inteligentne powiadomienia powitalne w Limbo:**
+  * Komunikat powitalny po przeniesieniu do Limbo jest w pełni dynamiczny i dopasowany do rzeczywistych uprawnień gracza:
+    * Gracz bez uprawnień administracyjnych otrzymuje jedynie powitanie w poczekalni (bez wprowadzających w błąd sugestii komend, do których nie ma dostępu).
+    * Gracz posiadający `worldreset.limbo.self` lub `worldreset.limbo.others` jest informowany o możliwości powrotu pod `/wr limbo`.
+    * Gracz z uprawnieniem `worldreset.start` dowiaduje się o możliwości wznowienia gry pod `/wr start`.
+    * Administrator z uprawnieniem do resetu (`worldreset.reset`) widzi pełną listę dostępnych opcji powrotu i restartu.
+  * System powiadomień w pełni respektuje globalny oraz indywidualny tryb cichy (`/wr silent`).
+
 ---
 
 ### ❤️ Podziękowania dla Społeczności
 Wydanie 1.8 powstało dzięki zgłoszeniom i wkładowi użytkownika **[@yuzzzie](https://github.com/yuzzzie)**, którego propozycje zmian stały się fundamentem usprawnień kontroli dostępu i stabilności poczekalni w tej wersji.
+

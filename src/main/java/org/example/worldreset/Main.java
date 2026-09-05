@@ -346,12 +346,8 @@ public class Main extends JavaPlugin implements Listener {
         }
         Bukkit.getConsoleSender().sendMessage(consoleMsg);
 
-        boolean globalEnabled = getConfig().getBoolean("broadcast-messages", true);
         for (Player p : Bukkit.getOnlinePlayers()) {
-            boolean isSilent = playerSilent.containsKey(p.getUniqueId())
-                    ? playerSilent.get(p.getUniqueId())
-                    : !globalEnabled;
-            if (!isSilent) {
+            if (!isPlayerSilent(p)) {
                 String playerMsg = getMsg(p, key);
                 for (Map.Entry<String, String> e : replacements.entrySet()) {
                     playerMsg = playerMsg.replace(e.getKey(), e.getValue());
@@ -361,6 +357,31 @@ public class Main extends JavaPlugin implements Listener {
         }
     }
 
+    private boolean isPlayerSilent(Player p) {
+        if (p == null) return false;
+        boolean globalSilent = !getConfig().getBoolean("broadcast-messages", true);
+        return playerSilent.getOrDefault(p.getUniqueId(), globalSilent);
+    }
+
+    private void sendLimboWelcomeMessage(Player p) {
+        if (p == null || !p.isOnline() || isPlayerSilent(p)) return;
+
+        boolean canSelf = !hasPerm(p, "worldreset.limbo.self");
+        boolean canStart = !hasPerm(p, "worldreset.start");
+        boolean canReset = !hasPerm(p, "worldreset.reset");
+
+        if (canSelf && canStart && canReset) {
+            p.sendMessage(getMsg(p, "limbo-join-admin"));
+        } else if (canSelf && canStart) {
+            p.sendMessage(getMsg(p, "limbo-join-start-self"));
+        } else if (canStart) {
+            p.sendMessage(getMsg(p, "limbo-join-start"));
+        } else if (canSelf) {
+            p.sendMessage(getMsg(p, "limbo-join"));
+        } else {
+            p.sendMessage(getMsg(p, "limbo-join-simple"));
+        }
+    }
 
     private void configureLimboWorld(World w) {
         if (w != null) {
@@ -813,11 +834,14 @@ public class Main extends JavaPlugin implements Listener {
             if (limboSavedStates.containsKey(p.getUniqueId())) {
                 if (delay > 0) {
                     startCountdown(p, delay, "limbo-countdown-out", () -> {
-                        if (p.isOnline()) { restoreLimboState(p); p.sendMessage(getMsg(p, "limbo-leave")); }
+                        if (p.isOnline()) {
+                            restoreLimboState(p);
+                            if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "limbo-leave"));
+                        }
                     });
                 } else {
                     restoreLimboState(p);
-                    p.sendMessage(getMsg(p, "limbo-leave"));
+                    if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "limbo-leave"));
                 }
             } else if (isGameReady || isWaitingStartupInLimbo) {
                 isWaitingStartupInLimbo = false;
@@ -827,11 +851,14 @@ public class Main extends JavaPlugin implements Listener {
                     if (delay > 0) {
                         Location spawn = game.getSpawnLocation();
                         startCountdown(p, delay, "limbo-countdown-out", () -> {
-                            if (p.isOnline()) { setupGamePlayer(p, spawn); p.sendMessage(getMsg(p, "game-started")); }
+                            if (p.isOnline()) {
+                                setupGamePlayer(p, spawn);
+                                if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "game-started"));
+                            }
                         });
                     } else {
                         setupGamePlayer(p, game.getSpawnLocation());
-                        p.sendMessage(getMsg(p, "game-started"));
+                        if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "game-started"));
                     }
                 }
             }
@@ -843,14 +870,14 @@ public class Main extends JavaPlugin implements Listener {
                         saveLimboState(p);
                         p.teleport(getLimboSpawn());
                         setupLimboPlayer(p);
-                        p.sendMessage(getMsg(p, "limbo-join"));
+                        sendLimboWelcomeMessage(p);
                     }
                 });
             } else {
                 saveLimboState(p);
                 p.teleport(getLimboSpawn());
                 setupLimboPlayer(p);
-                p.sendMessage(getMsg(p, "limbo-join"));
+                sendLimboWelcomeMessage(p);
             }
         }
     }
@@ -3664,11 +3691,8 @@ public class Main extends JavaPlugin implements Listener {
     }
 
     private void announceTimerStart() {
-        boolean globalEnabled = getConfig().getBoolean("broadcast-messages", true);
         for (Player p : Bukkit.getOnlinePlayers()) {
-            boolean isSilent = playerSilent.containsKey(p.getUniqueId())
-                    ? playerSilent.get(p.getUniqueId())
-                    : !globalEnabled;
+            boolean isSilent = isPlayerSilent(p);
 
             String goalDesc = formatGoalDescription(p);
             String title = getMsgRaw(p, "timer-title-started");
@@ -4180,19 +4204,39 @@ public class Main extends JavaPlugin implements Listener {
         }
 
 
-        if (isGameReady && !isResetting && !p.getWorld().getName().equals(limboWorldName)) {
+        if (isGameReady && !isResetting) {
             String wName = p.getWorld().getName();
-            boolean shouldTeleport = !p.hasPlayedBefore() || wName.equals("world");
-            if (shouldTeleport) {
+            if (wName.equals(limboWorldName)) {
                 if (limboNewPlayersToLimbo) {
                     Location loc = getLimboSpawn();
                     p.teleport(loc);
                     setupLimboPlayer(p);
-                    p.sendMessage(getMsg(p, "limbo_new_player_notice"));
+                    if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "limbo_new_player_notice"));
                 } else {
-                    World game = Bukkit.getWorld(gameWorldName);
-                    if (game != null) {
-                        setupJoiningPlayer(p, game.getSpawnLocation());
+                    if (limboSavedStates.containsKey(p.getUniqueId())) {
+                        restoreLimboState(p);
+                        if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "limbo-leave"));
+                    } else {
+                        World game = Bukkit.getWorld(gameWorldName);
+                        if (game != null) {
+                            setupJoiningPlayer(p, game.getSpawnLocation());
+                            if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "game-started"));
+                        }
+                    }
+                }
+            } else {
+                boolean shouldTeleport = !p.hasPlayedBefore() || wName.equals("world");
+                if (shouldTeleport) {
+                    if (limboNewPlayersToLimbo) {
+                        Location loc = getLimboSpawn();
+                        p.teleport(loc);
+                        setupLimboPlayer(p);
+                        if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "limbo_new_player_notice"));
+                    } else {
+                        World game = Bukkit.getWorld(gameWorldName);
+                        if (game != null) {
+                            setupJoiningPlayer(p, game.getSpawnLocation());
+                        }
                     }
                 }
             }
@@ -4435,6 +4479,93 @@ public class Main extends JavaPlugin implements Listener {
     }
     @EventHandler public void onPlace(BlockPlaceEvent e) { if (e.getPlayer().getWorld().getName().equals(limboWorldName) && !e.getPlayer().isOp()) e.setCancelled(true); }
 
+    private boolean handleLimboSubcommands(CommandSender sender, String[] args) {
+        if (args.length < 2) return false;
+        String sub0 = args[1].toLowerCase();
+
+        // delay <in> <out>
+        if (sub0.equals("delay")) {
+            if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
+            if (args.length < 4) {
+                sender.sendMessage(getMsg(sender, "current_delays_in") + limboDelayIn + "s §7| §e" + getMsgRaw(sender, "out") + limboDelayOut + "s");
+                sender.sendMessage(getMsg(sender, "usage_wr_limbo_delay"));
+                return true;
+            }
+            try {
+                int delayIn = Integer.parseInt(args[2]);
+                int delayOut = Integer.parseInt(args[3]);
+                if (delayIn < 0 || delayOut < 0) { sender.sendMessage(getMsg(sender, "delay_values_must_be")); return true; }
+                limboDelayIn = delayIn; limboDelayOut = delayOut;
+                getConfig().set("limbo.delay-in", delayIn); getConfig().set("limbo.delay-out", delayOut); saveConfig();
+                sender.sendMessage(getMsg(sender, "limbo_delays_set_in") + delayIn + "s §7| §e" + getMsgRaw(sender, "out_1") + delayOut + "s");
+            } catch (NumberFormatException e) { sender.sendMessage(getMsg(sender, "invalid_number")); }
+            return true;
+        }
+
+        // status
+        if (sub0.equals("status")) {
+            if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
+            sender.sendMessage(getMsgRaw(sender, "status_limbo_header"));
+            sender.sendMessage(getMsgRaw(sender, "status_limbo_delays").replace("{in}", String.valueOf(limboDelayIn)).replace("{out}", String.valueOf(limboDelayOut)));
+            sender.sendMessage(getMsgRaw(sender, "status_limbo_newplayers").replace("{status}", getStatusLabel(sender, limboNewPlayersToLimbo)));
+            sender.sendMessage(getMsgRaw(sender, "status_limbo_startup").replace("{status}", getStatusLabel(sender, limboStartInLimbo)));
+            sender.sendMessage(getMsgRaw(sender, "status_divider"));
+            return true;
+        }
+
+        // newplayers [enable|disable|status]
+        if (sub0.equals("newplayers") || sub0.equals("new") || sub0.equals("newplayer")) {
+            if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
+            if (args.length >= 3) {
+                String sub = args[2].toLowerCase();
+                if (sub.equals("enable") || sub.equals("on") || sub.equals("true") || sub.equals("1")) {
+                    limboNewPlayersToLimbo = true;
+                } else if (sub.equals("disable") || sub.equals("off") || sub.equals("false") || sub.equals("0")) {
+                    limboNewPlayersToLimbo = false;
+                } else if (sub.equals("status") || sub.equals("info")) {
+                    sender.sendMessage(getMsg(sender, "limbo_newplayers_status").replace("{status}", getStatusLabel(sender, limboNewPlayersToLimbo)));
+                    return true;
+                } else {
+                    sender.sendMessage(getMsg(sender, "usage_wr_limbo_newplayers"));
+                    return true;
+                }
+            } else {
+                limboNewPlayersToLimbo = !limboNewPlayersToLimbo;
+            }
+            getConfig().set("limbo.new-players-to-limbo", limboNewPlayersToLimbo);
+            saveConfig();
+            sender.sendMessage(getMsg(sender, limboNewPlayersToLimbo ? "limbo_newplayers_enabled" : "limbo_newplayers_disabled"));
+            return true;
+        }
+
+        // startup [enable|disable|status]
+        if (sub0.equals("startup") || sub0.equals("boot") || sub0.equals("startinlimbo")) {
+            if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
+            if (args.length >= 3) {
+                String sub = args[2].toLowerCase();
+                if (sub.equals("enable") || sub.equals("on") || sub.equals("true") || sub.equals("1")) {
+                    limboStartInLimbo = true;
+                } else if (sub.equals("disable") || sub.equals("off") || sub.equals("false") || sub.equals("0")) {
+                    limboStartInLimbo = false;
+                } else if (sub.equals("status") || sub.equals("info")) {
+                    sender.sendMessage(getMsg(sender, "limbo_startup_status").replace("{status}", getStatusLabel(sender, limboStartInLimbo)));
+                    return true;
+                } else {
+                    sender.sendMessage(getMsg(sender, "usage_wr_limbo_startup"));
+                    return true;
+                }
+            } else {
+                limboStartInLimbo = !limboStartInLimbo;
+            }
+            getConfig().set("limbo.start-in-limbo", limboStartInLimbo);
+            saveConfig();
+            sender.sendMessage(getMsg(sender, limboStartInLimbo ? "limbo_startup_enabled" : "limbo_startup_disabled"));
+            return true;
+        }
+
+        return false;
+    }
+
     // --- COMMANDS ---
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, String @NotNull [] args) {
@@ -4581,150 +4712,98 @@ public class Main extends JavaPlugin implements Listener {
                         return true;
                     }
 
-                    // /wr limbo delay <in> <out>
-                    if (args.length >= 2 && args[1].equalsIgnoreCase("delay")) {
-                        if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
-                        if (args.length < 4) {
-                            sender.sendMessage(getMsg(sender, "current_delays_in") + limboDelayIn + "s §7| §e" + getMsgRaw(sender, "out") + limboDelayOut + "s");
-                            sender.sendMessage(getMsg(sender, "usage_wr_limbo_delay"));
+                    if (handleLimboSubcommands(sender, args)) {
+                        return true;
+                    }
+
+                    // /wr limbo (self, no args)
+                    if (args.length == 1) {
+                        if (!(sender instanceof Player p)) {
+                            sender.sendMessage(getMsg(sender, "cmd_only_players_silent"));
                             return true;
                         }
-                        try {
-                            int delayIn = Integer.parseInt(args[2]);
-                            int delayOut = Integer.parseInt(args[3]);
-                            if (delayIn < 0 || delayOut < 0) { sender.sendMessage(getMsg(sender, "delay_values_must_be")); return true; }
-                            limboDelayIn = delayIn; limboDelayOut = delayOut;
-                            getConfig().set("limbo.delay-in", delayIn); getConfig().set("limbo.delay-out", delayOut); saveConfig();
-                            sender.sendMessage(getMsg(sender, "limbo_delays_set_in") + delayIn + "s §7| §e" + getMsgRaw(sender, "out_1") + delayOut + "s");
-                        } catch (NumberFormatException e) { sender.sendMessage(getMsg(sender, "invalid_number")); }
+                        if (hasPerm(p, "worldreset.limbo.self")) return noPerm(p, "worldreset.limbo.self");
+                        toggleLimboForPlayer(p, sender, 0);
                         return true;
                     }
 
-                    // /wr limbo status
-                    if (args.length >= 2 && args[1].equalsIgnoreCase("status")) {
-                        if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
-                        sender.sendMessage(getMsgRaw(sender, "status_limbo_header"));
-                        sender.sendMessage(getMsgRaw(sender, "status_limbo_delays").replace("{in}", String.valueOf(limboDelayIn)).replace("{out}", String.valueOf(limboDelayOut)));
-                        sender.sendMessage(getMsgRaw(sender, "status_limbo_newplayers").replace("{status}", getStatusLabel(sender, limboNewPlayersToLimbo)));
-                        sender.sendMessage(getMsgRaw(sender, "status_limbo_startup").replace("{status}", getStatusLabel(sender, limboStartInLimbo)));
-                        sender.sendMessage(getMsgRaw(sender, "status_divider"));
-                        return true;
-                    }
+                    String arg1 = args[1];
 
-                    // /wr limbo newplayers [enable|disable|status]
-                    if (args.length >= 2 && (args[1].equalsIgnoreCase("newplayers") || args[1].equalsIgnoreCase("new") || args[1].equalsIgnoreCase("newplayer"))) {
-                        if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
-                        if (args.length >= 3) {
-                            String sub = args[2].toLowerCase();
-                            if (sub.equals("enable") || sub.equals("on") || sub.equals("true") || sub.equals("1")) {
-                                limboNewPlayersToLimbo = true;
-                            } else if (sub.equals("disable") || sub.equals("off") || sub.equals("false") || sub.equals("0")) {
-                                limboNewPlayersToLimbo = false;
-                            } else if (sub.equals("status") || sub.equals("info")) {
-                                sender.sendMessage(getMsg(sender, "limbo_newplayers_status").replace("{status}", getStatusLabel(sender, limboNewPlayersToLimbo)));
-                                return true;
-                            } else {
-                                sender.sendMessage(getMsg(sender, "usage_wr_limbo_newplayers"));
-                                return true;
-                            }
-                        } else {
-                            limboNewPlayersToLimbo = !limboNewPlayersToLimbo;
+                    // /wr limbo <delay> on self
+                    boolean isNumber = false;
+                    int parsedDelay = 0;
+                    try {
+                        parsedDelay = Integer.parseInt(arg1);
+                        isNumber = true;
+                    } catch (NumberFormatException ignored) {}
+
+                    if (isNumber) {
+                        if (!(sender instanceof Player p)) {
+                            sender.sendMessage(getMsg(sender, "cmd_only_players_silent"));
+                            return true;
                         }
-                        getConfig().set("limbo.new-players-to-limbo", limboNewPlayersToLimbo);
-                        saveConfig();
-                        sender.sendMessage(getMsg(sender, limboNewPlayersToLimbo ? "limbo_newplayers_enabled" : "limbo_newplayers_disabled"));
+                        if (hasPerm(p, "worldreset.limbo.self")) return noPerm(p, "worldreset.limbo.self");
+                        toggleLimboForPlayer(p, sender, Math.max(0, parsedDelay));
                         return true;
                     }
 
-                    // /wr limbo startup [enable|disable|status]
-                    if (args.length >= 2 && (args[1].equalsIgnoreCase("startup") || args[1].equalsIgnoreCase("boot") || args[1].equalsIgnoreCase("startinlimbo"))) {
-                        if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
-                        if (args.length >= 3) {
-                            String sub = args[2].toLowerCase();
-                            if (sub.equals("enable") || sub.equals("on") || sub.equals("true") || sub.equals("1")) {
-                                limboStartInLimbo = true;
-                            } else if (sub.equals("disable") || sub.equals("off") || sub.equals("false") || sub.equals("0")) {
-                                limboStartInLimbo = false;
-                            } else if (sub.equals("status") || sub.equals("info")) {
-                                sender.sendMessage(getMsg(sender, "limbo_startup_status").replace("{status}", getStatusLabel(sender, limboStartInLimbo)));
-                                return true;
-                            } else {
-                                sender.sendMessage(getMsg(sender, "usage_wr_limbo_startup"));
-                                return true;
-                            }
-                        } else {
-                            limboStartInLimbo = !limboStartInLimbo;
-                        }
-                        getConfig().set("limbo.start-in-limbo", limboStartInLimbo);
-                        saveConfig();
-                        sender.sendMessage(getMsg(sender, limboStartInLimbo ? "limbo_startup_enabled" : "limbo_startup_disabled"));
+                    // /wr limbo <gracz> [delay]
+                    if (hasPerm(sender, "worldreset.limbo.others")) return noPerm(sender, "worldreset.limbo.others");
+                    Player target = Bukkit.getPlayerExact(arg1);
+                    if (target == null) {
+                        sender.sendMessage(getMsg("player-not-found").replace("{v1}", String.valueOf(arg1)));
                         return true;
                     }
 
-                    // Determine target players and delay
-                    List<Player> targets = new ArrayList<>();
                     int manualDelay = 0;
-
-                    if (args.length == 1) {
-                        if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
-                        // /wr limbo — all players
-                        targets.addAll(Bukkit.getOnlinePlayers());
-                    } else if (args.length >= 2) {
-                        String arg1 = args[1];
-                        // Try as number (delay)
+                    if (args.length >= 3) {
                         try {
-                            manualDelay = Integer.parseInt(arg1);
-                            if (manualDelay < 0) manualDelay = 0;
-
-                            // Check if args[2] specifies a target
-                            if (args.length >= 3) {
-                                String arg2 = args[2];
-                                if (arg2.equalsIgnoreCase("me") || arg2.equalsIgnoreCase("m") || arg2.equalsIgnoreCase("ja") || arg2.equalsIgnoreCase("j")) {
-                                    if (hasPerm(sender, "worldreset.limbo.self")) return noPerm(sender, "worldreset.limbo.self");
-                                    if (sender instanceof Player p) targets.add(p);
-                                } else if (arg2.equalsIgnoreCase("all")) {
-                                    if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
-                                    targets.addAll(Bukkit.getOnlinePlayers());
-                                } else {
-                                    if (hasPerm(sender, "worldreset.limbo.others")) return noPerm(sender, "worldreset.limbo.others");
-                                    Player target = Bukkit.getPlayerExact(arg2);
-                                    if (target != null) {
-                                        targets.add(target);
-                                    } else {
-                                        sender.sendMessage(getMsg("player-not-found").replace("{v1}", String.valueOf(arg2)));
-                                        return true;
-                                    }
-                                }
-                            } else {
-                                // No target specified with delay — all players
-                                if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
-                                targets.addAll(Bukkit.getOnlinePlayers());
-                            }
+                            manualDelay = Math.max(0, Integer.parseInt(args[2]));
                         } catch (NumberFormatException e) {
-                            // It's a player name or "me"
-                            if (arg1.equalsIgnoreCase("me") || arg1.equalsIgnoreCase("m") || arg1.equalsIgnoreCase("ja") || arg1.equalsIgnoreCase("j")) {
-                                if (hasPerm(sender, "worldreset.limbo.self")) return noPerm(sender, "worldreset.limbo.self");
-                                if (sender instanceof Player p) targets.add(p);
-                            } else if (arg1.equalsIgnoreCase("all")) {
-                                if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
-                                targets.addAll(Bukkit.getOnlinePlayers());
-                            } else {
-                                if (hasPerm(sender, "worldreset.limbo.others")) return noPerm(sender, "worldreset.limbo.others");
-                                Player target = Bukkit.getPlayerExact(arg1);
-                                if (target != null) {
-                                    targets.add(target);
-                                } else {
-                                    sender.sendMessage(getMsg("player-not-found").replace("{v1}", String.valueOf(arg1)));
-                                    return true;
-                                }
-                            }
+                            sender.sendMessage(getMsg(sender, "invalid_number"));
+                            return true;
                         }
                     }
 
-                    if (targets.isEmpty()) return true;
+                    toggleLimboForPlayer(target, sender, manualDelay);
+                    return true;
+                }
+                case "limboall", "limboALL" -> {
+                    if (isResetting) {
+                        sender.sendMessage(getMsg("already-resetting"));
+                        return true;
+                    }
 
-                    // Execute toggle for each target
-                    for (Player target : targets) {
+                    if (handleLimboSubcommands(sender, args)) {
+                        return true;
+                    }
+
+                    if (hasPerm(sender, "worldreset.limbo.all")) return noPerm(sender, "worldreset.limbo.all");
+
+                    int manualDelay = 0;
+                    if (args.length >= 2) {
+                        try {
+                            manualDelay = Math.max(0, Integer.parseInt(args[1]));
+                        } catch (NumberFormatException e) {
+                            sender.sendMessage(getMsg(sender, "usage_wr_limboall"));
+                            return true;
+                        }
+                    }
+
+                    // WYŁĄCZNIK: przenosi do Limbo tylko graczy, którzy nie są jeszcze w Limbo
+                    List<Player> playersToLimbo = new ArrayList<>();
+                    for (Player online : Bukkit.getOnlinePlayers()) {
+                        if (!online.getWorld().getName().equals(limboWorldName)) {
+                            playersToLimbo.add(online);
+                        }
+                    }
+
+                    if (playersToLimbo.isEmpty()) {
+                        sender.sendMessage(getMsg(sender, "limbo_all_already"));
+                        return true;
+                    }
+
+                    for (Player target : playersToLimbo) {
                         toggleLimboForPlayer(target, sender, manualDelay);
                     }
                     return true;
@@ -5983,11 +6062,13 @@ public class Main extends JavaPlugin implements Listener {
         String helpWord = "pl".equals(lang) ? "Pomoc" : ("de".equals(lang) ? "Hilfe" : "Help");
         sender.sendMessage("§8§m------§8[ §b§lWorldReset " + helpWord + " §8]§m------");
 
-        if (sender.hasPermission("worldreset.start") || sender.hasPermission("worldreset.reset") || sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.others") || sender.hasPermission("worldreset.death")) {
+        if (sender.hasPermission("worldreset.start") || sender.hasPermission("worldreset.reset") || sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.others") || sender.hasPermission("worldreset.limbo.all") || sender.hasPermission("worldreset.death")) {
             sender.sendMessage(getMsgRaw(sender, "game"));
             if (sender.hasPermission("worldreset.start")) sender.sendMessage(getMsgRaw(sender, "wr_start_desc"));
             if (sender.hasPermission("worldreset.reset")) sender.sendMessage(getMsgRaw(sender, "wr_reset_seconds_reset"));
-            if (sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.others")) sender.sendMessage(getMsgRaw(sender, "wr_limbo_playerme_toggle"));
+            if (sender.hasPermission("worldreset.limbo.self")) sender.sendMessage(getMsgRaw(sender, "wr_limbo_desc"));
+            if (sender.hasPermission("worldreset.limbo.others")) sender.sendMessage(getMsgRaw(sender, "wr_limbo_target_desc"));
+            if (sender.hasPermission("worldreset.limbo.all")) sender.sendMessage(getMsgRaw(sender, "wr_limboall_desc"));
             if (sender.hasPermission("worldreset.death")) sender.sendMessage(getMsgRaw(sender, "wr_death_toggle_resetondeath"));
             sender.sendMessage("");
         }
@@ -6026,6 +6107,7 @@ public class Main extends JavaPlugin implements Listener {
             case "start", "begin" -> "Start";
             case "reset" -> "Reset";
             case "limbo" -> "Limbo";
+            case "limboall", "limboALL" -> isPl ? "Limbo Wszyscy" : (isDe ? "Limbo Alle" : "Limbo All");
             case "death" -> isPl ? "Śmierć" : (isDe ? "Tod" : "Death");
             case "scoreboard", "sb" -> "Scoreboard";
             case "timer" -> "Timer";
@@ -6039,17 +6121,14 @@ public class Main extends JavaPlugin implements Listener {
             case "languageall", "languageALL", "langall" -> isPl ? "Język Serwera" : (isDe ? "Serversprache" : "Server Language");
             case "silent" -> "Silent";
             case "silentall", "silentALL" -> isPl ? "Silent Serwera" : (isDe ? "Server-Stummschaltung" : "Server Silent");
-            case "backup" -> isPl ? "Kopie Zapasowe" : (isDe ? "Backups" : "Backups");
-            case "reload" -> "Reload";
-            case "help", "?" -> isPl ? "Pomoc" : (isDe ? "Hilfe" : "Help");
-            default -> topic.isEmpty() ? "" : (topic.substring(0, 1).toUpperCase() + topic.substring(1));
+            case "backup" -> "Backup";
+            default -> topic.substring(0, 1).toUpperCase() + topic.substring(1).toLowerCase();
         };
     }
 
     private String getHelpForCommand(CommandSender sender, String cmd) {
-        String lang = getSenderLang(sender);
-        boolean isPl = "pl".equals(lang);
-        boolean isDe = "de".equals(lang);
+        boolean isPl = "pl".equals(getSenderLang(sender));
+        boolean isDe = "de".equals(getSenderLang(sender));
         return switch (cmd.toLowerCase()) {
             case "start", "begin" -> isPl
                     ? "§e/wr start §8- §7Rozpocznij grę dla graczy w Limbo"
@@ -6062,10 +6141,15 @@ public class Main extends JavaPlugin implements Listener {
                     ? "§e/wr reset §6[§edelay-in§6] §6[§edelay-out§6] §8- §7Setze die Spielwelt zurück.\n§7  delay-in: Countdown vor dem Reset. delay-out: Countdown im Limbo vor Spielstart."
                     : "§e/wr reset §6[§edelay-in§6] §6[§edelay-out§6] §8- §7Reset the world.\n§7  delay-in: countdown before reset. delay-out: countdown in limbo before game starts.");
             case "limbo" -> isPl
-                    ? "§e/wr limbo §8- §7Przenieś wszystkich do/z Limbo\n§e/wr limbo me §8- §7Przenieś tylko siebie\n§e/wr limbo §6<§egracz§6> §8- §7Przenieś wybranego gracza\n§e/wr limbo §6<§esekundy§6> §6[§egracz§6] §8- §7Z odliczaniem (domyślnie wszyscy)\n§e/wr limbo delay §6<§ein§6> §6<§eout§6> §8- §7Ustaw automatyczne opóźnienia\n§e/wr limbo newplayers §6[§eon/off§6] §8- §7Nowi gracze do Limbo w trakcie gry\n§e/wr limbo startup §6[§eon/off§6] §8- §7Start serwera w trybie Limbo\n§e/wr limbo status §8- §7Sprawdź stan konfiguracji Limbo"
+                    ? "§e/wr limbo §6[§esekundy§6] §8- §7Przenieś siebie do/z Limbo\n§e/wr limbo §6<§egracz§6> §6[§esekundy§6] §8- §7Przenieś wybranego gracza"
                     : (isDe
-                    ? "§e/wr limbo §8- §7Alle Spieler ins/aus dem Limbo bewegen\n§e/wr limbo me §8- §7Nur dich selbst bewegen\n§e/wr limbo §6<§eSpieler§6> §8- §7Bestimmten Spieler bewegen\n§e/wr limbo §6<§eSekunden§6> §6[§eSpieler§6] §8- §7Mit Countdown (Standard: alle)\n§e/wr limbo delay §6<§ein§6> §6<§eout§6> §8- §7Automatische Verzögerungen einstellen\n§e/wr limbo newplayers §6[§eon/off§6] §8- §7Neue Spieler während des Spiels ins Limbo\n§e/wr limbo startup §6[§eon/off§6] §8- §7Serverstart im Limbo-Modus\n§e/wr limbo status §8- §7Limbo-Einstellungen prüfen"
-                    : "§e/wr limbo §8- §7Toggle all players to/from Limbo\n§e/wr limbo me §8- §7Toggle only yourself\n§e/wr limbo §6<§eplayer§6> §8- §7Toggle specific player\n§e/wr limbo §6<§eseconds§6> §6[§eplayer§6] §8- §7With countdown (default: all)\n§e/wr limbo delay §6<§ein§6> §6<§eout§6> §8- §7Set automatic delays\n§e/wr limbo newplayers §6[§eon/off§6] §8- §7Send new players to Limbo during game\n§e/wr limbo startup §6[§eon/off§6] §8- §7Start server in Limbo mode\n§e/wr limbo status §8- §7Check Limbo settings status");
+                    ? "§e/wr limbo §6[§eSekunden§6] §8- §7Dich selbst ins/aus dem Limbo bewegen\n§e/wr limbo §6<§eSpieler§6> §6[§eSekunden§6] §8- §7Bestimmten Spieler bewegen"
+                    : "§e/wr limbo §6[§eseconds§6] §8- §7Toggle yourself to/from Limbo\n§e/wr limbo §6<§eplayer§6> §6[§eseconds§6] §8- §7Toggle specific player");
+            case "limboall", "limboALL" -> isPl
+                    ? "§e/wr limboall §6[§esekundy§6] §8- §7Przenieś wszystkich graczy do Limbo (wyłącznik)\n§e/wr limboall delay §6<§ein§6> §6<§eout§6> §8- §7Ustaw automatyczne opóźnienia\n§e/wr limboall newplayers §6[§eon/off§6] §8- §7Nowi gracze do Limbo w trakcie gry\n§e/wr limboall startup §6[§eon/off§6] §8- §7Start serwera w trybie Limbo\n§e/wr limboall status §8- §7Sprawdź stan konfiguracji Limbo"
+                    : (isDe
+                    ? "§e/wr limboall §6[§eSekunden§6] §8- §7Alle Spieler ins Limbo versetzen\n§e/wr limboall delay §6<§ein§6> §6<§eout§6> §8- §7Automatische Verzögerungen einstellen\n§e/wr limboall newplayers §6[§eon/off§6] §8- §7Neue Spieler während des Spiels ins Limbo\n§e/wr limboall startup §6[§eon/off§6] §8- §7Serverstart im Limbo-Modus\n§e/wr limboall status §8- §7Limbo-Einstellungen prüfen"
+                    : "§e/wr limboall §6[§eseconds§6] §8- §7Send all players to Limbo\n§e/wr limboall delay §6<§ein§6> §6<§eout§6> §8- §7Set automatic delays\n§e/wr limboall newplayers §6[§eon/off§6] §8- §7Send new players to Limbo during game\n§e/wr limboall startup §6[§eon/off§6] §8- §7Start server in Limbo mode\n§e/wr limboall status §8- §7Check Limbo settings status");
             case "death" -> isPl
                     ? "§e/wr death §6[§eon/off§6] §8- §7Przełącz reset po śmierci.\n§e/wr death §6<§elimit§6> §8- §7Ustaw dokładny limit żyć."
                     : (isDe
@@ -6168,8 +6252,11 @@ public class Main extends JavaPlugin implements Listener {
             if (sender.hasPermission("worldreset.reset"))
                 suggestions.add("reset");
 
-            if (sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.others") || sender.hasPermission("worldreset.limbo.all"))
+            if (sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.others"))
                 suggestions.add("limbo");
+
+            if (sender.hasPermission("worldreset.limbo.all"))
+                suggestions.add("limboall");
 
             if (sender.hasPermission("worldreset.seed.use") || sender.hasPermission("worldreset.seed.config"))
                 suggestions.add("seed");
@@ -6430,15 +6517,6 @@ public class Main extends JavaPlugin implements Listener {
                 List<String> suggestions = new ArrayList<>();
 
                 if (sender.hasPermission("worldreset.limbo.self")) {
-                    suggestions.add("me");
-                }
-
-                if (sender.hasPermission("worldreset.limbo.all")) {
-                    suggestions.add("all");
-                    suggestions.add("delay");
-                    suggestions.add("status");
-                    suggestions.add("newplayers");
-                    suggestions.add("startup");
                     suggestions.add("3");
                     suggestions.add("5");
                     suggestions.add("10");
@@ -6449,6 +6527,29 @@ public class Main extends JavaPlugin implements Listener {
                         suggestions.add(p.getName());
                     }
                 }
+
+                if (sender.hasPermission("worldreset.limbo.all")) {
+                    suggestions.add("delay");
+                    suggestions.add("status");
+                    suggestions.add("newplayers");
+                    suggestions.add("startup");
+                }
+
+                return StringUtil.copyPartialMatches(
+                        args[1],
+                        suggestions,
+                        new ArrayList<>()
+                );
+            }
+
+            // LIMBOALL
+            if (args[0].equalsIgnoreCase("limboall")) {
+                if (!sender.hasPermission("worldreset.limbo.all"))
+                    return Collections.emptyList();
+
+                List<String> suggestions = new ArrayList<>(
+                        Arrays.asList("3", "5", "10", "delay", "status", "newplayers", "startup")
+                );
 
                 return StringUtil.copyPartialMatches(
                         args[1],
@@ -6548,8 +6649,11 @@ public class Main extends JavaPlugin implements Listener {
                 if (sender.hasPermission("worldreset.reset"))
                     suggestions.add("reset");
 
-                if (sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.all"))
+                if (sender.hasPermission("worldreset.limbo.self") || sender.hasPermission("worldreset.limbo.others"))
                     suggestions.add("limbo");
+
+                if (sender.hasPermission("worldreset.limbo.all"))
+                    suggestions.add("limboall");
 
                 if (sender.hasPermission("worldreset.death"))
                     suggestions.add("death");
@@ -6765,6 +6869,51 @@ public class Main extends JavaPlugin implements Listener {
             }
 
 
+            // LIMBO DELAY
+            if ((args[0].equalsIgnoreCase("limbo") || args[0].equalsIgnoreCase("limboall"))
+                    && args[1].equalsIgnoreCase("delay")) {
+
+                if (!sender.hasPermission("worldreset.limbo.all"))
+                    return Collections.emptyList();
+
+                return StringUtil.copyPartialMatches(
+                        args[2],
+                        Arrays.asList("0", "3", "5", "10", "15"),
+                        new ArrayList<>()
+                );
+            }
+
+
+            // LIMBO NEWPLAYERS
+            if ((args[0].equalsIgnoreCase("limbo") || args[0].equalsIgnoreCase("limboall"))
+                    && (args[1].equalsIgnoreCase("newplayers") || args[1].equalsIgnoreCase("new") || args[1].equalsIgnoreCase("newplayer"))) {
+
+                if (!sender.hasPermission("worldreset.limbo.all"))
+                    return Collections.emptyList();
+
+                return StringUtil.copyPartialMatches(
+                        args[2],
+                        Arrays.asList("enable", "disable", "status"),
+                        new ArrayList<>()
+                );
+            }
+
+
+            // LIMBO STARTUP
+            if ((args[0].equalsIgnoreCase("limbo") || args[0].equalsIgnoreCase("limboall"))
+                    && (args[1].equalsIgnoreCase("startup") || args[1].equalsIgnoreCase("boot") || args[1].equalsIgnoreCase("startinlimbo"))) {
+
+                if (!sender.hasPermission("worldreset.limbo.all"))
+                    return Collections.emptyList();
+
+                return StringUtil.copyPartialMatches(
+                        args[2],
+                        Arrays.asList("enable", "disable", "status"),
+                        new ArrayList<>()
+                );
+            }
+
+
             // AUTORESET
             if (args[0].equalsIgnoreCase("autoreset")) {
                 if (!sender.hasPermission("worldreset.autoreset.config"))
@@ -6798,48 +6947,18 @@ public class Main extends JavaPlugin implements Listener {
             }
 
 
-            // LIMBO DELAY
-            if (args[0].equalsIgnoreCase("limbo")
-                    && args[1].equalsIgnoreCase("delay")) {
-
-                if (!sender.hasPermission("worldreset.limbo.all"))
-                    return Collections.emptyList();
-
-                return StringUtil.copyPartialMatches(
-                        args[2],
-                        Arrays.asList("0", "3", "5", "10", "15"),
-                        new ArrayList<>()
-                );
-            }
-
-
-            // LIMBO NEWPLAYERS
-            if (args[0].equalsIgnoreCase("limbo")
-                    && (args[1].equalsIgnoreCase("newplayers") || args[1].equalsIgnoreCase("new") || args[1].equalsIgnoreCase("newplayer"))) {
-
-                if (!sender.hasPermission("worldreset.limbo.all"))
-                    return Collections.emptyList();
-
-                return StringUtil.copyPartialMatches(
-                        args[2],
-                        Arrays.asList("enable", "disable", "status"),
-                        new ArrayList<>()
-                );
-            }
-
-
-            // LIMBO STARTUP
-            if (args[0].equalsIgnoreCase("limbo")
-                    && (args[1].equalsIgnoreCase("startup") || args[1].equalsIgnoreCase("boot") || args[1].equalsIgnoreCase("startinlimbo"))) {
-
-                if (!sender.hasPermission("worldreset.limbo.all"))
-                    return Collections.emptyList();
-
-                return StringUtil.copyPartialMatches(
-                        args[2],
-                        Arrays.asList("enable", "disable", "status"),
-                        new ArrayList<>()
-                );
+            // LIMBO PLAYER DELAY: /wr limbo <player> [seconds]
+            if (args[0].equalsIgnoreCase("limbo")) {
+                if (sender.hasPermission("worldreset.limbo.others")) {
+                    Player target = Bukkit.getPlayerExact(args[1]);
+                    if (target != null) {
+                        return StringUtil.copyPartialMatches(
+                                args[2],
+                                Arrays.asList("3", "5", "10"),
+                                new ArrayList<>()
+                        );
+                    }
+                }
             }
 
 
@@ -7020,7 +7139,7 @@ public class Main extends JavaPlugin implements Listener {
 
 
             // LIMBO DELAY
-            if (args[0].equalsIgnoreCase("limbo")
+            if ((args[0].equalsIgnoreCase("limbo") || args[0].equalsIgnoreCase("limboall"))
                     && args[1].equalsIgnoreCase("delay")) {
 
                 if (!sender.hasPermission("worldreset.limbo.all"))
