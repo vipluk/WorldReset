@@ -33,16 +33,20 @@ Wydanie **1.8** dla wtyczki **WorldReset** koncentruje się na zaawansowanej kon
 * **Problem:** Przeniesienie gracza znajdującego się na ekranie śmierci do poczekalni limbo skutkowało zacięciem klienta gry i błędami ekwipunku.
 * **Wdrożenie:** Dodano zbiór `playersDeathLocked` aktywowany przy `PlayerDeathEvent` i zwalniany przy `PlayerRespawnEvent`, `PlayerQuitEvent` oraz procedurze resetu świata. Próba przeniesienia martwego gracza do poczekalni zwraca zlokalizowany komunikat `player-dead`.
 
-### 6. Bezpieczne zachowanie stanu sesji i inteligentny powrót z poczekalni (Limbo Reconnect)
-* **Problem:** Rozłączenie gracza w poczekalni kasowało dane jego zapisanego ekwipunku ze świata gry (`limboSavedStates`), a ponowne dołączenie wyrzucało go na punkt startowy gry. Z kolei bezwarunkowe pozostawianie gracza w Limbo blokowało osoby, które chciały kontynuować trwającą rundę.
+### 6. Zaawansowane zarządzanie ponownym dołączaniem i trwałością stanu Limbo (Smart Limbo Reconnect Handling)
+* **Problem:**
+  1. Trzymanie stanów graczy wyłącznie w pamięci RAM (`limboSavedStates`) skutkowało utratą zapisanego ekwipunku i pozycji graczy w przypadku restartu serwera lub awarii.
+  2. Błędna definicja „nowego gracza” – jeśli włączona była opcja `new-players-to-limbo: true`, a gracz, który uczestniczył w grze, wyszedł będąc w Limbo (np. po przeniesieniu komendą), po ponownym połączeniu był traktowany jako nowy gracz, a jego stan z gry był ignorowany.
+  3. Brak obsługi stanu `/wr limboall` dla graczy offline: jeśli administrator przeniósł wszystkich graczy do Limbo komendą `/wr limboall`, a gracz był w tym czasie rozłączony, po zalogowaniu wchodził samowolnie do opuszczonego świata gry.
+  4. Zagrożenie przenikania ekwipunku ze starych gier po resecie świata (Scenariusz C) oraz błędy klienta po wyjściu z serwera na ekranie śmierci.
 * **Wdrożenie:**
-  * W procedurze `onQuit` usunięto kasowanie `limboSavedStates` oraz indywidualnych czasów stopera, zachowując przy tym anulowanie aktywnych zadań odliczań (`activeCountdowns`), czyszczenie blokad oraz natychmiastową resynchronizację tablic wyników (`syncAllScoreboards`).
-  * W procedurze `onJoin` wdrożono inteligentne włączanie gracza do trwającej gry (`isGameReady && !isResetting`):
-    * Jeśli opcja `limbo.new-players-to-limbo` jest włączona (`true`), gracz pozostaje w Limbo oczekując na następny reset i otrzymuje stosowny komunikat (`limbo_new_player_notice`).
-    * Jeśli opcja `limbo.new-players-to-limbo` jest wyłączona (`false`), gracz jest automatycznie włączany do rozgrywki:
-      * W przypadku posiadania zapisanego stanu ekwipunku i pozycji (`limboSavedStates`), stan ten zostaje bezpiecznie przywrócony wraz z powiadomieniem `limbo-leave`.
-      * W przypadku braku zapisanego stanu (np. po restarcie serwera), gracz otrzymuje czysty start na punkcie startowym gry (survivalowy spawn z komunikatem `game-started`).
-    * Wszystkie komunikaty honorują zarówno globalny, jak i indywidualny tryb cichy (`/wr silent`).
+  * **Trwały zapis YAML (`limbo_players.yml`):** Zaimplementowano plik konfiguracyjny `limbo_players.yml` oparty o architekturę `capturePlayerStates` i `restorePlayerStates`. Zapisuje on pełen stan gracza (świat, współrzędne X/Y/Z, kąty patrzenia, paski zdrowia, głodu i nasycenia, poziomy i punkty exp, tryb gry, czas podpalenia, pełny ekwipunek, zbroję, offhand, skrzynię kresu oraz efekty mikstur). Dane są natychmiast zapisywane na dysku przy wejściu do Limbo i bezpiecznie przywracane przy powrocie, uodparniając wtyczkę na restarty serwera.
+  * **Globalny stan poczekalni (`isLimboAllActive`):** Wprowadzono flagę stanu aktywowaną przy `/wr limboall` i zwalnianą przy `/wr start` oraz `/wr reset`. Jeśli gracz offline loguje się, gdy serwer jest w trybie `isLimboAllActive`, wtyczka przechwytuje jego stan ze świata gry, zapisuje do `limbo_players.yml` i kieruje go do Limbo. Po komendzie `/wr start` gracz ten wraca do świata ze wszystkimi przedmiotami.
+  * **Rejestr uczestników bieżącej rundy (`currentRunParticipants`):** Wprowadzono precyzyjne odróżnienie uczestnika bieżącej rozgrywki od nowego gracza. Do uczestników zaliczani są gracze oczekujący w poczekalni przed startem (`isWaitingStartupInLimbo`), gracze w świecie gry oraz gracze przywróceni przez `/wr start`.
+  * **Obsługa 3 głównych scenariuszy w `onJoin`:**
+    * **Scenariusz A (Ta sama gra nadal trwa):** Uczestnik bieżącej rozgrywki **nigdy nie jest blokowany** przez `new-players-to-limbo`. Jeśli wyszedł w świecie gry (Overworld, Nether, End) – wraca na swoje miejsce z ekwipunkiem. Jeśli wyszedł w Limbo z zapisanym stanem – odzyskuje stan i wraca do gry. Jeśli wyszedł będąc martwym – zostaje bezpiecznie odrodzony na punkcie startowym w pełnym zdrowiu.
+    * **Scenariusz B (Serwer jest w Limbo – `/wr limboall`, `/wr reset`, start serwera):** Gracz zawsze trafia do Limbo w trybie Adventure. W przypadku `/wr limboall` jego dane ze świata gry są bezpiecznie odkładane w `limbo_players.yml`.
+    * **Scenariusz C (Nowa rozgrywka po `/wr reset`, gracz nie brał w niej udziału):** Plik `limbo_players.yml` oraz lista uczestników są czyszczone przy resecie świata. Gracz jest traktowany jako nowy gracz: przy `new-players-to-limbo: true` trafia do Limbo jako widz, a przy `false` pojawia się na punkcie startowym w trybie Survival z czystym ekwipunkiem od zera.
 
 ### 7. Automatyczne kierowanie nowych graczy do Limbo (`/wr limbo newplayers`)
 * **Problem:** W trakcie trwania próby speedrunowej lub rozgrywki, nowi gracze wchodzący na serwer lądowali bezpośrednio w świecie gry na spawnie, ingerując w trwającą sesję.
