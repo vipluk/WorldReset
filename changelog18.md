@@ -19,12 +19,7 @@
 * 📖 **Filtered `/wr help`:** The in-game help menu now displays only the command categories and instructions that the player has permission to use.
 * 🔓 **Root Command Access for Players:** Removed the global `worldreset.admin` requirement from `/wr`, allowing non-admin players to execute permitted sub-commands (such as `/wr limbo` or `/wr help`).
 * 🌌 **Accurate Speedrun Portal Detection:** Portal timer goals now trigger upon actual dimension teleportation (`PlayerTeleportEvent`) rather than initial block contact. Includes safeguards against cancelled teleports, command teleportation (`/tp`), and correctly registers returning from The End (`OVERWORLD`).
-* ⏳ **Smart Limbo Reconnect Handling & Persistent Storage:** Comprehensive reconnect management and state preservation across all gameplay flows:
-  * **Persistent Disk Storage (`limbo_players.yml`):** Player states saved in Limbo (coordinates, inventory, armor, offhand, enderchest, potion effects, stats) are saved to YAML on disk, ensuring total protection across server crashes or reboots.
-  * **Active Game Protection (Scenario A):** Returning participants are never blocked by `new-players-to-limbo`. Disconnecting in the Nether or The End keeps players exactly where they were with their full equipment.
-  * **Global Limbo Hold (Scenario B):** Offline players reconnecting while the server is in Limbo (after `/wr limboall`) have their in-game state safely preserved to disk and join Limbo until `/wr start` releases everyone.
-  * **New Game Clean Slate (Scenario C):** Resetting a world cleanly purges old session states, preventing item bleeding into new games.
-  * **Death Disconnect Safeguard:** Players disconnecting on the death screen cleanly respawn at full health and hunger upon reconnecting.
+* ⏳ **Smart Limbo Reconnect Handling & Persistent Storage:** Comprehensive reconnect management and state preservation across all gameplay flows.
 * ⚡ **Difficulty Cache & Console Optimization:** Eliminated redundant console spam (`Loaded difficulty from server.properties`) by reading world difficulty directly from the active world in RAM instead of reading disk on every scoreboard update.
 * 🔄 **Safe Language Updates (`.yml.old`):** If a language file on disk lacks newly introduced keys, the plugin automatically archives the old file to `<file>.old` and deploys the fresh default from the JAR without data loss.
 
