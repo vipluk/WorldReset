@@ -1,6 +1,6 @@
 ❤️ **If you enjoy this plugin, please consider leaving a like! It means a lot for me.** ❤️
 
-> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21+ Purpur**. Tested on Purpur 1.21, 1.21.3, 1.21.4, 26.1.2, 26.2. It should work on Bukkit, Paper and Purple.
+> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21 - 26.2** (Paper, Purpur, Spigot). Tested and fully compatible with **[SharedHealthAndHunger](https://modrinth.com/plugin/sharedhealthandhunger)** and **[Geyser Crossplay](https://modrinth.com/plugin/geyser)**.
 
 If you want to report a bug or suggest a new plugin, join my [Discord server](https://discord.gg/A7WVnYj3BP).
 
