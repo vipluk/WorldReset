@@ -120,6 +120,10 @@ public class Main extends JavaPlugin implements Listener {
     private int tempCustomDelayOut = -1;
     private final Map<UUID, BukkitTask> activeCountdowns = new HashMap<>();
     private final Map<UUID, Map<String, Object>> limboSavedStates = new HashMap<>(); // Player states saved when entering limbo
+    private File limboPlayersFile;
+    private FileConfiguration limboPlayersConfig;
+    private boolean isLimboAllActive = false;
+    private final Set<UUID> currentRunParticipants = new HashSet<>();
     private final Set<UUID> boatGivenPlayers = new HashSet<>(); // Track who got a boat for water spawn
     private boolean waterSpawnActive = false; // True if current spawn is on water
     private boolean skipFindSafeSpawn = false; // True if ocean island spawn already found correct location
@@ -156,6 +160,7 @@ public class Main extends JavaPlugin implements Listener {
         loadUserData();
         createTemplateFolders();
         loadRecordsFile();
+        initLimboPlayersConfig();
         initDynamicNames();
 
         if (!limboWorldName.equals(Bukkit.getWorlds().getFirst().getName())) {
@@ -271,6 +276,7 @@ public class Main extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         saveUserData();
+        saveLimboPlayersFile();
         if (fastStatsContext != null) {
             fastStatsContext.shutdown();
         }
@@ -767,6 +773,42 @@ public class Main extends JavaPlugin implements Listener {
         boatGivenPlayers.remove(p.getUniqueId());
     }
 
+    private void initLimboPlayersConfig() {
+        limboPlayersFile = new File(getDataFolder(), "limbo_players.yml");
+        if (!limboPlayersFile.exists()) {
+            try {
+                if (!getDataFolder().exists()) getDataFolder().mkdirs();
+                limboPlayersFile.createNewFile();
+            } catch (Exception e) {
+                logErrorToFile("Failed to create limbo_players.yml", e);
+            }
+        }
+        limboPlayersConfig = YamlConfiguration.loadConfiguration(limboPlayersFile);
+    }
+
+    private void saveLimboPlayersFile() {
+        if (limboPlayersConfig == null || limboPlayersFile == null) return;
+        try {
+            limboPlayersConfig.save(limboPlayersFile);
+        } catch (Exception e) {
+            logErrorToFile("Failed to save limbo_players.yml", e);
+        }
+    }
+
+    private boolean hasLimboSavedState(UUID uuid) {
+        return (limboPlayersConfig != null && limboPlayersConfig.contains(uuid.toString())) || limboSavedStates.containsKey(uuid);
+    }
+
+    private void clearAllLimboSavedStates() {
+        limboSavedStates.clear();
+        if (limboPlayersConfig != null && limboPlayersFile != null) {
+            for (String key : new HashSet<>(limboPlayersConfig.getKeys(false))) {
+                limboPlayersConfig.set(key, null);
+            }
+            saveLimboPlayersFile();
+        }
+    }
+
     private void saveLimboState(Player p) {
         Map<String, Object> state = new HashMap<>();
         state.put("world", p.getWorld().getName());
@@ -784,16 +826,134 @@ public class Main extends JavaPlugin implements Listener {
         List<PotionEffect> effects = new ArrayList<>(p.getActivePotionEffects());
         state.put("effects", effects);
         limboSavedStates.put(p.getUniqueId(), state);
+
+        // Persistent file save (mirroring capturePlayerStates)
+        if (limboPlayersConfig != null) {
+            String path = p.getUniqueId().toString();
+            limboPlayersConfig.set(path + ".name", p.getName());
+            limboPlayersConfig.set(path + ".world", p.getWorld().getName());
+            limboPlayersConfig.set(path + ".x", p.getLocation().getX());
+            limboPlayersConfig.set(path + ".y", p.getLocation().getY());
+            limboPlayersConfig.set(path + ".z", p.getLocation().getZ());
+            limboPlayersConfig.set(path + ".yaw", (double) p.getLocation().getYaw());
+            limboPlayersConfig.set(path + ".pitch", (double) p.getLocation().getPitch());
+            limboPlayersConfig.set(path + ".health", p.getHealth());
+            limboPlayersConfig.set(path + ".food", p.getFoodLevel());
+            limboPlayersConfig.set(path + ".saturation", (double) p.getSaturation());
+            limboPlayersConfig.set(path + ".xp-level", p.getLevel());
+            limboPlayersConfig.set(path + ".xp-progress", (double) p.getExp());
+            limboPlayersConfig.set(path + ".gamemode", p.getGameMode().name());
+            limboPlayersConfig.set(path + ".fire-ticks", p.getFireTicks());
+            limboPlayersConfig.set(path + ".inventory", Arrays.asList(p.getInventory().getContents()));
+            limboPlayersConfig.set(path + ".armor", Arrays.asList(p.getInventory().getArmorContents()));
+            limboPlayersConfig.set(path + ".offhand", p.getInventory().getItemInOffHand());
+            limboPlayersConfig.set(path + ".enderchest", Arrays.asList(p.getEnderChest().getContents()));
+            List<Map<String, Object>> effectsList = new ArrayList<>();
+            for (PotionEffect effect : p.getActivePotionEffects()) {
+                effectsList.add(effect.serialize());
+            }
+            limboPlayersConfig.set(path + ".effects", effectsList);
+            saveLimboPlayersFile();
+        }
     }
 
     @SuppressWarnings("unchecked")
     private void restoreLimboState(Player p) {
+        String path = p.getUniqueId().toString();
+        if (limboPlayersConfig != null && limboPlayersConfig.contains(path)) {
+            String worldName = limboPlayersConfig.getString(path + ".world", gameWorldName);
+            World world = Bukkit.getWorld(worldName);
+            if (world == null) world = Bukkit.getWorld(gameWorldName);
+
+            if (world != null) {
+                double x = limboPlayersConfig.getDouble(path + ".x");
+                double y = limboPlayersConfig.getDouble(path + ".y");
+                double z = limboPlayersConfig.getDouble(path + ".z");
+                float yaw = (float) limboPlayersConfig.getDouble(path + ".yaw");
+                float pitch = (float) limboPlayersConfig.getDouble(path + ".pitch");
+                Location loc = new Location(world, x, y, z, yaw, pitch);
+                Location safeLoc = getSafeLocation(loc);
+                p.teleport(safeLoc != null ? safeLoc : loc);
+            } else {
+                World game = Bukkit.getWorld(gameWorldName);
+                if (game != null) p.teleport(game.getSpawnLocation());
+            }
+
+            String fgm = limboPlayersConfig.getString(path + ".gamemode", "SURVIVAL");
+            try { p.setGameMode(GameMode.valueOf(fgm)); } catch (Exception ignored) { p.setGameMode(GameMode.SURVIVAL); }
+
+            double fhealth = limboPlayersConfig.getDouble(path + ".health", 20);
+            p.setHealth(Math.min(fhealth, p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue()));
+            p.setFoodLevel(limboPlayersConfig.getInt(path + ".food", 20));
+            p.setSaturation((float) limboPlayersConfig.getDouble(path + ".saturation", 5));
+            p.setLevel(limboPlayersConfig.getInt(path + ".xp-level", 0));
+            p.setExp((float) limboPlayersConfig.getDouble(path + ".xp-progress", 0));
+            p.setFireTicks(Math.max(limboPlayersConfig.getInt(path + ".fire-ticks", 0), 0));
+
+            // Restore inventory
+            p.getInventory().clear();
+            List<?> finvList = limboPlayersConfig.getList(path + ".inventory");
+            if (finvList != null) {
+                org.bukkit.inventory.ItemStack[] contents = new org.bukkit.inventory.ItemStack[finvList.size()];
+                for (int i = 0; i < finvList.size(); i++) {
+                    Object item = finvList.get(i);
+                    if (item instanceof org.bukkit.inventory.ItemStack) contents[i] = (org.bukkit.inventory.ItemStack) item;
+                }
+                p.getInventory().setContents(contents);
+            }
+
+            List<?> farmorList = limboPlayersConfig.getList(path + ".armor");
+            if (farmorList != null) {
+                org.bukkit.inventory.ItemStack[] armor = new org.bukkit.inventory.ItemStack[farmorList.size()];
+                for (int i = 0; i < farmorList.size(); i++) {
+                    Object item = farmorList.get(i);
+                    if (item instanceof org.bukkit.inventory.ItemStack) armor[i] = (org.bukkit.inventory.ItemStack) item;
+                }
+                p.getInventory().setArmorContents(armor);
+            }
+
+            Object foffhand = limboPlayersConfig.get(path + ".offhand");
+            if (foffhand instanceof org.bukkit.inventory.ItemStack) {
+                p.getInventory().setItemInOffHand((org.bukkit.inventory.ItemStack) foffhand);
+            }
+
+            List<?> fenderchestList = limboPlayersConfig.getList(path + ".enderchest");
+            if (fenderchestList != null) {
+                org.bukkit.inventory.ItemStack[] ecContents = new org.bukkit.inventory.ItemStack[fenderchestList.size()];
+                for (int i = 0; i < fenderchestList.size(); i++) {
+                    Object item = fenderchestList.get(i);
+                    if (item instanceof org.bukkit.inventory.ItemStack) ecContents[i] = (org.bukkit.inventory.ItemStack) item;
+                }
+                p.getEnderChest().setContents(ecContents);
+            }
+
+            // Restore potion effects
+            for (PotionEffect effect : p.getActivePotionEffects()) {
+                p.removePotionEffect(effect.getType());
+            }
+            List<Map<?, ?>> feffects = limboPlayersConfig.getMapList(path + ".effects");
+            if (feffects != null) {
+                for (Map<?, ?> effectMap : feffects) {
+                    try {
+                        PotionEffect effect = new PotionEffect((Map<String, Object>) effectMap);
+                        p.addPotionEffect(effect);
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            limboPlayersConfig.set(path, null);
+            saveLimboPlayersFile();
+            limboSavedStates.remove(p.getUniqueId());
+            return;
+        }
+
         Map<String, Object> state = limboSavedStates.remove(p.getUniqueId());
         if (state == null) return;
 
         Location loc = (Location) state.get("location");
         if (loc != null && loc.getWorld() != null) {
-            p.teleport(loc);
+            Location safeLoc = getSafeLocation(loc);
+            p.teleport(safeLoc != null ? safeLoc : loc);
         } else {
             World game = Bukkit.getWorld(gameWorldName);
             if (game != null) p.teleport(game.getSpawnLocation());
@@ -831,7 +991,8 @@ public class Main extends JavaPlugin implements Listener {
 
         if (p.getWorld().getName().equals(limboWorldName)) {
             // Leave limbo
-            if (limboSavedStates.containsKey(p.getUniqueId())) {
+            if (hasLimboSavedState(p.getUniqueId())) {
+                currentRunParticipants.add(p.getUniqueId());
                 if (delay > 0) {
                     startCountdown(p, delay, "limbo-countdown-out", () -> {
                         if (p.isOnline()) {
@@ -846,6 +1007,7 @@ public class Main extends JavaPlugin implements Listener {
             } else if (isGameReady || isWaitingStartupInLimbo) {
                 isWaitingStartupInLimbo = false;
                 isGameReady = true;
+                currentRunParticipants.add(p.getUniqueId());
                 World game = Bukkit.getWorld(gameWorldName);
                 if (game != null) {
                     if (delay > 0) {
@@ -1060,6 +1222,7 @@ public class Main extends JavaPlugin implements Listener {
         isResetting = true;
         currentRunDeaths = 0;
         isGameReady = false;
+        isLimboAllActive = false;
 
         lastPlayerSnapshot = capturePlayerStates();
         broadcastKey("reset-started");
@@ -3286,6 +3449,10 @@ public class Main extends JavaPlugin implements Listener {
         clearDirectoryContents(getAdvancementsFolder(mainWorldDir));
         clearDirectoryContents(new File(mainWorldDir, "data"));
 
+        clearAllLimboSavedStates();
+        currentRunParticipants.clear();
+        isLimboAllActive = false;
+
         // Reset global scoreboard in RAM (only if enabled in config)
         if (clearScoreboardOnReset) {
             try {
@@ -4204,48 +4371,85 @@ public class Main extends JavaPlugin implements Listener {
         }
 
 
-        if (isGameReady && !isResetting) {
+        boolean serverInLimbo = isResetting || isWaitingStartupInLimbo || isLimboAllActive || !isGameReady;
+
+        if (serverInLimbo) {
             String wName = p.getWorld().getName();
-            if (wName.equals(limboWorldName)) {
+            // If server is in limboall mode and player was in game world, save their state so they can resume later
+            if (isLimboAllActive && !wName.equals(limboWorldName) && !hasLimboSavedState(p.getUniqueId())) {
+                saveLimboState(p);
+            }
+
+            if (isWaitingStartupInLimbo) {
+                currentRunParticipants.add(p.getUniqueId());
+            }
+
+            Location loc = getLimboSpawn();
+            p.teleport(loc);
+            setupLimboPlayer(p);
+
+            if (isWaitingStartupInLimbo) {
+                sendTitleToPlayer(p, "§e⏳", "§7" + getSubtitle(p, "limbo_waiting_startup", "Waiting for game start..."), 10, 70, 20);
+            } else if (isLimboAllActive) {
+                sendLimboWelcomeMessage(p);
+            }
+        } else {
+            String wName = p.getWorld().getName();
+
+            // Scenario A / Check 1: Gracz ma zapisany stan z Limbo (odłożony ekwipunek)
+            if (hasLimboSavedState(p.getUniqueId())) {
+                currentRunParticipants.add(p.getUniqueId());
+                restoreLimboState(p);
+                if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "limbo-leave"));
+            } else if (currentRunParticipants.contains(p.getUniqueId())) {
+                // Scenario A / Check 2: Gracz brał już udział w bieżącej rozgrywce
+                if (wName.equals(limboWorldName)) {
+                    // Gracz był w limbo przed startem gry (np. czekał w lobby), a gra już wystartowała
+                    World game = Bukkit.getWorld(gameWorldName);
+                    if (game != null) {
+                        setupGamePlayer(p, game.getSpawnLocation());
+                        if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "game-started"));
+                    }
+                } else {
+                    // Gracz był w świecie gry (Overworld / Nether / End) — zostaje na swoim miejscu
+                    if (p.isDead()) {
+                        p.spigot().respawn();
+                        Bukkit.getScheduler().runTaskLater(this, () -> {
+                            if (p.isOnline()) {
+                                p.setHealth(p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue());
+                                p.setFoodLevel(20);
+                            }
+                        }, 1L);
+                    }
+                }
+            } else if (!wName.equals(limboWorldName) && !wName.equals("world") && p.hasPlayedBefore()) {
+                // Scenario A / Check 3: Gracz zalogował się bezpośrednio w wymiarze gry (game_world, nether, the_end)
+                // Oznacza to, że wyszedł w trakcie trwania tej gry
+                currentRunParticipants.add(p.getUniqueId());
+                if (p.isDead()) {
+                    p.spigot().respawn();
+                    Bukkit.getScheduler().runTaskLater(this, () -> {
+                        if (p.isOnline()) {
+                            p.setHealth(p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue());
+                            p.setFoodLevel(20);
+                        }
+                    }, 1L);
+                }
+            } else {
+                // Scenario C: Zupełnie nowy gracz w tej rundzie
                 if (limboNewPlayersToLimbo) {
                     Location loc = getLimboSpawn();
                     p.teleport(loc);
                     setupLimboPlayer(p);
                     if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "limbo_new_player_notice"));
                 } else {
-                    if (limboSavedStates.containsKey(p.getUniqueId())) {
-                        restoreLimboState(p);
-                        if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "limbo-leave"));
-                    } else {
-                        World game = Bukkit.getWorld(gameWorldName);
-                        if (game != null) {
-                            setupJoiningPlayer(p, game.getSpawnLocation());
-                            if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "game-started"));
-                        }
+                    World game = Bukkit.getWorld(gameWorldName);
+                    if (game != null) {
+                        currentRunParticipants.add(p.getUniqueId());
+                        setupGamePlayer(p, game.getSpawnLocation());
+                        if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "game-started"));
                     }
                 }
-            } else {
-                boolean shouldTeleport = !p.hasPlayedBefore() || wName.equals("world");
-                if (shouldTeleport) {
-                    if (limboNewPlayersToLimbo) {
-                        Location loc = getLimboSpawn();
-                        p.teleport(loc);
-                        setupLimboPlayer(p);
-                        if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "limbo_new_player_notice"));
-                    } else {
-                        World game = Bukkit.getWorld(gameWorldName);
-                        if (game != null) {
-                            setupJoiningPlayer(p, game.getSpawnLocation());
-                        }
-                    }
-                }
-            }
-        } else {
-            Location loc = getLimboSpawn();
-            p.teleport(loc);
-            setupLimboPlayer(p);
-            if (isWaitingStartupInLimbo) {
-                sendTitleToPlayer(p, "§e⏳", "§7" + getSubtitle(p, "limbo_waiting_startup", "Waiting for game start..."), 10, 70, 20);
             }
         }
 
@@ -4617,7 +4821,7 @@ public class Main extends JavaPlugin implements Listener {
                 }
                 case "start", "begin" -> {
                     if (hasPerm(sender, "worldreset.start") && hasPerm(sender, "worldreset.reset")) return noPerm(sender, "worldreset.start");
-                    boolean inLimboWaiting = isWaitingStartupInLimbo || !isGameReady;
+                    boolean inLimboWaiting = isWaitingStartupInLimbo || !isGameReady || isLimboAllActive;
                     int playersInLimboCount = 0;
                     for (Player online : Bukkit.getOnlinePlayers()) {
                         if (online.getWorld().getName().equals(limboWorldName)) {
@@ -4632,6 +4836,7 @@ public class Main extends JavaPlugin implements Listener {
 
                     isWaitingStartupInLimbo = false;
                     isGameReady = true;
+                    isLimboAllActive = false;
 
                     World game = Bukkit.getWorld(gameWorldName);
                     if (game == null) {
@@ -4641,12 +4846,13 @@ public class Main extends JavaPlugin implements Listener {
 
                     Location spawn = game.getSpawnLocation();
                     for (Player online : Bukkit.getOnlinePlayers()) {
+                        currentRunParticipants.add(online.getUniqueId());
                         if (online.getWorld().getName().equals(limboWorldName)) {
                             if (activeCountdowns.containsKey(online.getUniqueId())) {
                                 skipCountdown(online);
                                 online.clearTitle();
                             }
-                            if (limboSavedStates.containsKey(online.getUniqueId())) {
+                            if (hasLimboSavedState(online.getUniqueId())) {
                                 restoreLimboState(online);
                             } else {
                                 setupGamePlayer(online, spawn);
@@ -4802,6 +5008,8 @@ public class Main extends JavaPlugin implements Listener {
                         sender.sendMessage(getMsg(sender, "limbo_all_already"));
                         return true;
                     }
+
+                    isLimboAllActive = true;
 
                     for (Player target : playersToLimbo) {
                         toggleLimboForPlayer(target, sender, manualDelay);
