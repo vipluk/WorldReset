@@ -99,6 +99,8 @@ public class Main extends JavaPlugin implements Listener {
     // --- ZMIENNE KOMPASU (RADARU) ---
     private boolean compassEnabled;
     private boolean clearScoreboardOnReset;
+    private boolean preserveGamerules = true;
+    private final Map<String, String> savedGameRules = new HashMap<>();
 
     // --- ZMIENNE AUTORESETU ---
     private boolean autoResetEnabled;
@@ -307,6 +309,7 @@ public class Main extends JavaPlugin implements Listener {
 
         compassEnabled = getConfig().getBoolean("compass.enabled", true);
         clearScoreboardOnReset = getConfig().getBoolean("scoreboard.clear-on-reset", false);
+        preserveGamerules = getConfig().getBoolean("preserve-gamerules", true);
 
         // AutoReset
         autoResetEnabled = getConfig().getBoolean("autoreset.enabled", false);
@@ -1203,6 +1206,7 @@ public class Main extends JavaPlugin implements Listener {
         lastSavedDifficulty = currentWorld != null ? currentWorld.getDifficulty() : getServerDifficulty();
         getConfig().set("world.difficulty", lastSavedDifficulty.name());
         saveConfig();
+        captureGameRules();
 
         isResetting = true;
         currentRunDeaths = 0;
@@ -1258,6 +1262,7 @@ public class Main extends JavaPlugin implements Listener {
         lastSavedDifficulty = currentWorld != null ? currentWorld.getDifficulty() : getServerDifficulty();
         getConfig().set("world.difficulty", lastSavedDifficulty.name());
         saveConfig();
+        captureGameRules();
 
         isResetting = true;
         isGameReady = false;
@@ -1349,6 +1354,7 @@ public class Main extends JavaPlugin implements Listener {
         lastSavedDifficulty = currentWorld != null ? currentWorld.getDifficulty() : getServerDifficulty();
         getConfig().set("world.difficulty", lastSavedDifficulty.name());
         saveConfig();
+        captureGameRules();
 
         isResetting = true;
         currentRunDeaths = 0;
@@ -1474,6 +1480,7 @@ public class Main extends JavaPlugin implements Listener {
         lastSavedDifficulty = currentWorld != null ? currentWorld.getDifficulty() : getServerDifficulty();
         getConfig().set("world.difficulty", lastSavedDifficulty.name());
         saveConfig();
+        captureGameRules();
 
         isResetting = true;
         isGameReady = false;
@@ -1675,13 +1682,18 @@ public class Main extends JavaPlugin implements Listener {
         }
 
         World normal = Bukkit.createWorld(new WorldCreator(gameWorldName).environment(World.Environment.NORMAL).seed(seed));
-        Bukkit.createWorld(new WorldCreator(gameWorldName + "_nether").environment(World.Environment.NETHER).seed(seed));
-        Bukkit.createWorld(new WorldCreator(gameWorldName + "_the_end").environment(World.Environment.THE_END).seed(seed));
+        World nether = Bukkit.createWorld(new WorldCreator(gameWorldName + "_nether").environment(World.Environment.NETHER).seed(seed));
+        World end = Bukkit.createWorld(new WorldCreator(gameWorldName + "_the_end").environment(World.Environment.THE_END).seed(seed));
         applyLocatorBarGamerule();
+        applySavedGameRules(normal);
+        applySavedGameRules(nether);
+        applySavedGameRules(end);
+
+        if (normal != null) normal.setDifficulty(difficulty);
+        if (nether != null) nether.setDifficulty(difficulty);
+        if (end != null) end.setDifficulty(difficulty);
 
         if (normal != null) {
-            // Przywróć trudność
-            normal.setDifficulty(difficulty);
             if (!templateApplied) {
                 skipFindSafeSpawn = false;
                 waterSpawnActive = false;
@@ -2759,26 +2771,24 @@ public class Main extends JavaPlugin implements Listener {
 
     private void loadGameWorlds() {
         World normal = new WorldCreator(gameWorldName).environment(World.Environment.NORMAL).createWorld();
-        new WorldCreator(gameWorldName + "_nether").environment(World.Environment.NETHER).createWorld();
-        new WorldCreator(gameWorldName + "_the_end").environment(World.Environment.THE_END).createWorld();
+        World nether = new WorldCreator(gameWorldName + "_nether").environment(World.Environment.NETHER).createWorld();
+        World end = new WorldCreator(gameWorldName + "_the_end").environment(World.Environment.THE_END).createWorld();
         applyLocatorBarGamerule();
+        applySavedGameRules(normal);
+        applySavedGameRules(nether);
+        applySavedGameRules(end);
         
         // Ustaw trudność: najpierw ze starego świata (config), potem z server.properties, fallback na NORMAL
-        if (normal != null) {
-            String diffStr = getConfig().getString("world.difficulty", "").toLowerCase();
-            
-            if (!diffStr.isEmpty()) {
-                // Użyj zapisanej trudności ze starego świata
-                try {
-                    normal.setDifficulty(Difficulty.valueOf(diffStr.toUpperCase()));
-                } catch (IllegalArgumentException e) {
-                    normal.setDifficulty(getServerDifficulty());
-                }
-            } else {
-                // Nie ma zapisanej - pobierz z server.properties
-                normal.setDifficulty(getServerDifficulty());
-            }
+        Difficulty targetDiff = getServerDifficulty();
+        String diffStr = getConfig().getString("world.difficulty", "").toLowerCase();
+        if (!diffStr.isEmpty()) {
+            try {
+                targetDiff = Difficulty.valueOf(diffStr.toUpperCase());
+            } catch (IllegalArgumentException ignored) {}
         }
+        if (normal != null) normal.setDifficulty(targetDiff);
+        if (nether != null) nether.setDifficulty(targetDiff);
+        if (end != null) end.setDifficulty(targetDiff);
     }
 
     private void saveGameWorlds() {
@@ -4200,6 +4210,46 @@ public class Main extends JavaPlugin implements Listener {
         }
     }
 
+    // --- LOGIKA ZASAD GRY (GAMERULES) ---
+    private void captureGameRules() {
+        if (!preserveGamerules) return;
+        World game = Bukkit.getWorld(gameWorldName);
+        if (game == null) return;
+        for (String ruleName : game.getGameRules()) {
+            try {
+                org.bukkit.GameRule<?> rule = org.bukkit.GameRule.getByName(ruleName);
+                if (rule != null) {
+                    Object val = game.getGameRuleValue(rule);
+                    if (val != null) {
+                        savedGameRules.put(ruleName, String.valueOf(val));
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void applySavedGameRules(World world) {
+        if (world == null || !preserveGamerules || savedGameRules.isEmpty()) return;
+        for (Map.Entry<String, String> entry : savedGameRules.entrySet()) {
+            String ruleName = entry.getKey();
+            if (ruleName.equalsIgnoreCase("locator_bar")) continue; // Obsługiwane osobno przez compass.enabled
+            try {
+                org.bukkit.GameRule<?> rule = org.bukkit.GameRule.getByName(ruleName);
+                if (rule != null) {
+                    if (rule.getType() == Boolean.class) {
+                        @SuppressWarnings("unchecked")
+                        GameRule<Boolean> boolRule = (GameRule<Boolean>) rule;
+                        world.setGameRule(boolRule, Boolean.parseBoolean(entry.getValue()));
+                    } else if (rule.getType() == Integer.class) {
+                        @SuppressWarnings("unchecked")
+                        GameRule<Integer> intRule = (GameRule<Integer>) rule;
+                        world.setGameRule(intRule, Integer.parseInt(entry.getValue()));
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
     // --- LOGIKA AUTORESETU ---
 
     private long parseTimeToSeconds(String timeStr) {
@@ -4484,6 +4534,7 @@ public class Main extends JavaPlugin implements Listener {
         recordsConfig.set(path + ".deaths", deaths + 1);
         saveRecordsFile();
         syncScoreboard(dead);
+        boatGivenPlayers.remove(dead.getUniqueId());
 
         if (deathLimit > 0) {
             currentRunDeaths++;
@@ -4495,32 +4546,6 @@ public class Main extends JavaPlugin implements Listener {
                 }
             }
         }
-
-        if (!getConfig().getBoolean("deathLimit", false)) return;
-        if (isResetting) return;
-
-        // Reset boat flag on death — player gets new boat after next reset if water spawn
-        boatGivenPlayers.remove(e.getEntity().getUniqueId());
-
-        // Capture player states BEFORE death clears them (use pre-death snapshot for backup)
-        // The dying player's inventory is in getDrops(), other players are alive
-        lastPlayerSnapshot = capturePlayerStates();
-        // Override the dead player's data with pre-death state
-        String snapshotPath = dead.getUniqueId().toString();
-        if (lastPlayerSnapshot != null) {
-            lastPlayerSnapshot.set(snapshotPath + ".health", Math.max(dead.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue() / 2, 1)); // Half health on restore
-            // Reconstruct inventory from drops
-            org.bukkit.inventory.ItemStack[] inv = new org.bukkit.inventory.ItemStack[41];
-            int i = 0;
-            for (org.bukkit.inventory.ItemStack item : e.getDrops()) {
-                if (i < inv.length) inv[i++] = item;
-            }
-            lastPlayerSnapshot.set(snapshotPath + ".inventory", Arrays.asList(inv));
-        }
-
-        String playerName = dead.getName();
-        broadcastKey("death-reset-triggered", "{player}", playerName);
-        startAutoTriggeredReset();
     }
 
     // --- TIMER TRIGGER EVENTS ---
@@ -5077,8 +5102,8 @@ public class Main extends JavaPlugin implements Listener {
                         // Toggle: if > 0, set 0; if 0, set 1
                         deathLimit = deathLimit > 0 ? 0 : 1;
                     }
+                    getConfig().set("death-limit", deathLimit);
                     getConfig().set("reset-on-death", deathLimit > 0);
-                    getConfig().set("death.limit", deathLimit);
                     saveConfig();
                     if (deathLimit > 0) {
                         sender.sendMessage(getMsg("death-mode-enabled").replace("{v1}", String.valueOf(deathLimit)));
