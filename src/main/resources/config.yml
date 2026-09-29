@@ -1,4 +1,4 @@
-# === WorldReset v1.8 Configuration ===
+# === WorldReset v1.9 Configuration ===
 
 # [PL] Wybierz język wiadomości w grze.
 # [EN] Select in-game language.
@@ -25,6 +25,12 @@ scoreboard:
   # [PL] Czy kasować statystyki i cele pluginu (tylko te zaczynające się od wr_) podczas resetu świata?
   # [EN] Should plugin's scoreboards (objectives starting with wr_) be cleared during a world reset?
   clear-on-reset: false
+
+# --- Zasady Gry / GameRules ---
+# [PL] Czy zachowywać zasady gry (/gamerule) między resetami świata? (true/false)
+# [EN] Preserve game rules (/gamerule) across world resets? (true/false)
+# [DE] Spielregeln (/gamerule) bei Welt-Resets beibehalten? (true/false)
+preserve-gamerules: true
 
 # --- Backup ---
 backup:
