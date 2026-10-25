@@ -2119,9 +2119,9 @@ public class Main extends JavaPlugin implements Listener {
     private java.util.List<String> resolveMetaBiomes(String biome) {
         if (biome == null || biome.isEmpty()) return java.util.List.of();
         java.util.List<String> options = switch (biome) {
-            case "OCEAN_ALL" -> java.util.List.of("OCEAN", "DEEP_OCEAN", "COLD_OCEAN", "DEEP_COLD_OCEAN", "FROZEN_OCEAN", "DEEP_FROZEN_OCEAN", "LUKEWARM_OCEAN", "DEEP_LUKEWARM_OCEAN", "WARM_OCEAN", "MUSHROOM_FIELDS");
-            case "FOREST_ALL" -> java.util.List.of("FOREST", "BIRCH_FOREST", "DARK_FOREST", "OLD_GROWTH_BIRCH_FOREST", "OLD_GROWTH_SPRUCE_TAIGA", "FLOWER_FOREST", "CHERRY_GROVE");
-            case "MOUNTAIN_ALL" -> java.util.List.of("STONY_PEAKS", "JAGGED_PEAKS", "FROZEN_PEAKS", "MEADOW", "GROVE", "SNOWY_SLOPES", "WINDSWEPT_HILLS");
+            case "OCEAN_ALL" -> java.util.List.of("OCEAN", "DEEP_OCEAN", "COLD_OCEAN", "DEEP_COLD_OCEAN", "FROZEN_OCEAN", "DEEP_FROZEN_OCEAN", "LUKEWARM_OCEAN", "DEEP_LUKEWARM_OCEAN", "WARM_OCEAN", "MUSHROOM_FIELDS", "BEACH", "SNOWY_BEACH", "STONY_SHORE");
+            case "FOREST_ALL" -> java.util.List.of("FOREST", "BIRCH_FOREST", "DARK_FOREST", "OLD_GROWTH_BIRCH_FOREST", "OLD_GROWTH_SPRUCE_TAIGA", "FLOWER_FOREST", "CHERRY_GROVE", "PALE_GARDEN", "DAPPLED_FOREST");
+            case "MOUNTAIN_ALL" -> java.util.List.of("STONY_PEAKS", "JAGGED_PEAKS", "FROZEN_PEAKS", "MEADOW", "GROVE", "SNOWY_SLOPES", "WINDSWEPT_HILLS", "WINDSWEPT_GRAVELLY_HILLS", "WINDSWEPT_FOREST");
             case "CAVE_ALL" -> java.util.List.of("DRIPSTONE_CAVES", "LUSH_CAVES", "DEEP_DARK");
             case "DESERT_ALL" -> java.util.List.of("DESERT", "BADLANDS", "ERODED_BADLANDS", "WOODED_BADLANDS");
             case "TAIGA_ALL" -> java.util.List.of("TAIGA", "OLD_GROWTH_PINE_TAIGA", "OLD_GROWTH_SPRUCE_TAIGA", "SNOWY_TAIGA");
@@ -2753,6 +2753,7 @@ public class Main extends JavaPlugin implements Listener {
             case "PILLAGER_OUTPOST" -> addReg(list, reg, "pillager_outpost");
             case "MONUMENT" -> addReg(list, reg, "monument");
             case "TRAIL_RUINS" -> addReg(list, reg, "trail_ruins");
+            case "ABANDONED_CAMP" -> addReg(list, reg, "abandoned_camp");
             case "VILLAGE_PLAINS" -> addReg(list, reg, "village_plains");
             case "VILLAGE_DESERT" -> addReg(list, reg, "village_desert");
             case "VILLAGE_TAIGA" -> addReg(list, reg, "village_taiga");
@@ -3715,7 +3716,7 @@ public class Main extends JavaPlugin implements Listener {
 
     private void initDynamicNames() {
         STRUCTURE_NAMES.clear();
-        STRUCTURE_NAMES.addAll(Arrays.asList("VILLAGE", "MINESHAFT", "RUINED_PORTAL", "SHIPWRECK"));
+        STRUCTURE_NAMES.addAll(Arrays.asList("VILLAGE", "MINESHAFT", "RUINED_PORTAL", "SHIPWRECK", "ABANDONED_CAMP"));
 
         try {
             Registry<Structure> structRegistry = io.papermc.paper.registry.RegistryAccess.registryAccess().getRegistry(io.papermc.paper.registry.RegistryKey.STRUCTURE);
@@ -3731,7 +3732,8 @@ public class Main extends JavaPlugin implements Listener {
             STRUCTURE_NAMES.addAll(Arrays.asList(
                 "DESERT_PYRAMID", "JUNGLE_PYRAMID", "PILLAGER_OUTPOST", "MANSION",
                 "ANCIENT_CITY", "STRONGHOLD", "MONUMENT", "BURIED_TREASURE", "IGLOO",
-                "SWAMP_HUT", "TRAIL_RUINS", "TRIAL_CHAMBERS", "OCEAN_RUIN", "OCEAN_RUIN_WARM"
+                "SWAMP_HUT", "TRAIL_RUINS", "TRIAL_CHAMBERS", "OCEAN_RUIN", "OCEAN_RUIN_WARM",
+                "ABANDONED_CAMP"
             ));
         }
 
@@ -3753,7 +3755,7 @@ public class Main extends JavaPlugin implements Listener {
                 "ERODED_BADLANDS", "SAVANNA", "SAVANNA_PLATEAU", "WINDSWEPT_SAVANNA",
                 "WINDSWEPT_HILLS", "WINDSWEPT_GRAVELLY_HILLS", "WINDSWEPT_FOREST",
                 "SNOWY_PLAINS", "ICE_SPIKES", "SNOWY_SLOPES", "FROZEN_PEAKS", "JAGGED_PEAKS",
-                "STONY_PEAKS", "MUSHROOM_FIELDS", "CHERRY_GROVE", "PALE_GARDEN",
+                "STONY_PEAKS", "MUSHROOM_FIELDS", "CHERRY_GROVE", "PALE_GARDEN", "DAPPLED_FOREST",
                 "MEADOW", "GROVE", "STONY_SHORE", "RIVER", "FROZEN_RIVER",
                 "BEACH", "SNOWY_BEACH", "WARM_OCEAN", "LUKEWARM_OCEAN", "DEEP_LUKEWARM_OCEAN",
                 "OCEAN", "DEEP_OCEAN", "COLD_OCEAN", "DEEP_COLD_OCEAN", "FROZEN_OCEAN",
@@ -7275,7 +7277,10 @@ public class Main extends JavaPlugin implements Listener {
                             "lukewarm_ocean",
                             "deep_lukewarm_ocean",
                             "warm_ocean",
-                            "mushroom_fields"
+                            "mushroom_fields",
+                            "beach",
+                            "snowy_beach",
+                            "stony_shore"
                     ));
 
                     case "FORESTS" -> list.addAll(Arrays.asList(
@@ -7285,7 +7290,9 @@ public class Main extends JavaPlugin implements Listener {
                             "old_growth_birch_forest",
                             "old_growth_spruce_taiga",
                             "flower_forest",
-                            "cherry_grove"
+                            "cherry_grove",
+                            "pale_garden",
+                            "dappled_forest"
                     ));
 
                     case "MOUNTAINS" -> list.addAll(Arrays.asList(
@@ -7295,7 +7302,9 @@ public class Main extends JavaPlugin implements Listener {
                             "meadow",
                             "grove",
                             "snowy_slopes",
-                            "windswept_hills"
+                            "windswept_hills",
+                            "windswept_gravelly_hills",
+                            "windswept_forest"
                     ));
 
                     case "CAVES" -> list.addAll(Arrays.asList(
