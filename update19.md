@@ -69,13 +69,33 @@ Wydanie **1.9** dla wtyczki **WorldReset** koncentruje się na zagwarantowaniu p
   * Usunięto martwy blok kodu i zduplikowane wywołania.
   * Przeniesiono czyszczenie gracza z listy przydzielonych łódek (`boatGivenPlayers.remove(dead.getUniqueId())`) bezpośrednio po synchronizacji statystyk zgonu, gwarantując poprawny stan przed ewentualnym wywołaniem resetu.
 
+### 6. Pełne wsparcie dla Minecraft & Purpur 26.3 oraz aktualizacja dwustopniowego filtra biomów i struktur
+* **Problem / Kontekst:**
+  * W wydaniu Minecraft / Purpur 26.3 (*"Wilderness Bound"*) dodano nowy biom `dappled_forest` oraz strukturę powierzchniową `abandoned_camp`.
+  * W dwustopniowym systemie filtrowania biomów (`/wr filter biome <GRUPA> [biom]`) listy podpowiedzi konkretnych biomów dla argumentu 4 (`args.length == 4`) oraz lista mapowania metabiomów w `resolveMetaBiomes()` były zdefiniowane statycznie. Brakowało w nich nowości (`dappled_forest`, `pale_garden`), przez co nowy jesienny las nie podpowiadał się w tab-complete po wpisaniu `FORESTS` i nie brał udziału w losowaniu grupy leśnej.
+  * W filtrze struktur (`STRUCTURE_NAMES`) brakowało wpisu dla obozowisk `ABANDONED_CAMP`.
+* **Wdrożenie:**
+  * **Rozszerzenie metabiomów (`resolveMetaBiomes`):**
+    * Do grupy `FOREST_ALL` dołączono `PALE_GARDEN` oraz `DAPPLED_FOREST`.
+    * Do grupy `MOUNTAIN_ALL` dołączono `WINDSWEPT_GRAVELLY_HILLS` oraz `WINDSWEPT_FOREST`.
+    * Do grupy `OCEAN_ALL` dołączono biomy strefy brzegowej (`BEACH`, `SNOWY_BEACH`, `STONY_SHORE`).
+  * **Synchronizacja podpowiedzi (`onTabComplete` dla `args.length == 4`):**
+    * W gałęzi `case "FORESTS"` dodano `"pale_garden"` oraz `"dappled_forest"`.
+    * W gałęzi `case "MOUNTAINS"` dodano `"windswept_gravelly_hills"` oraz `"windswept_forest"`.
+    * W gałęzi `case "OCEANS"` dodano `"beach"`, `"snowy_beach"` oraz `"stony_shore"`.
+  * **Obsługa nowej struktury `ABANDONED_CAMP`:**
+    * W `initDynamicNames()` dodano `ABANDONED_CAMP` do listy bazowej oraz do listy awaryjnej (fallback).
+    * W `getStructuresFromName()` dodano jawne mapowanie `case "ABANDONED_CAMP" -> addReg(list, reg, "abandoned_camp");`.
+    * Jako struktura powierzchniowa, w `getStructureCharacteristicBlocks()` automatycznie dziedziczy `default -> Set.of()` (szukanie bezpiecznego spawnu na powierzchni).
+
 ---
 
 ## 📂 Modyfikowane Pliki w Wersji 1.9
 
 | Ścieżka | Wprowadzone zmiany |
 | :--- | :--- |
-| [`src/main/java/org/example/worldreset/Main.java`](file:///c:/Users/vipluk/.gemini/antigravity-ide/scratch/WorldRest/src/main/java/org/example/worldreset/Main.java) | Naprawa zapisu `death-limit`, implementacja `captureGameRules` i `applySavedGameRules`, synchronizacja trudności Netheru/Endu, modernizacja GameRule API, refaktoryzacja `onPlayerDeath`. |
+| [`src/main/java/org/example/worldreset/Main.java`](file:///c:/Users/vipluk/.gemini/antigravity-ide/scratch/WorldRest/src/main/java/org/example/worldreset/Main.java) | Naprawa zapisu `death-limit`, implementacja `captureGameRules` i `applySavedGameRules`, synchronizacja trudności Netheru/Endu, modernizacja GameRule API, refaktoryzacja `onPlayerDeath`, pełne wsparcie 26.3 (dodanie `dappled_forest`, `pale_garden`, `abandoned_camp` do filtrów i autouzupełniania). |
 | [`src/main/resources/config.yml`](file:///c:/Users/vipluk/.gemini/antigravity-ide/scratch/WorldRest/src/main/resources/config.yml) | Aktualizacja nagłówka do v1.9, dodanie opcji `preserve-gamerules: true` z trójjęzycznymi komentarzami. |
 | [`src/main/resources/plugin.yml`](file:///c:/Users/vipluk/.gemini/antigravity-ide/scratch/WorldRest/src/main/resources/plugin.yml) | Podbicie wersji pluginu do `1.9`. |
 | [`pom.xml`](file:///c:/Users/vipluk/.gemini/antigravity-ide/scratch/WorldRest/pom.xml) | Podbicie wersji projektu Maven do `1.9`. |
+
