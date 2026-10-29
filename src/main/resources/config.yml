@@ -1,232 +1,172 @@
-# === WorldReset v1.9 Configuration ===
+# === WorldReset v2.0 Configuration ===
 
-# [PL] Wybierz język wiadomości w grze.
-# [EN] Select in-game language.
-# [DE] Wähle die Spielsprache.
-language: en # en, de, pl
+# Select in-game language for messages and interface.
+# Available options: en (English), de (German), pl (Polish)
+language: en
 
-# [PL] Nazwa świata, który będzie tworzony i resetowany przez plugin.
-#      WAŻNE: To NIE MOŻE być "world" (domyślny świat serwera)!
-#      Musi to być inna nazwa, np. "game_world", "speedrun", "manhunt".
-# [EN] Name of the custom world to be reset.
-#      IMPORTANT: This MUST NOT be "world" (default server world)!
-#      Use something like "game_world", "speedrun", "manhunt".
+# Name of the custom world that will be managed and reset by the plugin.
+# IMPORTANT: This MUST NOT be "world" (default server world)!
+# Use something like "game_world", "speedrun", "manhunt".
 game-world-name: "game_world"
 
-# --- Limit Smierci / Death Limit ---
-# [PL] Limit zgonow graczy wyzwalajacy automatyczny reset serwera.
-#      0 = wylaczone, 1 = klasyczny hardcore (reset przy pierwszej smierci), >1 = pula wspolnych zyc.
-# [EN] Number of player deaths that will trigger an automatic world reset.
-#      0 = disabled, 1 = classic hardcore (reset on first death), >1 = shared lives pool.
+# --- Death Limit ---
+# Number of player deaths that will trigger an automatic world reset.
+# 0 = disabled, 1 = classic hardcore (reset on first death), >1 = shared lives pool.
 death-limit: 1
 
 # --- Scoreboard ---
 scoreboard:
-  # [PL] Czy kasować statystyki i cele pluginu (tylko te zaczynające się od wr_) podczas resetu świata?
-  # [EN] Should plugin's scoreboards (objectives starting with wr_) be cleared during a world reset?
+  # Should plugin scoreboards (objectives starting with wr_) be cleared during a world reset?
   clear-on-reset: false
 
-# --- Zasady Gry / GameRules ---
-# [PL] Czy zachowywać zasady gry (/gamerule) między resetami świata? (true/false)
-# [EN] Preserve game rules (/gamerule) across world resets? (true/false)
-# [DE] Spielregeln (/gamerule) bei Welt-Resets beibehalten? (true/false)
+# --- GameRules ---
+# Preserve game rules (/gamerule) across world resets? (true/false)
 preserve-gamerules: true
+
+# --- Datapacks ---
+datapacks:
+  # Automatically inject datapacks into every newly generated/reset world? (true/false)
+  enabled: false
+
+  # Directory containing datapacks (.zip files or uncompressed directories with pack.mcmeta).
+  # Supports relative paths (e.g. WorldReset_Datapacks or ../../datapacks) and absolute paths.
+  folder: "WorldReset_Datapacks"
 
 # --- Backup ---
 backup:
-  # [PL] Czy robić kopię świata przed jego usunięciem? (true/false)
-  # [EN] Enable automatic backups before deleting the world? (true/false)
+  # Enable automatic backups before deleting the world? (true/false)
   enabled: true
 
-  # [PL] Folder na backupy światów.
-  # [EN] Directory path to store backups.
+  # Directory path to store world backups.
   folder: "WorldReset_BackUps"
 
-  # [PL] Limit kopii zapasowych ("all" = trzymaj wszystkie, np. 5 = trzymaj 5 ostatnich).
-  # [EN] Backup limit ("all" = keep all backups, e.g. 5 = keep the last 5 backups).
+  # Backup retention limit ("all" = keep all, or a number e.g. 5 = keep the last 5 backups).
   limit: "30"
 
-# --- Seed (Ziarno) ---
+# --- Seed ---
 seed:
-  # [PL] Czy używać stałego seeda przy każdym resecie?
-  #      false = Każdy reset to losowy, inny świat.
-  #      true = Każdy reset to ten sam seed poniżej.
-  # [EN] Use a fixed seed with every reset?
-  #      false = Each reset is a random, different world.
-  #      true = Each reset uses the fixed seed value configured below.
+  # Use a fixed seed with every reset?
+  # false = Each reset generates a random, fresh world seed.
+  # true  = Each reset uses the fixed seed value configured below.
   use-fixed: false
 
-  # [PL] Wartość stałego seeda (liczba lub tekst).
-  # [EN] Value of the fixed seed (number or text).
+  # Fixed seed value (numeric seed or text string).
   value: "2048005618087379093"
 
-# --- Szablony Światów / World Templates ---
-# [PL] Umożliwia wczytywanie gotowych światów zamiast ich generowania z seeda.
-# [EN] Load pre-made custom world folders instead of generating them from seed.
+# --- World Templates ---
+# Load pre-made custom world folders instead of generating from a seed.
 template:
-  # [PL] Czy wczytywać szablony światów? (true/false)
-  # [EN] Enable world templates loader? (true/false)
+  # Enable world templates loader? (true/false)
   enabled: false
 
-  # [PL] Folder z szablonami światów. Wspiera ścieżki relatywne (../../folder) i bezwzględne (np. D:\Templates).
-  # [EN] Directory containing template map folders. Supports relative (../../folder) and absolute paths (e.g. D:\Templates).
+  # Directory containing template map folders. Supports relative and absolute paths.
   folder: "WorldReset_Templates"
 
-# --- Filtr Struktur i Biomów / Structure & Biome Filter ---
-# [PL] Plugin wygeneruje świat, znajdzie wybrany cel i PRZENIESIE tam spawn graczy.
-#      Jeśli zostawisz oba pola puste (""), filtr jest wyłączony (spawn losowy).
-#      WAŻNE: Jeśli wpiszesz strukturę oraz biom, plugin poszuka struktury W TYM biomie.
-# [EN] The plugin will generate a world, search for the target, and MOVE the player spawn there.
-#      If both fields are empty (""), the filter is disabled (default spawn).
-#      IMPORTANT: If both structure and biome are set, the plugin searches for the structure INSIDE that biome.
+# --- Structure & Biome Filter ---
+# The plugin will generate a world, locate the target, and shift the spawn point there.
+# If both fields are left empty (""), the filter is disabled (random default spawn).
+# If both structure and biome are specified, the plugin searches for the structure INSIDE that biome.
 filter:
-  # [PL] Czy filtry spawnu są aktywne? (true/false)
-  # [EN] Are spawn filters active? (true/false)
+  # Are spawn filters active? (true/false)
   enabled: true
 
-  # [PL] 1. STRUKTURA (Zostaw puste "" aby wyłączyć ten warunek)
-  #      Ogólna nazwa (np. VILLAGE) lub konkretna (np. minecraft:village_plains).
-  #      Popularne opcje: VILLAGE, SHIPWRECK, RUINED_PORTAL, ANCIENT_CITY, MANSION,
-  #      STRONGHOLD, DESERT_PYRAMID, JUNGLE_PYRAMID, PILLAGER_OUTPOST, MINESHAFT, IGLOO,
-  #      SWAMP_HUT, MONUMENT, TRAIL_RUINS, TRIAL_CHAMBERS.
-  # [EN] 1. STRUCTURE (Leave empty "" to disable structure filter)
-  #      General category (e.g. VILLAGE) or specific name (e.g. minecraft:village_plains).
-  #      Popular choices: VILLAGE, SHIPWRECK, RUINED_PORTAL, ANCIENT_CITY, MANSION,
-  #      STRONGHOLD, DESERT_PYRAMID, JUNGLE_PYRAMID, PILLAGER_OUTPOST, MINESHAFT, IGLOO,
-  #      SWAMP_HUT, MONUMENT, TRAIL_RUINS, TRIAL_CHAMBERS.
+  # 1. STRUCTURE (Leave empty "" to disable structure filter)
+  # General category (e.g. VILLAGE) or specific identifier (e.g. minecraft:village_plains).
+  # Popular choices: VILLAGE, SHIPWRECK, RUINED_PORTAL, ANCIENT_CITY, MANSION,
+  # STRONGHOLD, DESERT_PYRAMID, JUNGLE_PYRAMID, PILLAGER_OUTPOST, MINESHAFT, IGLOO,
+  # SWAMP_HUT, MONUMENT, TRAIL_RUINS, TRIAL_CHAMBERS.
   structure: ""
 
-  # [PL] 2. BIOM (Zostaw puste "" aby wyłączyć ten warunek)
-  #      Przykłady: PLAINS, DESERT, BADLANDS, CHERRY_GROVE, MUSHROOM_FIELDS, JUNGLE,
-  #      ICE_SPIKES, SWAMP, SAVANNA, TAIGA, FOREST, PALE_GARDEN.
-  # [EN] 2. BIOME (Leave empty "" to disable biome filter)
-  #      Examples: PLAINS, DESERT, BADLANDS, CHERRY_GROVE, MUSHROOM_FIELDS, JUNGLE,
-  #      ICE_SPIKES, SWAMP, SAVANNA, TAIGA, FOREST, PALE_GARDEN.
+  # 2. BIOME (Leave empty "" to disable biome filter)
+  # Examples: PLAINS, DESERT, BADLANDS, CHERRY_GROVE, MUSHROOM_FIELDS, JUNGLE,
+  # ICE_SPIKES, SWAMP, SAVANNA, TAIGA, FOREST, PALE_GARDEN.
   biome: ""
 
-  # [PL] Maksymalna liczba prób szukania wyspy/lądu w biomie wodnym/wyspowym.
-  #      Wyższa = większa szansa znalezienia, ale dłuższe szukanie.
-  # [EN] Maximum attempts to find an island/land in water/island biomes.
-  #      Higher = better chance of finding, but longer search time.
+  # Maximum attempts to search for a safe island/land in water/island biomes.
+  # Higher = better chance of finding land, but longer search duration.
   attempts: 1
 
-# [PL] Czy wyświetlać komunikaty o resecie na czacie globalnym? (true/false)
-# [EN] Should the plugin broadcast world reset messages in global chat? (true/false)
+# Should the plugin broadcast world reset messages in global chat? (true/false)
 broadcast-messages: true
 
-# --- TIMER (Stoper Speedrunowy) ---
+# --- TIMER (Speedrun Stopwatch) ---
 timer:
-  # [PL] Czy używać i pokazywać stoper w grze? (true/false)
-  # [EN] Enable the speedrun stopwatch system? (true/false)
+  # Enable the speedrun stopwatch system? (true/false)
   enabled: false
 
-  # [PL] Czy stoper ma być widoczny dla graczy? (true/false)
-  # [EN] Should the speedrun timer be visible to players? (true/false)
+  # Should the speedrun timer be visible on players' action bar / titles? (true/false)
   visible: true
 
-  # [PL] Tryb liczenia czasu stopera:
-  #      RTA (Real-Time Attack) - ignoruje lagi serwera (polecane).
-  #      IGT (In-Game Time) - czas leci w tickach gry (zwalnia przy lagach).
-  # [EN] Time counting mode:
-  #      RTA (Real-Time Attack) - counts real time, ignores server lag (recommended).
-  #      IGT (In-Game Time) - counts game ticks, slows down when server lags.
+  # Time counting mode:
+  # RTA (Real-Time Attack) - counts real time, immune to server tick lag (recommended).
+  # IGT (In-Game Time)      - counts server game ticks, slows down when server lags.
   mode: "RTA"
 
-  # [PL] Zasięg stopera (indywidualny lub grupowy):
-  #      GLOBAL - jeden wspólny czas dla wszystkich graczy.
-  #      INDIVIDUAL - każdy gracz ma swój własny, osobny stoper.
-  # [EN] Stopwatch scope (group or individual):
-  #      GLOBAL - one shared stopwatch for everyone on the server.
-  #      INDIVIDUAL - each player runs their own personal timer.
+  # Stopwatch scope (group or individual):
+  # GLOBAL     - one shared stopwatch for all players on the server.
+  # INDIVIDUAL - each player runs their own personal timer.
   scope: "GLOBAL"
 
   goal:
-    # [PL] Co zatrzymuje stoper?
-    #      Opcje: ENTITY, PORTAL, ADVANCEMENT, BLOCK, ITEM, NONE
-    # [EN] What event automatically stops the timer?
-    #      Options: ENTITY, PORTAL, ADVANCEMENT, BLOCK, ITEM, NONE
+    # Event that automatically stops the timer:
+    # Options: ENTITY, PORTAL, ADVANCEMENT, BLOCK, ITEM, NONE
     type: "PORTAL"
 
-    # [PL] Dokładna wartość wybranego celu. Przykłady:
-    #      ENTITY -> minecraft:ender_dragon (zabicie smoka)
-    #      PORTAL -> NETHER, END, OVERWORLD, ANY (wejście do portalu)
-    #      ADVANCEMENT -> story/mine_diamond (zdobycie osiągnięcia)
-    #      BLOCK -> obsidian (zniszczenie bloku obsydianu)
-    #      ITEM -> diamond (zdobycie diamentu do ekwipunku)
-    # [EN] Exact value of the chosen goal. Examples:
-    #      ENTITY -> minecraft:ender_dragon (kill the ender dragon)
-    #      PORTAL -> NETHER, END, OVERWORLD, ANY (enter portal dimension)
-    #      ADVANCEMENT -> story/mine_diamond (complete advancement)
-    #      BLOCK -> obsidian (break obsidian block)
-    #      ITEM -> diamond (obtain diamond in inventory)
+    # Exact value of the chosen goal. Examples:
+    # ENTITY      -> minecraft:ender_dragon (kill the ender dragon)
+    # PORTAL      -> NETHER, END, OVERWORLD, ANY (enter dimensional portal)
+    # ADVANCEMENT -> story/mine_diamond (complete advancement)
+    # BLOCK       -> obsidian (break obsidian block)
+    # ITEM        -> diamond (obtain diamond in inventory)
     value: "OVERWORLD"
 
-# --- RADAR / KOMPAS (Locator Bar) ---
+# --- RADAR / COMPASS (Locator Bar) ---
 compass:
-  # [PL] Czy włączyć natywny Locator Bar Minecrafta (pasek pozycji graczy na górze ekranu)?
-  # [EN] Enable Minecraft's native Locator Bar (player position ribbon on top of the screen)?
+  # Enable Minecraft's native Locator Bar (player position ribbon at the top of the screen)?
   enabled: true
 
-# --- AUTORESET (Zaplanowane automatyczne resety) ---
+# --- AUTORESET (Scheduled Resets) ---
 autoreset:
-
-  # [PL] Czy czasomierz zaplanowanych resetów ma być włączony?
-  # [EN] Enable the scheduled automated reset timer?
+  # Enable the scheduled automated reset timer?
   enabled: false
 
-  # [PL] Czy odliczanie autoresetu ma być widoczne dla graczy? (true/false)
-  # [EN] Should the autoreset countdown be visible to players? (true/false)
+  # Should the autoreset countdown be visible to players? (true/false)
   visible: true
 
-  # [PL] Czas trwania cyklu resetu (np. 60s, 5m, 1h).
-  # [EN] Time interval for scheduled resets (e.g. 60s, 5m, 1h).
+  # Time interval for scheduled resets (e.g. 60s, 5m, 1h).
   time: "1h"
 
-  # [PL] Czy reset ma zachodzić w pętli (automatyczny start kolejnego odliczania po resecie)?
-  # [EN] Enable looping (starts a new countdown immediately after reset)?
+  # Enable looping (starts a new countdown immediately after reset)?
   loop: true
 
-  # [PL] Czy odliczanie jest wstrzymane?
-  # [EN] Is the countdown paused?
+  # Is the countdown paused?
   paused: true
 
-# --- LIMBO (Poczekalnia i opóźnienia) ---
+# --- LIMBO (Waiting Lobby & Delays) ---
 limbo:
-  # [PL] Czy nowi gracze dołączający podczas trwającej gry mają trafiać do Limbo (zamiast do gry)?
-  # [EN] Should new players joining an ongoing game be sent to Limbo (instead of the game)?
+  # Should new players joining an ongoing game be sent to Limbo lobby (instead of active game)?
   new-players-to-limbo: false
 
-  # [PL] Czy po uruchomieniu/restarcie serwera gracze mają zaczynać w Limbo (poczekalni)?
-  # [EN] Should the server start in Limbo mode after boot/restart?
+  # Should the server start in Limbo lobby mode after boot/restart?
   start-in-limbo: false
 
-  # [PL] Opóźnienie (w sekundach) przed automatycznym teleportem do Limbo (np. przy resecie).
-  #      Gracze zobaczą odliczanie na ekranie ale mogą dalej grać.
-  #      0 = natychmiastowy teleport (bez odliczania).
-  # [EN] Delay (in seconds) before automatic teleport TO Limbo (e.g. on reset).
-  #      Players see a countdown on screen but can keep playing.
-  #      0 = instant teleport (no countdown).
+  # Delay (in seconds) before automatic teleport TO Limbo (e.g. on reset).
+  # Players see a countdown on screen but can keep playing.
+  # 0 = instant teleport (no countdown).
   delay-in: 0
 
-  # [PL] Opóźnienie (w sekundach) przed automatycznym teleportem Z Limbo do gry (np. po resecie).
-  #      Gracze w Limbo zobaczą odliczanie przed startem gry.
-  #      0 = natychmiastowy teleport (bez odliczania).
-  # [EN] Delay (in seconds) before automatic teleport FROM Limbo to game (e.g. after reset).
-  #      Players in Limbo see a countdown before game starts.
-  #      0 = instant teleport (no countdown).
+  # Delay (in seconds) before automatic teleport FROM Limbo to the new game (e.g. after reset).
+  # Players in Limbo see a countdown before the game starts.
+  # 0 = instant teleport (no countdown).
   delay-out: 5
 
-
-# --- GIVE (Automatyczne dawanie przedmiotów) ---
+# --- GIVE (Automatic Starter Items) ---
 give:
-  # [PL] Czy dawać łódkę graczom automatycznie jeśli spawn jest na wodzie?
-  # [EN] Automatically give a boat to players if spawn is on water?
+  # Automatically give a boat to players if spawn is in water?
   boat-if-water: true
 
-  # [PL] Czy dawać drewno graczom automatycznie jeśli spawn jest pod ziemią?
-  # [EN] Automatically give wood to players if spawn is underground?
+  # Automatically give wood to players if spawn is underground?
   wood-if-underground: true
 
-  # [PL] Ilość drewna dawana przy spawnie podziemnym (1-64). 0 = wyłączone.
-  # [EN] Amount of wood given for underground spawn (1-64). 0 = disabled.
+  # Amount of wood given for underground spawn (1-64). 0 = disabled.
   wood-amount: 5

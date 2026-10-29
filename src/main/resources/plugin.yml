@@ -1,6 +1,6 @@
 name: WorldReset
 website: https://modrinth.com/project/worldreset
-version: 1.9
+version: 2.0
 main: org.example.worldreset.Main
 api-version: 1.21
 author: vipluk
@@ -10,7 +10,7 @@ commands:
   worldreset:
     description: Main command
     aliases: [wr]
-    usage: /wr <reset|limbo|limboall|seed|language|silent|death|filter|timer|templates|autoreset|backup|scoreboard|reload>
+    usage: /wr <reset|limbo|limboall|seed|language|silent|death|filter|timer|templates|datapacks|autoreset|backup|scoreboard|reload>
 
 permissions:
   # ==========================================
@@ -188,6 +188,9 @@ permissions:
   worldreset.templates:
     description: Allows toggling world templates
     default: op
+  worldreset.datapacks:
+    description: Allows toggling and managing world datapacks
+    default: op
   worldreset.scoreboard.*:
     description: Allows full control over scoreboard management and resets
     default: op
@@ -227,5 +230,6 @@ permissions:
       worldreset.timer.*: true
       worldreset.compass: true
       worldreset.templates: true
+      worldreset.datapacks: true
       worldreset.autoreset.*: true
       worldreset.scoreboard.*: true
