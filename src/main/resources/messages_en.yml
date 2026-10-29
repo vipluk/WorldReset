@@ -44,6 +44,7 @@ usage_wr_filter_structurebiome: "&cUsage: /wr filter <structure|biome> <name|cle
 usage_wr_timer_startpauseresetenabledisablemodescopegoal: "&cUsage: /wr timer <start|pause|reset|enable|disable|mode|scope|goal>"
 usage_wr_compass_enabledisable: "&cUsage: /wr compass <enable|disable>"
 usage_wr_templates_enabledisablefolderstatus: "&cUsage: /wr templates <enable|disable|folder|status>"
+usage_wr_datapacks: "&cUsage: /wr datapacks <enable|disable|folder|status|list>"
 autoreset_paused: "&6AutoReset paused."
 autoreset_resumed_time: "&aAutoReset resumed! Time: &e"
 autoreset_started_time: "&aAutoReset started! Time: &e"
@@ -291,6 +292,16 @@ folder: "&7Folder: &f"
 detected_worlds: "&7Detected worlds: &f"
 
 # ===========================================================================
+# Datapacks
+# ===========================================================================
+datapacks_enabled: "&aDatapack injection enabled."
+datapacks_disabled: "&cDatapack injection disabled."
+current_datapacks_folder: "&eCurrent datapacks folder: &f"
+datapacks_folder_set_to: "&aDatapacks folder set to: &f"
+datapacks_none_found: "&7No datapacks found in directory."
+datapacks_list_header: "&8&m------&8[ &b&lDatapack List &8]&m------"
+
+# ===========================================================================
 # World Backups
 # ===========================================================================
 backups_enabled: "&aBackups enabled."
@@ -338,6 +349,7 @@ wr_autoreset_action_scheduled: "  &e/wr autoreset &6<&eaction&6> &8- &7Scheduled
 wr_filter_type_name: "  &e/wr filter &6[&etype&6] &6[&ename&6] &8- &7Spawn filters & seed"
 wr_seed_value_fixedrandom: "  &e/wr seed &6[&evalue&6] &8- &7Fixed/random seed"
 wr_templates_action_world: "  &e/wr templates &6<&eaction&6> &8- &7World templates"
+wr_datapacks_action_desc: "  &e/wr datapacks &6<&eaction&6> &8- &7Datapack injection"
 wr_backup_action_backup: "  &e/wr backup &6[&eaction&6] &8- &7Backup management"
 wr_silent_toggle_broadcasts: "  &e/wr silent &8- &7Toggle broadcasts"
 wr_reload_reload_config: "  &e/wr reload &8- &7Reload config"
@@ -428,6 +440,10 @@ status_templates_header: "&8&m------&8[ &b&lWorldReset Templates &8]&m------"
 status_templates_enabled: "&7Enabled: {status}"
 status_templates_folder: "&7Folder: &e{folder}"
 status_templates_worlds: "&7Detected worlds: &f{count}"
+status_datapacks_header: "&8&m------&8[ &b&lWorldReset Datapacks &8]&m------"
+status_datapacks_enabled: "&7Enabled: {status}"
+status_datapacks_folder: "&7Folder: &e{folder}"
+status_datapacks_count: "&7Detected datapacks: &f{count}"
 status_autoreset_header: "&8&m------&8[ &b&lWorldReset AutoReset &8]&m------"
 status_autoreset_state: "&7Status: {status}"
 status_autoreset_disabled: "&cDisabled"

@@ -161,6 +161,7 @@ public class Main extends JavaPlugin implements Listener {
         loadLanguage();
         loadUserData();
         createTemplateFolders();
+        createDatapacksFolder();
         loadRecordsFile();
         initLimboPlayersConfig();
         initDynamicNames();
@@ -338,6 +339,15 @@ public class Main extends JavaPlugin implements Listener {
             templatesFolder = new File(getDataFolder(), folderName);
         }
         return templatesFolder;
+    }
+
+    private File getDatapacksFolder() {
+        String folderName = getConfig().getString("datapacks.folder", "WorldReset_Datapacks");
+        File datapacksFolder = new File(folderName);
+        if (!datapacksFolder.isAbsolute()) {
+            datapacksFolder = new File(getDataFolder(), folderName);
+        }
+        return datapacksFolder;
     }
 
     private void broadcastKey(String key) {
@@ -1460,7 +1470,9 @@ public class Main extends JavaPlugin implements Listener {
             setupGamePlayer(p, spawn);
         }
         incrementAttempts();
+        resetAndStartTimer();
         isResetting = false;
+        syncAllScoreboards();
     }
 
     /**
@@ -1681,6 +1693,8 @@ public class Main extends JavaPlugin implements Listener {
             getLogger().info("Generating standard world with seed: " + seed);
         }
 
+        injectDatapacksToWorld(gameWorldName);
+
         World normal = Bukkit.createWorld(new WorldCreator(gameWorldName).environment(World.Environment.NORMAL).seed(seed));
         World nether = Bukkit.createWorld(new WorldCreator(gameWorldName + "_nether").environment(World.Environment.NETHER).seed(seed));
         World end = Bukkit.createWorld(new WorldCreator(gameWorldName + "_the_end").environment(World.Environment.THE_END).seed(seed));
@@ -1800,12 +1814,10 @@ public class Main extends JavaPlugin implements Listener {
      */
     private void finalizeGameStart(boolean useDelayOut) {
         if (parallelDelayOutRunning) {
-            resetAndStartTimer();
-            isResetting = false;
-        } else if (useDelayOut && limboDelayOut >0) {
+            // World generation is ready while parallel countdown in limbo is active.
+            // Timer and isResetting will be handled in doTeleportAllToGame() once countdown finishes.
+        } else if (useDelayOut && limboDelayOut > 0) {
             startGameForAllWithDelay();
-            resetAndStartTimer();
-            isResetting = false;
         } else {
             startGameForAll();
             resetAndStartTimer();
@@ -2866,6 +2878,8 @@ public class Main extends JavaPlugin implements Listener {
                     setupGamePlayer(p, finalSpawn);
                 }
                 incrementAttempts();
+                resetAndStartTimer();
+                isResetting = false;
                 syncAllScoreboards();
             });
         } else {
@@ -2874,6 +2888,8 @@ public class Main extends JavaPlugin implements Listener {
                 setupGamePlayer(p, spawn);
             }
             incrementAttempts();
+            resetAndStartTimer();
+            isResetting = false;
             syncAllScoreboards();
         }
     }
@@ -3712,6 +3728,82 @@ public class Main extends JavaPlugin implements Listener {
         if (uidFile.exists()) {
             uidFile.delete();
         }
+    }
+
+    private void createDatapacksFolder() {
+        try {
+            File datapacksDir = getDatapacksFolder();
+            if (!datapacksDir.exists()) {
+                datapacksDir.mkdirs();
+            }
+
+            File readme = new File(datapacksDir, "README.txt");
+            if (!readme.exists()) {
+                try (java.io.FileWriter writer = new java.io.FileWriter(readme)) {
+                    writer.write("=== WorldReset Datapacks Instruction ===\n\n");
+                    writer.write("1. Set 'datapacks.enabled: true' in config.yml (or use '/wr datapacks enable').\n");
+                    writer.write("2. Drop your datapack files (.zip) or uncompressed folders (containing 'pack.mcmeta') into this directory.\n");
+                    writer.write("3. During every world reset or new generation, all datapacks from this folder will be automatically injected into the new world's /datapacks folder before it loads.\n");
+                }
+            }
+        } catch (Exception e) {
+            getLogger().warning("Failed to create datapacks folder: " + e.getMessage());
+        }
+    }
+
+    private List<File> getAvailableDatapacks() {
+        File folder = getDatapacksFolder();
+        List<File> result = new ArrayList<>();
+        if (!folder.exists() || !folder.isDirectory()) return result;
+
+        File[] files = folder.listFiles();
+        if (files == null) return result;
+
+        for (File f : files) {
+            if (f.getName().equalsIgnoreCase("README.txt")) continue;
+            if (f.isFile() && f.getName().toLowerCase().endsWith(".zip")) {
+                result.add(f);
+            } else if (f.isDirectory() && new File(f, "pack.mcmeta").exists()) {
+                result.add(f);
+            }
+        }
+        return result;
+    }
+
+    private int injectDatapacksToWorld(String targetWorldName) {
+        if (!getConfig().getBoolean("datapacks.enabled", false)) return 0;
+
+        List<File> datapacks = getAvailableDatapacks();
+        if (datapacks.isEmpty()) return 0;
+
+        File worldContainer = Bukkit.getWorldContainer();
+        File destOverworld = new File(worldContainer, targetWorldName);
+        File destDatapacksDir = new File(destOverworld, "datapacks");
+
+        if (!destDatapacksDir.exists()) {
+            destDatapacksDir.mkdirs();
+        }
+
+        int copiedCount = 0;
+        for (File dp : datapacks) {
+            try {
+                File targetFile = new File(destDatapacksDir, dp.getName());
+                if (dp.isFile()) {
+                    Files.copy(dp.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    copiedCount++;
+                } else if (dp.isDirectory()) {
+                    if (targetFile.exists()) {
+                        deleteDirectoryRecursive(targetFile);
+                    }
+                    copyDirectory(dp.toPath(), targetFile.toPath());
+                    copiedCount++;
+                }
+            } catch (IOException e) {
+                getLogger().warning("Failed to inject datapack " + dp.getName() + ": " + e.getMessage());
+            }
+        }
+        getLogger().info("Successfully injected " + copiedCount + " datapack(s) into " + targetWorldName + ".");
+        return copiedCount;
     }
 
     private void initDynamicNames() {
@@ -5815,6 +5907,62 @@ public class Main extends JavaPlugin implements Listener {
                     }
                     return true;
                 }
+                case "datapacks", "datapack" -> {
+                    if (hasPerm(sender, "worldreset.datapacks")) return noPerm(sender, "worldreset.datapacks");
+
+                    if (args.length < 2) {
+                        boolean current = getConfig().getBoolean("datapacks.enabled", false);
+                        boolean newVal = !current;
+                        getConfig().set("datapacks.enabled", newVal);
+                        saveConfig();
+                        sender.sendMessage(newVal ? (getMsg("datapacks_enabled")) : (getMsg("datapacks_disabled")));
+                        return true;
+                    }
+
+                    String sub = args[1].toLowerCase();
+                    if (isEnableAlias(sub)) {
+                        getConfig().set("datapacks.enabled", true);
+                        saveConfig();
+                        sender.sendMessage(getMsg("datapacks_enabled"));
+                    } else if (isDisableAlias(sub)) {
+                        getConfig().set("datapacks.enabled", false);
+                        saveConfig();
+                        sender.sendMessage(getMsg("datapacks_disabled"));
+                    } else if (sub.equals("folder")) {
+                        if (args.length < 3) {
+                            String currentFolder = getConfig().getString("datapacks.folder", "WorldReset_Datapacks");
+                            sender.sendMessage((getMsg("current_datapacks_folder")) + currentFolder);
+                        } else {
+                            String newFolder = args[2];
+                            getConfig().set("datapacks.folder", newFolder);
+                            saveConfig();
+                            sender.sendMessage((getMsg("datapacks_folder_set_to")) + newFolder);
+                        }
+                    } else if (sub.equals("status")) {
+                        boolean enabled = getConfig().getBoolean("datapacks.enabled", false);
+                        String folder = getConfig().getString("datapacks.folder", "WorldReset_Datapacks");
+                        List<File> list = getAvailableDatapacks();
+                        sender.sendMessage(getMsgRaw(sender, "status_datapacks_header"));
+                        sender.sendMessage(getMsgRaw(sender, "status_datapacks_enabled").replace("{status}", getYesNo(sender, enabled)));
+                        sender.sendMessage(getMsgRaw(sender, "status_datapacks_folder").replace("{folder}", folder));
+                        sender.sendMessage(getMsgRaw(sender, "status_datapacks_count").replace("{count}", String.valueOf(list.size())));
+                        sender.sendMessage(getMsgRaw(sender, "status_divider"));
+                    } else if (sub.equals("list")) {
+                        List<File> list = getAvailableDatapacks();
+                        sender.sendMessage(getMsgRaw(sender, "datapacks_list_header"));
+                        if (list.isEmpty()) {
+                            sender.sendMessage(getMsg("datapacks_none_found"));
+                        } else {
+                            for (File dp : list) {
+                                sender.sendMessage("§8- §e" + dp.getName() + (dp.isDirectory() ? " §7(folder)" : " §7(.zip)"));
+                            }
+                        }
+                        sender.sendMessage(getMsgRaw(sender, "status_divider"));
+                    } else {
+                        sender.sendMessage(getMsg("usage_wr_datapacks"));
+                    }
+                    return true;
+                }
                 case "autoreset" -> {
                     if (args.length >= 2) {
                         String sub = args[1].toLowerCase();
@@ -6298,11 +6446,12 @@ public class Main extends JavaPlugin implements Listener {
             if (sender.hasPermission("worldreset.autoreset.use") || sender.hasPermission("worldreset.autoreset.config")) sender.sendMessage(getMsgRaw(sender, "wr_autoreset_action_scheduled"));
             sender.sendMessage("");
         }
-        if (sender.hasPermission("worldreset.filter.use") || sender.hasPermission("worldreset.filter.config") || sender.hasPermission("worldreset.seed.use") || sender.hasPermission("worldreset.seed.config") || sender.hasPermission("worldreset.templates") || sender.hasPermission("worldreset.compass") || sender.hasPermission("worldreset.give") || sender.hasPermission("worldreset.scoreboard.use")) {
+        if (sender.hasPermission("worldreset.filter.use") || sender.hasPermission("worldreset.filter.config") || sender.hasPermission("worldreset.seed.use") || sender.hasPermission("worldreset.seed.config") || sender.hasPermission("worldreset.templates") || sender.hasPermission("worldreset.datapacks") || sender.hasPermission("worldreset.compass") || sender.hasPermission("worldreset.give") || sender.hasPermission("worldreset.scoreboard.use")) {
             sender.sendMessage(getMsgRaw(sender, "world"));
             if (sender.hasPermission("worldreset.filter.use") || sender.hasPermission("worldreset.filter.config")) sender.sendMessage(getMsgRaw(sender, "wr_filter_type_name"));
             if (sender.hasPermission("worldreset.seed.use") || sender.hasPermission("worldreset.seed.config")) sender.sendMessage(getMsgRaw(sender, "wr_seed_value_fixedrandom"));
             if (sender.hasPermission("worldreset.templates")) sender.sendMessage(getMsgRaw(sender, "wr_templates_action_world"));
+            if (sender.hasPermission("worldreset.datapacks")) sender.sendMessage(getMsgRaw(sender, "wr_datapacks_action_desc"));
             if (sender.hasPermission("worldreset.compass")) sender.sendMessage(getMsgRaw(sender, "wr_compass_enabledisable_locator"));
             if (sender.hasPermission("worldreset.give")) sender.sendMessage(getMsgRaw(sender, "wr_give_boatwood_auto"));
             if (sender.hasPermission("worldreset.scoreboard.use")) sender.sendMessage(getMsgRaw(sender, "wr_scoreboard"));
@@ -6336,6 +6485,7 @@ public class Main extends JavaPlugin implements Listener {
             case "seed" -> "Seed";
             case "give" -> "Give";
             case "templates", "template" -> isPl ? "Szablony" : (isDe ? "Vorlagen" : "Templates");
+            case "datapacks", "datapack" -> isPl ? "Datapacki" : (isDe ? "Datapacks" : "Datapacks");
             case "compass" -> isPl ? "Kompas" : (isDe ? "Kompass" : "Compass");
             case "language", "lang" -> isPl ? "Język" : (isDe ? "Sprache" : "Language");
             case "languageall", "languageALL", "langall" -> isPl ? "Język Serwera" : (isDe ? "Serversprache" : "Server Language");
@@ -6410,6 +6560,11 @@ public class Main extends JavaPlugin implements Listener {
                     : (isDe
                     ? "§e/wr templates §6<§eenable§6|§edisable§6> §8- §7Vorlagen umschalten\n§e/wr templates folder §6[§ePfad§6] §8- §7Ordner anzeigen/ändern\n§e/wr templates status §8- §7Vorlagen-Info anzeigen"
                     : "§e/wr templates §6<§eenable§6|§edisable§6> §8- §7Toggle templates\n§e/wr templates folder §6[§epath§6] §8- §7View/set folder\n§e/wr templates status §8- §7Show template info");
+            case "datapacks", "datapack" -> isPl
+                    ? "§e/wr datapacks §6<§eenable§6|§edisable§6> §8- §7Przełącz wstrzykiwanie datapacków\n§e/wr datapacks folder §6[§eścieżka§6] §8- §7Podgląd/zmiana folderu\n§e/wr datapacks status §8- §7Info o datapackach\n§e/wr datapacks list §8- §7Lista wykrytych datapacków"
+                    : (isDe
+                    ? "§e/wr datapacks §6<§eenable§6|§edisable§6> §8- §7Datapack-Einfügung umschalten\n§e/wr datapacks folder §6[§ePfad§6] §8- §7Ordner anzeigen/ändern\n§e/wr datapacks status §8- §7Datapack-Info anzeigen\n§e/wr datapacks list §8- §7Liste der erkannten Datapacks"
+                    : "§e/wr datapacks §6<§eenable§6|§edisable§6> §8- §7Toggle datapack injection\n§e/wr datapacks folder §6[§epath§6] §8- §7View/set folder\n§e/wr datapacks status §8- §7Show datapack info\n§e/wr datapacks list §8- §7List detected datapacks");
             case "compass" -> isPl
                     ? "§e/wr compass §6<§eenable§6|§edisable§6> §8- §7Przełącz Locator Bar"
                     : (isDe
@@ -6505,6 +6660,9 @@ public class Main extends JavaPlugin implements Listener {
 
             if (sender.hasPermission("worldreset.templates"))
                 suggestions.add("templates");
+
+            if (sender.hasPermission("worldreset.datapacks"))
+                suggestions.add("datapacks");
 
             if (sender.hasPermission("worldreset.autoreset.use") || sender.hasPermission("worldreset.autoreset.config"))
                 suggestions.add("autoreset");
@@ -6665,6 +6823,24 @@ public class Main extends JavaPlugin implements Listener {
                                 "disable",
                                 "folder",
                                 "status"
+                        ),
+                        new ArrayList<>()
+                );
+            }
+
+            // DATAPACKS
+            if (args[0].equalsIgnoreCase("datapacks") || args[0].equalsIgnoreCase("datapack")) {
+                if (!sender.hasPermission("worldreset.datapacks"))
+                    return Collections.emptyList();
+
+                return StringUtil.copyPartialMatches(
+                        args[1],
+                        Arrays.asList(
+                                "enable",
+                                "disable",
+                                "folder",
+                                "status",
+                                "list"
                         ),
                         new ArrayList<>()
                 );
@@ -6895,6 +7071,9 @@ public class Main extends JavaPlugin implements Listener {
 
                 if (sender.hasPermission("worldreset.templates"))
                     suggestions.add("templates");
+
+                if (sender.hasPermission("worldreset.datapacks"))
+                    suggestions.add("datapacks");
 
                 if (sender.hasPermission("worldreset.compass"))
                     suggestions.add("compass");
