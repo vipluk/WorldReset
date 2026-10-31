@@ -32,6 +32,17 @@ datapacks:
   # Supports relative paths (e.g. WorldReset_Datapacks or ../../datapacks) and absolute paths.
   folder: "WorldReset_Datapacks"
 
+# --- Damage Indicator ---
+damage-indicator:
+  # Show damage notifications on the Action Bar alongside the timer in dual mode? (true/false)
+  enabled: true
+
+  # Duration in seconds for how long dual display mode stays active after taking damage
+  duration: 3
+
+  # Display format ({player} and {damage} placeholders)
+  format: "&c{player} -{damage}❤"
+
 # --- Backup ---
 backup:
   # Enable automatic backups before deleting the world? (true/false)

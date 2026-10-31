@@ -10,7 +10,7 @@ commands:
   worldreset:
     description: Main command
     aliases: [wr]
-    usage: /wr <reset|limbo|limboall|seed|language|silent|death|filter|timer|templates|datapacks|autoreset|backup|scoreboard|reload>
+    usage: /wr <reset|limbo|limboall|seed|language|silent|death|filter|timer|templates|datapacks|damage|autoreset|backup|scoreboard|reload>
 
 permissions:
   # ==========================================
@@ -191,6 +191,9 @@ permissions:
   worldreset.datapacks:
     description: Allows toggling and managing world datapacks
     default: op
+  worldreset.damage:
+    description: Allows toggling and managing Action Bar damage indicator
+    default: op
   worldreset.scoreboard.*:
     description: Allows full control over scoreboard management and resets
     default: op
@@ -231,5 +234,6 @@ permissions:
       worldreset.compass: true
       worldreset.templates: true
       worldreset.datapacks: true
+      worldreset.damage: true
       worldreset.autoreset.*: true
       worldreset.scoreboard.*: true
