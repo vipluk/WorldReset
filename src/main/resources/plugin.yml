@@ -1,8 +1,8 @@
 name: WorldReset
-website: https://modrinth.com/project/worldreset
-version: 2.0
+website: https://modrinth.com/plugin/worldreset
+version: "2.0"
 main: org.example.worldreset.Main
-api-version: 1.21
+api-version: "1.21"
 author: vipluk
 description: Very advanced world reset system.
 
