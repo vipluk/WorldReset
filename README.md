@@ -14,6 +14,7 @@ WorldReset is a plugin designed to manage game worlds dynamically. Instead of ki
 
 * **🔄 Instant Reset:** Regenerates Overworld, Nether, and End without shutting down the server.
 * **🌱 Seed Control:** Choose between **Random Seed** for a fresh experience or **Fixed Seed** for practice/speedruns.
+* **📦 Dynamic Datapack Injection:** Automatically injects datapacks (.zip files or uncompressed directories) into every generated or reset world. Toggle, reload, or disable them on the fly anytime via `/wr datapacks` without restarting the server!
 * **📁 World Templates (Custom Maps):** Load your own custom worlds instead of generating them! Put your map folders into `WorldReset_Templates`. The plugin automatically classifies dimensions (Overworld, Nether, End), auto-converts Singleplayer world structures (moving `DIM-1` and `DIM1` folders to Spigot standards), cleans up temporary files, and prevents UUID conflicts. Multiple overworld templates are randomly selected each reset. Includes a fail-safe backup seed.
 * **⏰ AutoReset Scheduler:** Schedule automated periodic resets! Set loop intervals (e.g. `60s`, `5m`, `1h`) and control the countdown. The paused countdown remains on screen in gray to keep players informed.
 * **🏁 Multi-Goal Speedrun Stopwatch:** Built-in Action Bar stopwatch! Race in **Global** mode (first to finish stops the timer) or **Individual** mode (personal timers). Support for RTA (Real-Time) and IGT (In-Game Time). Set triggers for Portal Entries, Entity Kills, Advancements, Block Breaking (`BLOCK`), and Item Collection (`ITEM`)! Dynamic autocomplete suggestions are loaded directly from the game registries.
@@ -47,7 +48,7 @@ Main command: `/worldreset` or `/wr`
 | `/wr limboall newplayers [enable/disable/status]` | Sends new players joining mid-game directly to Limbo instead of active game. | `worldreset.limbo.all` |
 | `/wr limboall startup [enable/disable/status]` | Configures the server to boot up directly into Limbo waiting mode. | `worldreset.limbo.all` |
 | `/wr limboall status` | Shows current Limbo settings (delays, new players lock, startup mode). | `worldreset.limbo.all` |
-| `/wr death` | Toggles **Reset on Death** mode (Hardcore) ON/OFF. | `worldreset.death` |
+| `/wr death [on/off/limit]` | Toggles **Reset on Death** mode (Hardcore) or sets custom life/death limit. | `worldreset.death` |
 | `/wr silent` | Toggles your personal **Silent Mode** (hides reset messages for yourself). | — |
 | `/wr silentall` | Toggles **Global Server Broadcasts** in `config.yml` ON/OFF. | `worldreset.silent` |
 | `/wr filter` | Shows current active filters and seed status. | `worldreset.filter.use` |
@@ -59,6 +60,12 @@ Main command: `/worldreset` or `/wr`
 | `/wr give boat <enable/disable>` | Automatically gives a boat when spawning on water. | `worldreset.give` |
 | `/wr give wood <amount/enable/disable>` | Automatically gives wood when spawning underground. | `worldreset.give` |
 | `/wr templates <enable/disable>` | Toggles whether custom maps should load from the templates folder. | `worldreset.templates` |
+| `/wr datapacks <enable/disable>` | Toggles automatic datapack injection and reloads server registers on the fly. | `worldreset.datapacks` |
+| `/wr datapacks <status/list>` | Checks loaded datapacks and current injection status. | `worldreset.datapacks` |
+| `/wr datapacks folder [path]` | Views or customizes the datapacks source directory. | `worldreset.datapacks` |
+| `/wr damage <enable/disable>` | Toggles dual Action Bar damage indicator alongside the stopwatch. | `worldreset.damage` |
+| `/wr damage duration <seconds>` | Configures how long damage notifications remain visible (1-60s). | `worldreset.damage` |
+| `/wr damage status` | Displays current damage indicator settings and duration. | `worldreset.damage` |
 | `/wr autoreset <start/stop/disable>` | Controls automated periodic world resets toggles. | `worldreset.autoreset.use` |
 | `/wr autoreset <loop/time>` | Configures automated periodic world resets rules. | `worldreset.autoreset.config` |
 | `/wr autoreset after <number>` | Configures death limit to trigger autoreset (Shared Lives). | `worldreset.autoreset.config` |
@@ -83,7 +90,7 @@ Main command: `/worldreset` or `/wr`
 
 **Wildcard Permissions:** 
 For easier moderation, you can use wildcard nodes. For example, `worldreset.timer.*` grants all timer permissions. Available wildcards:
-`worldreset.backup.*`, `worldreset.limbo.*`, `worldreset.timer.*`, `worldreset.autoreset.*`, `worldreset.seed.*`, `worldreset.filter.*`.
+`worldreset.backup.*`, `worldreset.limbo.*`, `worldreset.timer.*`, `worldreset.autoreset.*`, `worldreset.seed.*`, `worldreset.filter.*`, `worldreset.scoreboard.*`, `worldreset.datapacks`, `worldreset.damage`.
 
 **Full Admin Permission:** `worldreset.*` (Inherits everything above).
 
