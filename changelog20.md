@@ -15,6 +15,6 @@
   * Fixed stopwatch starting prematurely while waiting in Limbo; the timer now starts the exact moment players actually land in the new world.
 * 🩸 **Dual Action Bar Damage Indicator (`/wr damage`):**
   * The timer smoothly switches into dual display mode (`⏱ 12:35 | Player -2.0❤`) for a few seconds whenever someone takes damage, preventing messages from being overwritten.
-* 🛠️ **Config Overhaul & Bug Fixes:**
-  * Standardized `config.yml` into clean, concise English with smart `Tab` completions for all new commands.
+* 🧹 **Config Cleanup & Bug Fixes:**
+  * Cleaned up `config.yml` into standardized English - removed cluttered multi-language comments to improve readability.
   * Fixed `/wr death <limit>` message displaying a hardcoded limit of 1.
