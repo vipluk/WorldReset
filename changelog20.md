@@ -25,3 +25,5 @@
 * ⌨️ **Smart Tab Completion & Full Permission Integration:**
   * Seamless auto-completion under the `Tab` key for all new commands.
   * Fully integrated into `/wr help` under the **World** category.
+* 💥 **Dual-Segment Action Bar Damage Indicator:**
+  * Fixed an issue where the fast-updating timer instantly hid damage notifications: the Action Bar now smoothly switches into dual display mode (`⏱ 12:35 | Player -2.0❤`) for 3 seconds whenever someone takes damage before returning to the normal timer.

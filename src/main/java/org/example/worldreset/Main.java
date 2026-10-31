@@ -76,6 +76,19 @@ public class Main extends JavaPlugin implements Listener {
     private boolean isGameReady = false;
     private Difficulty lastSavedDifficulty = Difficulty.NORMAL;
 
+    // --- DAMAGE INDICATOR / ACTION BAR DUAL MODE ---
+    private boolean damageIndicatorEnabled = true;
+    private int damageIndicatorDuration = 3;
+    private String damageIndicatorFormat = "&c{player} -{damage}❤";
+    private static volatile String activeActionBarNotification = null;
+    private static volatile long actionBarNotificationExpiresAt = 0L;
+
+    public static void setActionBarNotification(String message, long durationMs) {
+        if (message == null || message.isEmpty()) return;
+        activeActionBarNotification = message;
+        actionBarNotificationExpiresAt = System.currentTimeMillis() + durationMs;
+    }
+
     // --- ZMIENNE TIMERA ---
     private boolean timerEnabled;
     private String timerMode;
@@ -328,6 +341,11 @@ public class Main extends JavaPlugin implements Listener {
         limboDelayOut = getConfig().getInt("limbo.delay-out", 0);
         limboNewPlayersToLimbo = getConfig().getBoolean("limbo.new-players-to-limbo", false);
         limboStartInLimbo = getConfig().getBoolean("limbo.start-in-limbo", false);
+
+        // Damage indicator
+        damageIndicatorEnabled = getConfig().getBoolean("damage-indicator.enabled", true);
+        damageIndicatorDuration = Math.max(1, getConfig().getInt("damage-indicator.duration", 3));
+        damageIndicatorFormat = getConfig().getString("damage-indicator.format", "&c{player} -{damage}❤");
     }
 
     // --- HELPER METHODS ---
@@ -4249,6 +4267,19 @@ public class Main extends JavaPlugin implements Listener {
             sb.append("&e&l⏱ ").append(text);
         }
 
+        // Damage indicator / notification part (Dual Mode)
+        String notif = activeActionBarNotification;
+        if (notif != null) {
+            if (System.currentTimeMillis() < actionBarNotificationExpiresAt) {
+                if (!sb.isEmpty()) {
+                    sb.append(" &7| ");
+                }
+                sb.append(notif);
+            } else {
+                activeActionBarNotification = null;
+            }
+        }
+
         // AutoReset part - hide when at 0 (reset in progress or just finished)
         if (autoResetEnabled && autoResetVisible && autoResetRemainingSeconds > 0) {
             String autoResetText;
@@ -4272,12 +4303,13 @@ public class Main extends JavaPlugin implements Listener {
     }
 
     /**
-     * Sends only the autoreset action bar when the timer is NOT running
-     * (so autoreset still refreshes the display independently).
+     * Sends the action bar when the timer is NOT running
+     * (handles autoreset and temporary damage notifications).
      */
     private void refreshAutoResetActionBar() {
-        if (!autoResetEnabled || !autoResetVisible) return;
         if (timerEnabled && timerRunning) return; // Timer task already handles display
+        boolean hasNotif = activeActionBarNotification != null && System.currentTimeMillis() < actionBarNotificationExpiresAt;
+        if (!hasNotif && (!autoResetEnabled || !autoResetVisible)) return;
 
         for (Player p : Bukkit.getOnlinePlayers()) {
             if (!p.getWorld().getName().equals(limboWorldName)) {
@@ -4774,6 +4806,31 @@ public class Main extends JavaPlugin implements Listener {
             p.teleport(loc);
             e.setCancelled(true); } } } }
     @EventHandler public void onHit(EntityDamageByEntityEvent e) { if (e.getDamager().getWorld().getName().equals(limboWorldName)) e.setDamage(0); }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerDamageActionBar(EntityDamageEvent event) {
+        if (!damageIndicatorEnabled) return;
+        if (!(event.getEntity() instanceof Player victim)) return;
+        if (victim.getWorld().getName().equals(limboWorldName)) return;
+
+        double finalDamage = event.getFinalDamage();
+        if (finalDamage <= 0.05) return;
+
+        String damageFormatted = String.format(java.util.Locale.US, "%.1f", finalDamage);
+        String notification = damageIndicatorFormat
+                .replace("{player}", victim.getName())
+                .replace("{damage}", damageFormatted);
+
+        setActionBarNotification(notification, damageIndicatorDuration * 1000L);
+
+        if (!timerEnabled || !timerRunning) {
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                if (!p.getWorld().getName().equals(limboWorldName)) {
+                    sendActionBar(p, "");
+                }
+            }
+        }
+    }
     @EventHandler public void onHunger(FoodLevelChangeEvent e) { if (e.getEntity().getWorld().getName().equals(limboWorldName)) { e.setCancelled(true); e.setFoodLevel(20); } }
     @EventHandler public void onBreak(BlockBreakEvent e) { 
         if (e.getPlayer().getWorld().getName().equals(limboWorldName) && !e.getPlayer().isOp()) {
@@ -5963,6 +6020,56 @@ public class Main extends JavaPlugin implements Listener {
                     }
                     return true;
                 }
+                case "damage", "damageindicator" -> {
+                    if (hasPerm(sender, "worldreset.damage")) return noPerm(sender, "worldreset.damage");
+
+                    if (args.length < 2) {
+                        damageIndicatorEnabled = !damageIndicatorEnabled;
+                        getConfig().set("damage-indicator.enabled", damageIndicatorEnabled);
+                        saveConfig();
+                        sender.sendMessage(damageIndicatorEnabled ? getMsg("damage_indicator_enabled") : getMsg("damage_indicator_disabled"));
+                        return true;
+                    }
+
+                    String sub = args[1].toLowerCase();
+                    if (isEnableAlias(sub)) {
+                        damageIndicatorEnabled = true;
+                        getConfig().set("damage-indicator.enabled", true);
+                        saveConfig();
+                        sender.sendMessage(getMsg("damage_indicator_enabled"));
+                    } else if (isDisableAlias(sub)) {
+                        damageIndicatorEnabled = false;
+                        getConfig().set("damage-indicator.enabled", false);
+                        saveConfig();
+                        sender.sendMessage(getMsg("damage_indicator_disabled"));
+                    } else if (sub.equals("duration") || sub.equals("time")) {
+                        if (args.length < 3) {
+                            sender.sendMessage(getMsg("status_damage_duration").replace("{duration}", String.valueOf(damageIndicatorDuration)));
+                        } else {
+                            try {
+                                int sec = Integer.parseInt(args[2]);
+                                if (sec < 1 || sec > 60) {
+                                    sender.sendMessage("§cDuration must be between 1 and 60 seconds.");
+                                    return true;
+                                }
+                                damageIndicatorDuration = sec;
+                                getConfig().set("damage-indicator.duration", sec);
+                                saveConfig();
+                                sender.sendMessage(getMsg("damage_indicator_duration_set").replace("{v1}", String.valueOf(sec)));
+                            } catch (NumberFormatException e) {
+                                sender.sendMessage(getMsg("death-invalid-number"));
+                            }
+                        }
+                    } else if (sub.equals("status")) {
+                        sender.sendMessage(getMsgRaw(sender, "status_damage_header"));
+                        sender.sendMessage(getMsgRaw(sender, "status_damage_enabled").replace("{status}", getYesNo(sender, damageIndicatorEnabled)));
+                        sender.sendMessage(getMsgRaw(sender, "status_damage_duration").replace("{duration}", String.valueOf(damageIndicatorDuration)));
+                        sender.sendMessage(getMsgRaw(sender, "status_divider"));
+                    } else {
+                        sender.sendMessage(getMsg("usage_wr_damage"));
+                    }
+                    return true;
+                }
                 case "autoreset" -> {
                     if (args.length >= 2) {
                         String sub = args[1].toLowerCase();
@@ -6486,6 +6593,7 @@ public class Main extends JavaPlugin implements Listener {
             case "give" -> "Give";
             case "templates", "template" -> isPl ? "Szablony" : (isDe ? "Vorlagen" : "Templates");
             case "datapacks", "datapack" -> isPl ? "Datapacki" : (isDe ? "Datapacks" : "Datapacks");
+            case "damage", "damageindicator" -> isPl ? "Wskaźnik Obrażeń" : (isDe ? "Schadensanzeige" : "Damage Indicator");
             case "compass" -> isPl ? "Kompas" : (isDe ? "Kompass" : "Compass");
             case "language", "lang" -> isPl ? "Język" : (isDe ? "Sprache" : "Language");
             case "languageall", "languageALL", "langall" -> isPl ? "Język Serwera" : (isDe ? "Serversprache" : "Server Language");
@@ -6663,6 +6771,9 @@ public class Main extends JavaPlugin implements Listener {
 
             if (sender.hasPermission("worldreset.datapacks"))
                 suggestions.add("datapacks");
+
+            if (sender.hasPermission("worldreset.damage"))
+                suggestions.add("damage");
 
             if (sender.hasPermission("worldreset.autoreset.use") || sender.hasPermission("worldreset.autoreset.config"))
                 suggestions.add("autoreset");
@@ -6954,6 +7065,17 @@ public class Main extends JavaPlugin implements Listener {
                 );
             }
 
+
+            // DAMAGE
+            if (args[0].equalsIgnoreCase("damage") || args[0].equalsIgnoreCase("damageindicator")) {
+                if (!sender.hasPermission("worldreset.damage"))
+                    return Collections.emptyList();
+                return StringUtil.copyPartialMatches(
+                        args[1],
+                        Arrays.asList("enable", "disable", "status", "duration"),
+                        new ArrayList<>()
+                );
+            }
 
             // RESET
             if (args[0].equalsIgnoreCase("reset")) {

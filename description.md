@@ -1,10 +1,8 @@
 ❤️ **If you enjoy this plugin, please consider leaving a like! It means a lot for me.** ❤️
 
-> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21 - 26.2** (Paper, Purpur, Spigot). Tested and fully compatible with **[SharedHealthAndHunger](https://modrinth.com/plugin/sharedhealthandhunger)** and **[Geyser Crossplay](https://modrinth.com/plugin/geyser)**.
+> **⚠️ Compatibility Note:** This plugin is built for **Minecraft 1.21 - 26.3** (Paper, Purpur, Spigot). Tested and fully compatible with **[SharedHealthAndHunger](https://modrinth.com/plugin/sharedhealthandhunger)** and **[Geyser Crossplay](https://modrinth.com/plugin/geyser)**.
 
 If you want to report a bug or suggest a new plugin, join my [Discord server](https://discord.gg/A7WVnYj3BP).
-
-Also check my other plugin **[SharedHealthAndHunger](https://modrinth.com/plugin/sharedhealthandhunger)**
 
 # 🌍 WorldReset
 
