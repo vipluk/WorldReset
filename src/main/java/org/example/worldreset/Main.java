@@ -108,6 +108,8 @@ public class Main extends JavaPlugin implements Listener {
     private final Map<UUID, Integer> playerElapsedTicks = new HashMap<>();
     private final Set<UUID> playersFinished = new HashSet<>();
     private final Set<UUID> playersDeathLocked = new HashSet<>(); // Blokada graczy na ekranie smierci (zabezpieczenie przed limbo)
+    private final Set<UUID> teleportsInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final long RESPAWN_SETTLE_TICKS = 2L;
 
     // --- ZMIENNE KOMPASU (RADARU) ---
     private boolean compassEnabled;
@@ -293,6 +295,7 @@ public class Main extends JavaPlugin implements Listener {
     public void onDisable() {
         saveUserData();
         saveLimboPlayersFile();
+        teleportsInFlight.clear();
         if (fastStatsContext != null) {
             fastStatsContext.shutdown();
         }
@@ -731,6 +734,81 @@ public class Main extends JavaPlugin implements Listener {
 
     // --- LIMBO LOGIC ---
 
+    /**
+     * Wyśrodkowuje koordynaty na środku bloku (+0.5 X oraz +0.5 Z).
+     */
+    private Location centered(Location src) {
+        if (src == null) return null;
+        Location l = src.clone();
+        l.setX(l.getBlockX() + 0.5);
+        l.setZ(l.getBlockZ() + 0.5);
+        return l;
+    }
+
+    /**
+     * Bezpieczna, asynchroniczna teleportacja odporna na lagi sieciowe i desynchronizację:
+     * 1. Ignoruje zduplikowane żądania teleportu dla tego samego gracza będącego w trakcie przenoszenia.
+     * 2. Jeśli gracz jest martwy, wymusza respawn i odczekuje 2 ticki na synchronizację encji.
+     * 3. Przed teleportem zeruje prędkość (velocity) i dystans spadania (fallDistance).
+     * 4. Wykonuje asynchroniczny teleport (teleportAsync) Paper API.
+     * 5. Po wylądowaniu w głównym wątku ponownie zeruje pęd i uruchamia opcjonalną akcję onDone.
+     */
+    private void safeTeleport(Player p, Location target, Runnable onDone) {
+        if (p == null || target == null || target.getWorld() == null) {
+            if (onDone != null) onDone.run();
+            return;
+        }
+        UUID id = p.getUniqueId();
+        if (!teleportsInFlight.add(id)) {
+            return; // Gracz jest już w trakcie bezpiecznego przenoszenia
+        }
+
+        // Bezpiecznik timeoutu: usunięcie blokady po 5 sekundach na wypadek awarii chunków
+        Bukkit.getScheduler().runTaskLater(this, () -> teleportsInFlight.remove(id), 100L);
+
+        Runnable executeTeleport = () -> {
+            if (!p.isOnline()) {
+                teleportsInFlight.remove(id);
+                return;
+            }
+            try {
+                p.setFallDistance(0f);
+                p.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+            } catch (Exception ignored) {}
+
+            Location centeredTarget = centered(target);
+            p.teleportAsync(centeredTarget).whenComplete((ok, ex) -> {
+                Bukkit.getScheduler().runTask(this, () -> {
+                    try {
+                        if (p.isOnline()) {
+                            try {
+                                p.setFallDistance(0f);
+                                p.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+                            } catch (Exception ignored) {}
+                            if (ex != null || !Boolean.TRUE.equals(ok)) {
+                                getLogger().warning("safeTeleport nie powiódł się dla " + p.getName() + (ex != null ? ": " + ex.getMessage() : ""));
+                            }
+                            if (onDone != null) {
+                                onDone.run();
+                            }
+                        }
+                    } finally {
+                        teleportsInFlight.remove(id);
+                    }
+                });
+            });
+        };
+
+        if (p.isDead()) {
+            try {
+                p.spigot().respawn();
+            } catch (Exception ignored) {}
+            Bukkit.getScheduler().runTaskLater(this, executeTeleport, RESPAWN_SETTLE_TICKS);
+        } else {
+            Bukkit.getScheduler().runTask(this, executeTeleport);
+        }
+    }
+
     private Location getLimboSpawn() {
         World limbo = Bukkit.getWorld(limboWorldName);
         if (limbo == null) {
@@ -779,11 +857,11 @@ public class Main extends JavaPlugin implements Listener {
             public void run() {
                 Location spawn = getLimboSpawn();
                 for (Player p : Bukkit.getOnlinePlayers()) {
-                    if (p.isDead()) p.spigot().respawn();
                     if (!p.getWorld().getName().equals(limboWorldName)) {
-                        p.teleport(spawn);
+                        safeTeleport(p, spawn, () -> setupLimboPlayer(p));
+                    } else {
+                        setupLimboPlayer(p);
                     }
-                    setupLimboPlayer(p);
                 }
             }
         }.runTaskLater(Main.this, 5L);
@@ -896,6 +974,7 @@ public class Main extends JavaPlugin implements Listener {
             World world = Bukkit.getWorld(worldName);
             if (world == null) world = Bukkit.getWorld(gameWorldName);
 
+            Location targetLoc;
             if (world != null) {
                 double x = limboPlayersConfig.getDouble(path + ".x");
                 double y = limboPlayersConfig.getDouble(path + ".y");
@@ -904,77 +983,82 @@ public class Main extends JavaPlugin implements Listener {
                 float pitch = (float) limboPlayersConfig.getDouble(path + ".pitch");
                 Location loc = new Location(world, x, y, z, yaw, pitch);
                 Location safeLoc = getSafeLocation(loc);
-                p.teleport(safeLoc != null ? safeLoc : loc);
+                targetLoc = safeLoc != null ? safeLoc : loc;
             } else {
                 World game = Bukkit.getWorld(gameWorldName);
-                if (game != null) p.teleport(game.getSpawnLocation());
+                targetLoc = game != null ? game.getSpawnLocation() : null;
             }
 
-            String fgm = limboPlayersConfig.getString(path + ".gamemode", "SURVIVAL");
-            try { p.setGameMode(GameMode.valueOf(fgm)); } catch (Exception ignored) { p.setGameMode(GameMode.SURVIVAL); }
+            safeTeleport(p, targetLoc, () -> {
+                if (!p.isOnline()) return;
+                String fgm = limboPlayersConfig.getString(path + ".gamemode", "SURVIVAL");
+                try { p.setGameMode(GameMode.valueOf(fgm)); } catch (Exception ignored) { p.setGameMode(GameMode.SURVIVAL); }
 
-            double fhealth = limboPlayersConfig.getDouble(path + ".health", 20);
-            p.setHealth(Math.min(fhealth, p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue()));
-            p.setFoodLevel(limboPlayersConfig.getInt(path + ".food", 20));
-            p.setSaturation((float) limboPlayersConfig.getDouble(path + ".saturation", 5));
-            p.setLevel(limboPlayersConfig.getInt(path + ".xp-level", 0));
-            p.setExp((float) limboPlayersConfig.getDouble(path + ".xp-progress", 0));
-            p.setFireTicks(Math.max(limboPlayersConfig.getInt(path + ".fire-ticks", 0), 0));
+                double fhealth = limboPlayersConfig.getDouble(path + ".health", 20);
+                p.setHealth(Math.min(fhealth, p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue()));
+                p.setFoodLevel(limboPlayersConfig.getInt(path + ".food", 20));
+                p.setSaturation((float) limboPlayersConfig.getDouble(path + ".saturation", 5));
+                p.setLevel(limboPlayersConfig.getInt(path + ".xp-level", 0));
+                p.setExp((float) limboPlayersConfig.getDouble(path + ".xp-progress", 0));
+                p.setFireTicks(Math.max(limboPlayersConfig.getInt(path + ".fire-ticks", 0), 0));
 
-            // Restore inventory
-            p.getInventory().clear();
-            List<?> finvList = limboPlayersConfig.getList(path + ".inventory");
-            if (finvList != null) {
-                org.bukkit.inventory.ItemStack[] contents = new org.bukkit.inventory.ItemStack[finvList.size()];
-                for (int i = 0; i < finvList.size(); i++) {
-                    Object item = finvList.get(i);
-                    if (item instanceof org.bukkit.inventory.ItemStack) contents[i] = (org.bukkit.inventory.ItemStack) item;
+                // Restore inventory
+                p.getInventory().clear();
+                List<?> finvList = limboPlayersConfig.getList(path + ".inventory");
+                if (finvList != null) {
+                    org.bukkit.inventory.ItemStack[] contents = new org.bukkit.inventory.ItemStack[finvList.size()];
+                    for (int i = 0; i < finvList.size(); i++) {
+                        Object item = finvList.get(i);
+                        if (item instanceof org.bukkit.inventory.ItemStack) contents[i] = (org.bukkit.inventory.ItemStack) item;
+                    }
+                    p.getInventory().setContents(contents);
                 }
-                p.getInventory().setContents(contents);
-            }
 
-            List<?> farmorList = limboPlayersConfig.getList(path + ".armor");
-            if (farmorList != null) {
-                org.bukkit.inventory.ItemStack[] armor = new org.bukkit.inventory.ItemStack[farmorList.size()];
-                for (int i = 0; i < farmorList.size(); i++) {
-                    Object item = farmorList.get(i);
-                    if (item instanceof org.bukkit.inventory.ItemStack) armor[i] = (org.bukkit.inventory.ItemStack) item;
+                List<?> farmorList = limboPlayersConfig.getList(path + ".armor");
+                if (farmorList != null) {
+                    org.bukkit.inventory.ItemStack[] armor = new org.bukkit.inventory.ItemStack[farmorList.size()];
+                    for (int i = 0; i < farmorList.size(); i++) {
+                        Object item = farmorList.get(i);
+                        if (item instanceof org.bukkit.inventory.ItemStack) armor[i] = (org.bukkit.inventory.ItemStack) item;
+                    }
+                    p.getInventory().setArmorContents(armor);
                 }
-                p.getInventory().setArmorContents(armor);
-            }
 
-            Object foffhand = limboPlayersConfig.get(path + ".offhand");
-            if (foffhand instanceof org.bukkit.inventory.ItemStack) {
-                p.getInventory().setItemInOffHand((org.bukkit.inventory.ItemStack) foffhand);
-            }
-
-            List<?> fenderchestList = limboPlayersConfig.getList(path + ".enderchest");
-            if (fenderchestList != null) {
-                org.bukkit.inventory.ItemStack[] ecContents = new org.bukkit.inventory.ItemStack[fenderchestList.size()];
-                for (int i = 0; i < fenderchestList.size(); i++) {
-                    Object item = fenderchestList.get(i);
-                    if (item instanceof org.bukkit.inventory.ItemStack) ecContents[i] = (org.bukkit.inventory.ItemStack) item;
+                Object foffhand = limboPlayersConfig.get(path + ".offhand");
+                if (foffhand instanceof org.bukkit.inventory.ItemStack) {
+                    p.getInventory().setItemInOffHand((org.bukkit.inventory.ItemStack) foffhand);
                 }
-                p.getEnderChest().setContents(ecContents);
-            }
 
-            // Restore potion effects
-            for (PotionEffect effect : p.getActivePotionEffects()) {
-                p.removePotionEffect(effect.getType());
-            }
-            List<Map<?, ?>> feffects = limboPlayersConfig.getMapList(path + ".effects");
-            if (feffects != null) {
-                for (Map<?, ?> effectMap : feffects) {
-                    try {
-                        PotionEffect effect = new PotionEffect((Map<String, Object>) effectMap);
-                        p.addPotionEffect(effect);
-                    } catch (Exception ignored) {}
+                // Restore Ender Chest
+                p.getEnderChest().clear();
+                List<?> fenderchestList = limboPlayersConfig.getList(path + ".enderchest");
+                if (fenderchestList != null) {
+                    org.bukkit.inventory.ItemStack[] ecContents = new org.bukkit.inventory.ItemStack[fenderchestList.size()];
+                    for (int i = 0; i < fenderchestList.size(); i++) {
+                        Object item = fenderchestList.get(i);
+                        if (item instanceof org.bukkit.inventory.ItemStack) ecContents[i] = (org.bukkit.inventory.ItemStack) item;
+                    }
+                    p.getEnderChest().setContents(ecContents);
                 }
-            }
 
-            limboPlayersConfig.set(path, null);
-            saveLimboPlayersFile();
-            limboSavedStates.remove(p.getUniqueId());
+                // Restore potion effects
+                for (PotionEffect effect : p.getActivePotionEffects()) {
+                    p.removePotionEffect(effect.getType());
+                }
+                List<Map<?, ?>> feffects = limboPlayersConfig.getMapList(path + ".effects");
+                if (feffects != null) {
+                    for (Map<?, ?> effectMap : feffects) {
+                        try {
+                            PotionEffect effect = new PotionEffect((Map<String, Object>) effectMap);
+                            p.addPotionEffect(effect);
+                        } catch (Exception ignored) {}
+                    }
+                }
+
+                limboPlayersConfig.set(path, null);
+                saveLimboPlayersFile();
+                limboSavedStates.remove(p.getUniqueId());
+            });
             return;
         }
 
@@ -982,30 +1066,34 @@ public class Main extends JavaPlugin implements Listener {
         if (state == null) return;
 
         Location loc = (Location) state.get("location");
+        Location targetLoc;
         if (loc != null && loc.getWorld() != null) {
             Location safeLoc = getSafeLocation(loc);
-            p.teleport(safeLoc != null ? safeLoc : loc);
+            targetLoc = safeLoc != null ? safeLoc : loc;
         } else {
             World game = Bukkit.getWorld(gameWorldName);
-            if (game != null) p.teleport(game.getSpawnLocation());
+            targetLoc = game != null ? game.getSpawnLocation() : null;
         }
 
-        p.setGameMode((GameMode) state.get("gamemode"));
-        p.getInventory().setContents((org.bukkit.inventory.ItemStack[]) state.get("inventory"));
-        p.getInventory().setArmorContents((org.bukkit.inventory.ItemStack[]) state.get("armor"));
-        p.getInventory().setItemInOffHand((org.bukkit.inventory.ItemStack) state.get("offhand"));
-        p.setHealth(Math.min((double) state.get("health"), p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue()));
-        p.setFoodLevel((int) state.get("food"));
-        p.setSaturation((float) state.get("saturation"));
-        p.setLevel((int) state.get("xp-level"));
-        p.setExp((float) state.get("xp-progress"));
-        p.setFireTicks((int) state.get("fire-ticks"));
+        safeTeleport(p, targetLoc, () -> {
+            if (!p.isOnline()) return;
+            p.setGameMode((GameMode) state.get("gamemode"));
+            p.getInventory().setContents((org.bukkit.inventory.ItemStack[]) state.get("inventory"));
+            p.getInventory().setArmorContents((org.bukkit.inventory.ItemStack[]) state.get("armor"));
+            p.getInventory().setItemInOffHand((org.bukkit.inventory.ItemStack) state.get("offhand"));
+            p.setHealth(Math.min((double) state.get("health"), p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue()));
+            p.setFoodLevel((int) state.get("food"));
+            p.setSaturation((float) state.get("saturation"));
+            p.setLevel((int) state.get("xp-level"));
+            p.setExp((float) state.get("xp-progress"));
+            p.setFireTicks((int) state.get("fire-ticks"));
 
-        for (PotionEffect effect : p.getActivePotionEffects()) p.removePotionEffect(effect.getType());
-        List<PotionEffect> effects = (List<PotionEffect>) state.get("effects");
-        if (effects != null) {
-            for (PotionEffect effect : effects) p.addPotionEffect(effect);
-        }
+            for (PotionEffect effect : p.getActivePotionEffects()) p.removePotionEffect(effect.getType());
+            List<PotionEffect> effects = (List<PotionEffect>) state.get("effects");
+            if (effects != null) {
+                for (PotionEffect effect : effects) p.addPotionEffect(effect);
+            }
+        });
     }
 
     private void toggleLimboForPlayer(Player p, CommandSender sender, int delay) {
@@ -1061,29 +1149,24 @@ public class Main extends JavaPlugin implements Listener {
                 startCountdown(p, delay, "limbo-countdown-in", () -> {
                     if (p.isOnline()) {
                         saveLimboState(p);
-                        p.teleport(getLimboSpawn());
-                        setupLimboPlayer(p);
-                        sendLimboWelcomeMessage(p);
+                        safeTeleport(p, getLimboSpawn(), () -> {
+                            setupLimboPlayer(p);
+                            sendLimboWelcomeMessage(p);
+                        });
                     }
                 });
             } else {
                 saveLimboState(p);
-                p.teleport(getLimboSpawn());
-                setupLimboPlayer(p);
-                sendLimboWelcomeMessage(p);
+                safeTeleport(p, getLimboSpawn(), () -> {
+                    setupLimboPlayer(p);
+                    sendLimboWelcomeMessage(p);
+                });
             }
         }
     }
 
     private void setupGamePlayer(Player p, Location spawn) {
-        if (p.isDead()) p.spigot().respawn();
-
-        Location centeredSpawn = spawn.clone();
-        centeredSpawn.setX(centeredSpawn.getBlockX() + 0.5);
-        centeredSpawn.setZ(centeredSpawn.getBlockZ() + 0.5);
-
-        // Use teleportAsync for non-blocking chunk loading (Paper API)
-        p.teleportAsync(centeredSpawn).thenAccept(success -> {
+        safeTeleport(p, spawn, () -> {
             if (!p.isOnline()) return;
             p.setGameMode(GameMode.SURVIVAL);
             p.getInventory().clear();
@@ -3289,70 +3372,71 @@ public class Main extends JavaPlugin implements Listener {
                 Runnable restoreAction = () -> {
                     if (!fp.isOnline()) return;
                     Location safeLoc = getSafeLocation(floc);
-                    fp.teleport(safeLoc != null ? safeLoc : floc);
+                    safeTeleport(fp, safeLoc != null ? safeLoc : floc, () -> {
+                        if (!fp.isOnline()) return;
+                        try { fp.setGameMode(GameMode.valueOf(fgm)); } catch (Exception ignored) { fp.setGameMode(GameMode.SURVIVAL); }
+                        fp.setHealth(Math.min(fhealth, fp.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue()));
+                        fp.setFoodLevel(ffood);
+                        fp.setSaturation(fsat);
+                        fp.setLevel(flevel);
+                        fp.setExp(fxp);
+                        fp.setFireTicks(Math.max(ffire, 0));
 
-                    try { fp.setGameMode(GameMode.valueOf(fgm)); } catch (Exception ignored) { fp.setGameMode(GameMode.SURVIVAL); }
-                    fp.setHealth(Math.min(fhealth, fp.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue()));
-                    fp.setFoodLevel(ffood);
-                    fp.setSaturation(fsat);
-                    fp.setLevel(flevel);
-                    fp.setExp(fxp);
-                    fp.setFireTicks(Math.max(ffire, 0));
-
-                    // Restore inventory
-                    fp.getInventory().clear();
-                    if (finvList != null) {
-                        org.bukkit.inventory.ItemStack[] contents = new org.bukkit.inventory.ItemStack[finvList.size()];
-                        for (int i = 0; i < finvList.size(); i++) {
-                            Object item = finvList.get(i);
-                            if (item instanceof org.bukkit.inventory.ItemStack) contents[i] = (org.bukkit.inventory.ItemStack) item;
+                        // Restore inventory
+                        fp.getInventory().clear();
+                        if (finvList != null) {
+                            org.bukkit.inventory.ItemStack[] contents = new org.bukkit.inventory.ItemStack[finvList.size()];
+                            for (int i = 0; i < finvList.size(); i++) {
+                                Object item = finvList.get(i);
+                                if (item instanceof org.bukkit.inventory.ItemStack) contents[i] = (org.bukkit.inventory.ItemStack) item;
+                            }
+                            fp.getInventory().setContents(contents);
                         }
-                        fp.getInventory().setContents(contents);
-                    }
-                    if (farmorList != null) {
-                        org.bukkit.inventory.ItemStack[] armor = new org.bukkit.inventory.ItemStack[farmorList.size()];
-                        for (int i = 0; i < farmorList.size(); i++) {
-                            Object item = farmorList.get(i);
-                            if (item instanceof org.bukkit.inventory.ItemStack) armor[i] = (org.bukkit.inventory.ItemStack) item;
+                        if (farmorList != null) {
+                            org.bukkit.inventory.ItemStack[] armor = new org.bukkit.inventory.ItemStack[farmorList.size()];
+                            for (int i = 0; i < farmorList.size(); i++) {
+                                Object item = farmorList.get(i);
+                                if (item instanceof org.bukkit.inventory.ItemStack) armor[i] = (org.bukkit.inventory.ItemStack) item;
+                            }
+                            fp.getInventory().setArmorContents(armor);
                         }
-                        fp.getInventory().setArmorContents(armor);
-                    }
-                    if (foffhand instanceof org.bukkit.inventory.ItemStack) {
-                        fp.getInventory().setItemInOffHand((org.bukkit.inventory.ItemStack) foffhand);
-                    }
-
-                    // Restore Ender Chest
-                    fp.getEnderChest().clear();
-                    if (fenderchestList != null) {
-                        org.bukkit.inventory.ItemStack[] ecContents = new org.bukkit.inventory.ItemStack[fenderchestList.size()];
-                        for (int i = 0; i < fenderchestList.size(); i++) {
-                            Object item = fenderchestList.get(i);
-                            if (item instanceof org.bukkit.inventory.ItemStack) ecContents[i] = (org.bukkit.inventory.ItemStack) item;
+                        if (foffhand instanceof org.bukkit.inventory.ItemStack) {
+                            fp.getInventory().setItemInOffHand((org.bukkit.inventory.ItemStack) foffhand);
                         }
-                        fp.getEnderChest().setContents(ecContents);
-                    }
 
-                    // Restore potion effects
-                    for (PotionEffect effect : fp.getActivePotionEffects()) fp.removePotionEffect(effect.getType());
-                    if (feffects != null) {
-                        for (Map<?, ?> map : feffects) {
-                            try {
-                                Map<String, Object> effectMap = new HashMap<>();
-                                for (Map.Entry<?, ?> entry : map.entrySet()) {
-                                    effectMap.put(entry.getKey().toString(), entry.getValue());
-                                }
-                                fp.addPotionEffect(new PotionEffect(effectMap));
-                            } catch (Exception ignored) {}
+                        // Restore Ender Chest
+                        fp.getEnderChest().clear();
+                        if (fenderchestList != null) {
+                            org.bukkit.inventory.ItemStack[] ecContents = new org.bukkit.inventory.ItemStack[fenderchestList.size()];
+                            for (int i = 0; i < fenderchestList.size(); i++) {
+                                Object item = fenderchestList.get(i);
+                                if (item instanceof org.bukkit.inventory.ItemStack) ecContents[i] = (org.bukkit.inventory.ItemStack) item;
+                            }
+                            fp.getEnderChest().setContents(ecContents);
                         }
-                    }
 
-                    // Restore stats and advancements from backup
-                    applyPlayerStatsFromBackup(fp, new File(backupDir, "stats"));
-                    applyPlayerAdvancementsFromBackup(fp, new File(backupDir, "advancements"));
+                        // Restore potion effects
+                        for (PotionEffect effect : fp.getActivePotionEffects()) fp.removePotionEffect(effect.getType());
+                        if (feffects != null) {
+                            for (Map<?, ?> map : feffects) {
+                                try {
+                                    Map<String, Object> effectMap = new HashMap<>();
+                                    for (Map.Entry<?, ?> entry : map.entrySet()) {
+                                        effectMap.put(entry.getKey().toString(), entry.getValue());
+                                    }
+                                    fp.addPotionEffect(new PotionEffect(effectMap));
+                                } catch (Exception ignored) {}
+                            }
+                        }
 
-                    // Grant brief invulnerability
-                    fp.setInvulnerable(true);
-                    new BukkitRunnable() { @Override public void run() { if (fp.isOnline()) fp.setInvulnerable(false); } }.runTaskLater(Main.this, 60L);
+                        // Restore stats and advancements from backup
+                        applyPlayerStatsFromBackup(fp, new File(backupDir, "stats"));
+                        applyPlayerAdvancementsFromBackup(fp, new File(backupDir, "advancements"));
+
+                        // Grant brief invulnerability
+                        fp.setInvulnerable(true);
+                        new BukkitRunnable() { @Override public void run() { if (fp.isOnline()) fp.setInvulnerable(false); } }.runTaskLater(Main.this, 60L);
+                    });
                 };
 
                 if (wasDead) {
@@ -4546,8 +4630,7 @@ public class Main extends JavaPlugin implements Listener {
             }
 
             Location loc = getLimboSpawn();
-            p.teleport(loc);
-            setupLimboPlayer(p);
+            safeTeleport(p, loc, () -> setupLimboPlayer(p));
 
             if (isWaitingStartupInLimbo) {
                 sendTitleToPlayer(p, "§e⏳", "§7" + getSubtitle(p, "limbo_waiting_startup", "Waiting for game start..."), 10, 70, 20);
@@ -4600,8 +4683,7 @@ public class Main extends JavaPlugin implements Listener {
                 // Scenario C: Zupełnie nowy gracz w tej rundzie
                 if (limboNewPlayersToLimbo) {
                     Location loc = getLimboSpawn();
-                    p.teleport(loc);
-                    setupLimboPlayer(p);
+                    safeTeleport(p, loc, () -> setupLimboPlayer(p));
                     if (!isPlayerSilent(p)) p.sendMessage(getMsg(p, "limbo_new_player_notice"));
                 } else {
                     World game = Bukkit.getWorld(gameWorldName);
@@ -4643,6 +4725,7 @@ public class Main extends JavaPlugin implements Listener {
         if (task != null) task.cancel();
         boatGivenPlayers.remove(uuid);
         playersDeathLocked.remove(uuid);
+        teleportsInFlight.remove(uuid);
 
         Bukkit.getScheduler().runTaskLater(this, this::syncAllScoreboards, 1L);
     }
@@ -4801,10 +4884,11 @@ public class Main extends JavaPlugin implements Listener {
         }
     }
 
-    @EventHandler public void onDamage(EntityDamageEvent e) { if (e.getEntity() instanceof Player p) {
-        if (p.getWorld().getName().equals(limboWorldName)) { e.setDamage(0); if (e.getCause() == EntityDamageEvent.DamageCause.VOID) { Location loc = getLimboSpawn();
-            p.teleport(loc);
-            e.setCancelled(true); } } } }
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onDamage(EntityDamageEvent e) { if (e.getEntity() instanceof Player p) {
+        if (p.getWorld().getName().equals(limboWorldName)) { e.setDamage(0); if (e.getCause() == EntityDamageEvent.DamageCause.VOID) { e.setCancelled(true); p.setFallDistance(0f); Location loc = getLimboSpawn(); safeTeleport(p, loc, null); } } } }
+
+
     @EventHandler public void onHit(EntityDamageByEntityEvent e) { if (e.getDamager().getWorld().getName().equals(limboWorldName)) e.setDamage(0); }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -6402,9 +6486,7 @@ public class Main extends JavaPlugin implements Listener {
                                                     File playersFile = new File(selectedBackup, "players.yml");
                                                     if (!playersFile.exists()) {
                                                         for (Player p : Bukkit.getOnlinePlayers()) {
-                                                            if (p.isDead()) p.spigot().respawn();
-                                                            p.teleport(game.getSpawnLocation());
-                                                            p.setGameMode(GameMode.SURVIVAL);
+                                                            safeTeleport(p, game.getSpawnLocation(), () -> p.setGameMode(GameMode.SURVIVAL));
                                                         }
                                                     }
                                                 }
