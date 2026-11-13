@@ -1,6 +1,6 @@
 name: WorldReset
 website: https://modrinth.com/plugin/worldreset
-version: "2.0"
+version: "2.0fix"
 main: org.example.worldreset.Main
 api-version: "1.21"
 author: vipluk

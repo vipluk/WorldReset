@@ -4803,7 +4803,7 @@ public class Main extends JavaPlugin implements Listener {
 
     @EventHandler public void onDamage(EntityDamageEvent e) { if (e.getEntity() instanceof Player p) {
         if (p.getWorld().getName().equals(limboWorldName)) { e.setDamage(0); if (e.getCause() == EntityDamageEvent.DamageCause.VOID) { Location loc = getLimboSpawn();
-            p.teleport(loc);
+            p.teleportAsync(loc);
             e.setCancelled(true); } } } }
     @EventHandler public void onHit(EntityDamageByEntityEvent e) { if (e.getDamager().getWorld().getName().equals(limboWorldName)) e.setDamage(0); }
 
